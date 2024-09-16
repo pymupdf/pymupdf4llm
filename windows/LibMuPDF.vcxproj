@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Memento|Win32">
+      <Configuration>Memento</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Memento|x64">
+      <Configuration>Memento</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{C56E00AB-5A52-4DE9-893B-BF7AEC538AD9}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Memento|Win32'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Memento|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Memento|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Memento|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <NMakeBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;build /p:Configuration=Debug /p:Platform=Win32 -m</NMakeBuildCommandLine>
+    <NMakePreprocessorDefinitions>WIN32;_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeOutput>../mupdf/platform/win32/Debug/libmupdf.lib</NMakeOutput>
+    <NMakeReBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;rebuild /p:Configuration=Debug /p:Platform=Win32 -m</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;clean /p:Configuration=Debug /p:Platform=Win32 -m</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Memento|Win32'">
+    <NMakeBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;build /p:Configuration=Memento /p:Platform=Win32 -m</NMakeBuildCommandLine>
+    <NMakePreprocessorDefinitions>MEMENTO;WIN32;_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeOutput>../mupdf/platform/win32/Memento/libmupdf.lib</NMakeOutput>
+    <NMakeReBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;rebuild /p:Configuration=Memento /p:Platform=Win32 -m</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;clean /p:Configuration=Memento /p:Platform=Win32 -m</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;build /p:Configuration=Debug /p:Platform=x64 -m</NMakeBuildCommandLine>
+    <NMakePreprocessorDefinitions>_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeReBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;rebuild /p:Configuration=Debug /p:Platform=x64 -m</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;clean /p:Configuration=Debug /p:Platform=x64 -m</NMakeCleanCommandLine>
+    <NMakeOutput>../mupdf/platform/win32/x64/Debug/libmupdf.lib</NMakeOutput>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Memento|x64'">
+    <NMakeBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;build /p:Configuration=Memento /p:Platform=x64 -m</NMakeBuildCommandLine>
+    <NMakePreprocessorDefinitions>MEMENTO;_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeReBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;rebuild /p:Configuration=Memento /p:Platform=x64 -m</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;clean /p:Configuration=Memento /p:Platform=x64 -m</NMakeCleanCommandLine>
+    <NMakeOutput>../mupdf/platform/win32/x64/Memento/libmupdf.lib</NMakeOutput>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <NMakeBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;build /p:Configuration=Release /p:Platform=Win32 -m</NMakeBuildCommandLine>
+    <NMakePreprocessorDefinitions>WIN32;NDEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeReBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;rebuild /p:Configuration=Release /p:Platform=Win32 -m</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;clean /p:Configuration=Release /p:Platform=Win32 -m</NMakeCleanCommandLine>
+    <NMakeOutput>../mupdf/platform/win32/Release/libmupdf.lib</NMakeOutput>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;build /p:Configuration=Release /p:Platform=x64 -m</NMakeBuildCommandLine>
+    <NMakePreprocessorDefinitions>NDEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeReBuildCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;rebuild /p:Configuration=Release /p:Platform=x64 -m</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>msbuild ../mupdf/platform/win32/mupdf.sln -t:libmupdf;clean /p:Configuration=Release /p:Platform=x64 -m</NMakeCleanCommandLine>
+    <NMakeOutput>../mupdf/platform/win32/x64/Release/libmupdf.lib</NMakeOutput>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
