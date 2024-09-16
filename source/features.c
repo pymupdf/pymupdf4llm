@@ -179,13 +179,17 @@ usage(void)
 		"\t-[No options currently]\n"
 		"\n"
 		"The CSV file should start with a header line, and each line\n"
-		"should contain 6 fields:\n"
+		"should contain at least 6 fields:\n"
 		" - PDF filename\n"
+		" - Page number\n"
 		" - minimum x coordinate for region\n"
 		" - minimum u coordinate for region\n"
 		" - maximum x coordinate for region\n"
 		" - maximum y coordinate for region\n"
 		" - class (ignored, passed through unchanged)\n"
+		" - score (ignored, passed through unchanged)\n"
+		" - order (ignored, passed through unchanged)\n"
+		" Any other fields are passed through unchanged\n"
 		"\n"
 		"The updated CSV is written to stdout. Each line from the input\n"
 		"is output with feature details appended.\n"
@@ -203,7 +207,7 @@ int main
 	int c;
 	fz_context *ctx;
 	char **line;
-	int n;
+	int i, n, n_headers;
 	char *doc_name = NULL;
 	fz_document *doc = NULL;
 	fz_stext_page *stext = NULL;
@@ -211,6 +215,7 @@ int main
 	FILE *infile;
 	fz_stext_options options = { 0 };
 	char **csv;
+	int page_num, last_page_num = -1;
 
 	fz_var(doc);
 
@@ -234,18 +239,14 @@ int main
 		return 1;
 	}
 
-	csv = csv_read_line(infile, &n);
-	if (n != 6)
+	csv = csv_read_line(infile, &n_headers);
+	if (n_headers < 6)
 	{
 		fprintf(stderr, "Malformed line\n");
 		return 1;
 	}
-	printf("%s,", csv[0]);
-	printf("%s,", csv[1]);
-	printf("%s,", csv[2]);
-	printf("%s,", csv[3]);
-	printf("%s,", csv[4]);
-	printf("%s,", csv[5]);
+	for (i = 0; i < n_headers; i++)
+		printf("%s,", csv[i]);
 	printf("number of non-numeral chars in area,");
 	printf("number of numeral chars,");
 	printf("ratio of chars to area,");
@@ -270,6 +271,7 @@ int main
 	fz_var(doc_name);
 	fz_var(doc);
 	fz_var(stext);
+	fz_var(last_page_num);
 
 	fz_try(ctx)
 	{
@@ -278,9 +280,9 @@ int main
 			line = csv_read_line(infile, &n);
 			if (n == 0)
 				continue;
-			if (n != 6)
+			if (n != n_headers)
 			{
-				fprintf(stderr, "Malformed line\n");
+				fprintf(stderr, "Malformed line - number of fields (%d) does not match number of headers (%d)\n", n, n_headers);
 				continue;
 			}
 
@@ -297,20 +299,22 @@ int main
 				{
 					doc_name = fz_strdup(ctx, line[0]);
 					doc = fz_open_document(ctx, doc_name);
-
+					last_page_num = -1;
+				}
+				page_num = atoi(line[1]);
+				if (page_num != last_page_num)
+				{
 					fz_drop_stext_page(ctx, stext);
 					stext = NULL;
+					last_page_num = -1;
 
-					stext = fz_new_stext_page_from_page_number(ctx, doc, 0, &options);
+					stext = fz_new_stext_page_from_page_number(ctx, doc, page_num, &options);
+					last_page_num = page_num;
 				}
 
-				printf("%s,", line[0]);
-				printf("%s,", line[1]);
-				printf("%s,", line[2]);
-				printf("%s,", line[3]);
-				printf("%s,", line[4]);
-				printf("%s,", line[5]);
-				extract_features(ctx, stext, atof(line[1]), atof(line[2]), atof(line[3]), atof(line[4]), atoi(line[5]));
+				for (i = 0; i < n; i++)
+					printf("%s,", line[i]);
+				extract_features(ctx, stext, atof(line[2]), atof(line[3]), atof(line[4]), atof(line[5]), atoi(line[6]));
 			}
 			fz_catch(ctx)
 				// ignore error and continue
