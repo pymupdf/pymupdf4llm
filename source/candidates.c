@@ -30,8 +30,9 @@ usage(void)
 		"\t-[No options currently]\n"
 		"\n"
 		"The pdffile is read, and candidate regions are produced\n"
-		"for page 1 only as a CSV file to stdout:\n"
+		"for all the pages as a CSV file to stdout:\n"
 		" - PDF filename\n"
+		" - Page number\n"
 		" - minimum x coordinate for region\n"
 		" - minimum u coordinate for region\n"
 		" - maximum x coordinate for region\n"
@@ -106,7 +107,7 @@ int main
 				printf("max y,");
 				printf("class,");
 				printf("score,");
-				printf("order,\n");
+				printf("order\n");
 			}
 
 			output_regions(ctx, stext, filename, i);
