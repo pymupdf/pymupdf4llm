@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LibMuPDF", "LibMuPDF.vcxpro
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "candidates", "candidates.vcxproj", "{FDEF8747-D18C-45CE-94D6-EDFCC5A0CDF2}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "picker", "picker.vcxproj", "{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -55,6 +57,18 @@ Global
 		{FDEF8747-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x64.Build.0 = Release|x64
 		{FDEF8747-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x86.ActiveCfg = Release|Win32
 		{FDEF8747-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x86.Build.0 = Release|Win32
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Debug|x64.ActiveCfg = Debug|x64
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Debug|x64.Build.0 = Debug|x64
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Debug|x86.ActiveCfg = Debug|Win32
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Debug|x86.Build.0 = Debug|Win32
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Memento|x64.ActiveCfg = Memento|x64
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Memento|x64.Build.0 = Memento|x64
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Memento|x86.ActiveCfg = Memento|Win32
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Memento|x86.Build.0 = Memento|Win32
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x64.ActiveCfg = Release|x64
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x64.Build.0 = Release|x64
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x86.ActiveCfg = Release|Win32
+		{A1FDEF87-D18C-45CE-94D6-EDFCC5A0CDF2}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
