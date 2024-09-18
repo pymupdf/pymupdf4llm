@@ -93,6 +93,7 @@ int main
 
 		n = fz_count_pages(ctx, doc);
 
+		options.flags = FZ_STEXT_ACCURATE_BBOXES;
 		for (i = 0; i < n; i++)
 		{
 			stext = fz_new_stext_page_from_page_number(ctx, doc, 0, &options);
