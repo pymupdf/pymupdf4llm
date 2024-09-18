@@ -44,4 +44,3 @@ csv_read_line(FILE *file, int *pn)
 
 	return csv_read_line_ptrs;
 }
-

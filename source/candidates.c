@@ -3,7 +3,9 @@
 // This software may only be used under license.
 
 #include "mupdf/fitz.h"
+
 #include "csv.h"
+#include "utils.h"
 
 #include <stdio.h>
 
@@ -27,7 +29,7 @@ usage(void)
 {
 	fprintf(stderr,
 		"usage: candidates [options] pdffile\n"
-		"\t-[No options currently]\n"
+		"\t-d -\tThe directory to load PDF files from\n"
 		"\n"
 		"The pdffile is read, and candidate regions are produced\n"
 		"for all the pages as a CSV file to stdout:\n"
@@ -58,13 +60,15 @@ int main
 	fz_stext_page *stext = NULL;
 	char *filename;
 	fz_stext_options options = { 0 };
+	const char *directory = NULL;
 
 	fz_var(doc);
 
-	while ((c = fz_getopt(argc, argv, "")) != -1)
+	while ((c = fz_getopt(argc, argv, "d:")) != -1)
 	{
 		switch (c)
 		{
+		case 'd': directory = fz_optarg; break;
 		default: return usage();
 		}
 	}
@@ -89,7 +93,8 @@ int main
 
 	fz_try(ctx)
 	{
-		doc = fz_open_document(ctx, filename);
+		doc_name = make_prefixed_name(ctx, directory, filename);
+		doc = fz_open_document(ctx, doc_name);
 
 		n = fz_count_pages(ctx, doc);
 
@@ -120,6 +125,7 @@ int main
 	fz_always(ctx)
 	{
 		fz_drop_document(ctx, doc);
+		fz_free(ctx, doc_name);
 		fz_drop_stext_page(ctx, stext);
 	}
 	fz_catch(ctx)

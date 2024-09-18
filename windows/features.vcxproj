@@ -231,6 +231,7 @@
   <ItemGroup>
     <ClCompile Include="..\source\csv.c" />
     <ClCompile Include="..\source\features.c" />
+    <ClCompile Include="..\source\utils.c" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="LibMuPDF.vcxproj">
@@ -239,6 +240,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\csv.h" />
+    <ClInclude Include="..\source\utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

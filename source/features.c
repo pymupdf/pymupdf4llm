@@ -3,7 +3,9 @@
 // This software may only be used under license.
 
 #include "mupdf/fitz.h"
+
 #include "csv.h"
+#include "utils.h"
 
 #include <stdio.h>
 
@@ -176,7 +178,7 @@ usage(void)
 {
 	fprintf(stderr,
 		"usage: features [options] csvfile\n"
-		"\t-[No options currently]\n"
+		"\t-d -\tThe directory to load PDF files from\n"
 		"\n"
 		"The CSV file should start with a header line, and each line\n"
 		"should contain at least 6 fields:\n"
@@ -216,13 +218,15 @@ int main
 	fz_stext_options options = { 0 };
 	char **csv;
 	int page_num, last_page_num = -1;
+	const char *directory = NULL;
 
 	fz_var(doc);
 
-	while ((c = fz_getopt(argc, argv, "")) != -1)
+	while ((c = fz_getopt(argc, argv, "d:")) != -1)
 	{
 		switch (c)
 		{
+		case 'd': directory = fz_optarg; break;
 		default: return usage();
 		}
 	}
@@ -297,7 +301,7 @@ int main
 				}
 				if (doc_name == NULL)
 				{
-					doc_name = fz_strdup(ctx, line[0]);
+					doc_name = make_prefixed_name(ctx, directory, line[0]);
 					doc = fz_open_document(ctx, doc_name);
 					last_page_num = -1;
 				}
