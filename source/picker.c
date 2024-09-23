@@ -287,7 +287,7 @@ int main
 	fz_stext_page *stext = NULL;
 	char *csvfile;
 	FILE *infile;
-	fz_stext_options options = { 0 };
+	fz_stext_options options = { FZ_STEXT_ACCURATE_BBOXES };
 	char **csv;
 	int page_num, last_page_num = -1;
 	region_list regions = { 0 };

@@ -9,12 +9,175 @@
 
 #include <stdio.h>
 
+/* This structure, font_freq_list, does double duty, both for
+ * fonts, and for linespacings (with fz_font set to NULL). */
+typedef struct
+{
+	fz_font *font;
+	float size;
+	int freq;
+} font_freq_t;
+
 typedef struct
 {
 	int max;
 	int len;
-	fz_font **list;
-} font_list;
+	font_freq_t *list;
+} font_freq_list;
+
+static int feq(float a, float b)
+{
+	a -= b;
+	if (a < 0)
+		a = -a;
+	return (a < 0.01);
+}
+
+static void
+font_freq_push(fz_context *ctx, font_freq_list *list, fz_font *font, float size)
+{
+	int i, n = list->len;
+
+	for (i = 0; i < n; i++)
+	{
+		float fsize = list->list[i].size;
+		if (list->list[i].font == font && fsize == size)
+		{
+			list->list[i].freq++;
+			return;
+		}
+		if (fsize > size)
+			break;
+	}
+
+	if (list->len == list->max)
+	{
+		int newmax = list->max * 2;
+		if (newmax == 0)
+			newmax = 32;
+		list->list = fz_realloc(ctx, list->list, newmax * sizeof(list->list[0]));
+		list->max = newmax;
+	}
+
+	if (i < n)
+		memmove(&list->list[i+1], &list->list[i], sizeof(list->list[0]) * (n-i));
+	list->list[i].font = fz_keep_font(ctx, font);
+	list->list[i].size = size;
+	list->list[i].freq = 1;
+}
+
+static void
+font_freq_common(fz_context *ctx, font_freq_list *list, float delta)
+{
+	int i, j, n;
+
+	if (list == NULL)
+		return;
+
+	/* Common up entries whose size is within delta of each other. */
+	n = list->len;
+	for (i = 0; i < n - 1; i++)
+	{
+		float size = list->list[i].size;
+		fz_font *f = list->list[i].font;
+		for (j = i+1; j < n; j++)
+		{
+			if (list->list[j].size >= size + delta)
+				break;
+
+			if (list->list[j].font == f)
+			{
+				list->list[i].freq += list->list[j].freq;
+				list->list[j].freq = 0;
+				/* FIXME: Adjust size */
+			}
+		}
+	}
+
+	/* Remove empty entries */
+	for (i = 0, j = 0; i < n; i++)
+	{
+		if (list->list[i].freq == 0)
+			continue;
+		if (i != j)
+			list->list[j++] = list->list[i];
+	}
+	list->len = j;
+
+	/* FIXME: If we adjust size above, we'll need to re sort the list. */
+}
+
+static int
+font_freq_mode(fz_context *ctx, font_freq_list *list)
+{
+	int i, n, mode, modefreq;
+
+	if (list == NULL || list->len == 0)
+		return -1;
+
+	mode = 0;
+	modefreq = list->list[0].freq;
+	n = list->len;
+	for (i = 1; i < n; i++)
+	{
+		if (list->list[i].freq > modefreq)
+			modefreq = list->list[i].freq, mode = i;
+	}
+
+	return mode;
+}
+
+static int
+font_freq_closest(fz_context *ctx, font_freq_list *list, fz_font *font, float size)
+{
+	int i, n, best;
+	float delta = 99999999.0f;
+
+	if (list == NULL || list->len == 0)
+		return -1;
+
+	n = list->len;
+	best = -1;
+	for (i = 0; i < n; i++)
+	{
+		float f;
+		if (list->list[i].font != font)
+			continue;
+		f = list->list[i].size;
+		if (f < size)
+		{
+			delta = size - f;
+			best = i;
+		}
+		else if (f >= size)
+		{
+			if (f - size < delta)
+			{
+				delta = f - size;
+				best = i;
+			}
+			break;
+		}
+	}
+
+	return best;
+}
+
+static void
+font_freq_drop(fz_context *ctx, font_freq_list *list)
+{
+	int i, n;
+
+	if (list == NULL)
+		return;
+
+	n = list->len;
+	for (i = 0; i < n; i++)
+		fz_drop_font(ctx, list->list[i].font);
+
+	fz_free(ctx, list->list);
+	list->max = list->len = 0;
+}
 
 static void
 extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float x1, float y1, int category)
@@ -31,21 +194,31 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	int num_chars = 0;
 	float char_space = 0;
 	int char_space_n = 0;
-	float line_space = 0;
+	float line_space;
 	int line_space_n = 0;
-	font_list fonts = { 0 };
+	font_freq_list fonts = { 0 };
+	font_freq_list region_fonts = { 0 };
+	font_freq_list linespaces = { 0 };
+	font_freq_list region_linespaces = { 0 };
 	fz_rect last_char_rect;
 	int first_char;
 	float last_baseline;
 	int first_line;
 	float font_size = 0;
 	int font_size_n = 0;
-	int i;
+	int fonts_mode, linespaces_mode;
+	int rfonts_mode, rlinespaces_mode;
+	int fonts_offset, linespaces_offset;
+	int num_underlines = 0;
 	float ratio;
 	float margin_l = 50;
 	float margin_r = 50;
 	float margin_t = 50;
 	float margin_b = 50;
+	float imargin_l = 50;
+	float imargin_r = 50;
+	float imargin_t = 50;
+	float imargin_b = 50;
 
 	fz_stext_block *block;
 	fz_stext_line *line;
@@ -53,6 +226,32 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 
 	fz_rect region = { x0, y0, x1, y1 };
 
+	/* Collect global stats */
+	first_line = 1;
+	for (block = page->first_block; block != NULL; block = block->next)
+	{
+		if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
+		first_char = 1;
+		for (line = block->u.t.first_line; line != NULL; line = line->next)
+		{
+			float baseline = line->first_char->origin.y;
+			if (!first_line)
+			{
+				line_space = baseline - last_baseline;
+				font_freq_push(ctx, &linespaces, NULL, line_space);
+			}
+			first_line = 0;
+			last_baseline = baseline;
+			for (ch = line->first_char; ch != NULL; ch = ch->next)
+			{
+				font_freq_push(ctx, &fonts, ch->font, ch->size);
+			}
+		}
+	}
+
+	/* Now collect for the region itself. */
+	line_space = 0;
 	first_line = 1;
 	for (block = page->first_block; block != NULL; block = block->next)
 	{
@@ -65,7 +264,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 			if (!first_line)
 			{
 				line_space += baseline - last_baseline;
-				line_space_n++;
+				font_freq_push(ctx, &region_linespaces, NULL, line_space);
 			}
 			first_line = 0;
 			last_baseline = baseline;
@@ -79,6 +278,8 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 				p.y = (char_rect.y0 + char_rect.y1)/2;
 				if (fz_is_valid_rect(intersect))
 				{
+					float m;
+
 					/* We have a char to consider */
 					if ((ch->c >= '0' && ch->c <= '9') || ch->c == '.' || ch->c == '%')
 						num_numerals++;
@@ -94,26 +295,45 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 					first_char = 0;
 					last_char_rect = char_rect;
 
+					if (ch->flags & FZ_STEXT_UNDERLINE)
+						num_underlines++;
+
+					font_freq_push(ctx, &fonts, ch->font, ch->size);
+
 					font_size += ch->size;
 					font_size_n++;
-					for (i = 0; i < fonts.len; i++)
-					{
-						if (fonts.list[i] == ch->font)
-							break;
-					}
-					if (i == fonts.len)
-					{
-						/* New font */
-						if (fonts.len == fonts.max)
-						{
-							int newmax = fonts.max * 2;
-							if (newmax == 0)
-								newmax = 10;
-							fonts.list = fz_realloc(ctx, fonts.list, sizeof(fonts.list[0]) * newmax);
-							fonts.max = newmax;
-						}
-						fonts.list[fonts.len++] = fz_keep_font(ctx, ch->font);
-					}
+
+					/* Allow for chars that overlap the edge */
+					if (char_rect.x0 < x0)
+						margin_l = 0;
+					if (char_rect.x1 > x1)
+						margin_r = 0;
+					if (char_rect.y0 < y0)
+						margin_t = 0;
+					if (char_rect.y1 > y1)
+						margin_b = 0;
+
+					/* Inner margins */
+					m = char_rect.x0 - x0;
+					if (m < 0)
+						m = 0;
+					if (imargin_l > m)
+						imargin_l = m;
+					m = x1 - char_rect.x1;
+					if (m < 0)
+						m = 0;
+					if (imargin_r > m)
+						imargin_r = m;
+					m = char_rect.y0 - y0;
+					if (m < 0)
+						m = 0;
+					if (imargin_t > m)
+						imargin_t = m;
+					m = y1 - char_rect.y1;
+					if (m < 0)
+						m = 0;
+					if (imargin_b > m)
+						imargin_b = m;
 				}
 				else
 				{
@@ -148,10 +368,38 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	if (font_size_n)
 		font_size /= font_size_n;
 
+	font_freq_common(ctx, &fonts, 0.5);
+	font_freq_common(ctx, &linespaces, 0.5);
+	font_freq_common(ctx, &region_fonts, 0.5);
+	font_freq_common(ctx, &region_linespaces, 0.5);
+
+	fonts_offset = 0;
+	fonts_mode = font_freq_mode(ctx, &fonts);
+	if (fonts_mode != -1)
+	{
+		rfonts_mode = font_freq_mode(ctx, &region_fonts);
+		if (rfonts_mode != -1)
+			fonts_offset = font_freq_closest(ctx, &fonts, region_fonts.list[rfonts_mode].font, region_fonts.list[rfonts_mode].size) - fonts_mode;
+	}
+	linespaces_offset = 0;
+	linespaces_mode = font_freq_mode(ctx, &linespaces);
+	if (linespaces_mode != -1)
+	{
+		rlinespaces_mode = font_freq_mode(ctx, &region_linespaces);
+		if (rlinespaces_mode != -1)
+			linespaces_offset = font_freq_closest(ctx, &fonts, NULL, region_fonts.list[rlinespaces_mode].size) - fonts_mode;
+	}
+
+	/* Horrible, but will turn region_fonts into a list of the unique fonts in this region. */
+	font_freq_common(ctx, &region_fonts, 100000);
+
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g\n",
-		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, fonts.len,
-		margin_l, margin_r, margin_t, margin_b);
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d\n",
+		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, region_fonts.len,
+		margin_l, margin_r, margin_t, margin_b,
+		imargin_l, imargin_r, imargin_t, imargin_b,
+		fonts_offset, linespaces_offset,
+		num_underlines);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -168,9 +416,10 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		x0, y0, x1, y0, x1, y1, x0, y1, x0, y0);
 #endif
 
-	for (i = 0; i < fonts.len; i++)
-		fz_drop_font(ctx, fonts.list[i]);
-	fz_free(ctx, fonts.list);
+	font_freq_drop(ctx, &fonts);
+	font_freq_drop(ctx, &region_fonts);
+	font_freq_drop(ctx, &linespaces);
+	font_freq_drop(ctx, &region_linespaces);
 }
 
 static int
@@ -215,7 +464,7 @@ int main
 	fz_stext_page *stext = NULL;
 	char *csvfile;
 	FILE *infile;
-	fz_stext_options options = { 0 };
+	fz_stext_options options = { FZ_STEXT_ACCURATE_BBOXES };
 	char **csv;
 	int page_num, last_page_num = -1;
 	const char *directory = NULL;
@@ -262,6 +511,13 @@ int main
 	printf("right margin,");
 	printf("top margin,");
 	printf("bottom margin,");
+	printf("left inner margin,");
+	printf("right inner margin,");
+	printf("top inner margin,");
+	printf("bottom inner margin,");
+	printf("font offset from most popular font,");
+	printf("linespace offset from most popular linespace,");
+	printf("number of underlined chars\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
 	if (!ctx)
