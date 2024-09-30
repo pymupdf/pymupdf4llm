@@ -219,6 +219,10 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	float imargin_r = 50;
 	float imargin_t = 50;
 	float imargin_b = 50;
+	float top_left_x = x1, top_left_y = y1;
+	float top_left_height = 0;
+	float bottom_right_x = x0, bottom_right_y = y0;
+	float bottom_right_height = 0;
 
 	fz_stext_block *block;
 	fz_stext_line *line;
@@ -266,6 +270,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 				line_space += baseline - last_baseline;
 				font_freq_push(ctx, &region_linespaces, NULL, line_space);
 			}
+
 			first_line = 0;
 			last_baseline = baseline;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
@@ -279,6 +284,41 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 				if (fz_is_valid_rect(intersect))
 				{
 					float m;
+
+					/* To calculate the indents at top left/bottom right, we need to
+					 * look at line y0/y1, not char y0/y1, because otherwise alternating
+					 * low and high chars may give confusing results. For example "_'".
+					 * The "'" might appear to be in a higher line than the "_". */
+
+					/* If we find a line higher than we've found before (by at least
+					 * half the lineheight, to avoid silly effects), recalculate our
+					 * top_left_corner. */
+					if (line->bbox.y0 < top_left_y - top_left_height/2)
+					{
+						top_left_y = line->bbox.y0;
+						top_left_height = line->bbox.y1 - line->bbox.y0;
+						top_left_x = char_rect.x0;
+					}
+					/* Otherwise if we're in the same line, and x is less, take that. */
+					else if (line->bbox.y0 < top_left_y + top_left_height/2 && char_rect.x0 < top_left_x)
+					{
+						top_left_x = char_rect.x0;
+					}
+
+					/* If we find a line lower than we've found before (by at least
+					 * half the lineheight, to avoid silly effects), recalculate our
+					 * bottom_right_corner. */
+					if (line->bbox.y1 > bottom_right_y - bottom_right_height/2)
+					{
+						bottom_right_y = line->bbox.y0;
+						bottom_right_height = line->bbox.y1 - line->bbox.y0;
+						bottom_right_x = char_rect.x1;
+					}
+					/* Otherwise if we're in the same line, and x is greater, take that. */
+					else if (line->bbox.y0 < bottom_right_y + bottom_right_height/2 && char_rect.x1 > bottom_right_x)
+					{
+						bottom_right_x = char_rect.x1;
+					}
 
 					/* We have a char to consider */
 					if ((ch->c >= '0' && ch->c <= '9') || ch->c == '.' || ch->c == '%')
@@ -393,13 +433,29 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	/* Horrible, but will turn region_fonts into a list of the unique fonts in this region. */
 	font_freq_common(ctx, &region_fonts, 100000);
 
+	top_left_x -= x0;
+	if (top_left_x < 0)
+	{
+		/* We should only ever be negative by a rounding error. */
+		assert(top_left_x > -0.01);
+		top_left_x = 0;
+	}
+	bottom_right_x = x1 - bottom_right_x;
+	if (bottom_right_x < 0)
+	{
+		/* We should only ever be negative by a rounding error. */
+		assert(bottom_right_x > -0.01);
+		bottom_right_x = 0;
+	}
+
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g\n",
 		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, region_fonts.len,
 		margin_l, margin_r, margin_t, margin_b,
 		imargin_l, imargin_r, imargin_t, imargin_b,
 		fonts_offset, linespaces_offset,
-		num_underlines);
+		num_underlines,
+		top_left_x, bottom_right_x);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -517,7 +573,9 @@ int main
 	printf("bottom inner margin,");
 	printf("font offset from most popular font,");
 	printf("linespace offset from most popular linespace,");
-	printf("number of underlined chars\n");
+	printf("number of underlined chars,");
+	printf("top left indent,");
+	printf("bottom right indent\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
 	if (!ctx)
