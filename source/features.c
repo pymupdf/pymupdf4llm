@@ -223,6 +223,10 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	float top_left_height = 0;
 	float bottom_right_x = x0, bottom_right_y = y0;
 	float bottom_right_height = 0;
+	int num_lines = 0;
+	float max_non_first_left_indent = 0;
+	float max_non_last_right_indent = 0;
+	float max_right_indent = 0;
 
 	fz_stext_block *block;
 	fz_stext_line *line;
@@ -306,18 +310,29 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 					}
 
 					/* If we find a line lower than we've found before (by at least
-					 * half the lineheight, to avoid silly effects), recalculate our
-					 * bottom_right_corner. */
-					if (line->bbox.y1 > bottom_right_y - bottom_right_height/2)
+					 * half the lineheight, to avoid silly effects)... */
+					if (line->bbox.y1 > bottom_right_y + bottom_right_height/2)
 					{
-						bottom_right_y = line->bbox.y0;
+						/* recalculate our bottom right corner */
+						bottom_right_y = line->bbox.y1;
 						bottom_right_height = line->bbox.y1 - line->bbox.y0;
 						bottom_right_x = char_rect.x1;
+						/* Increment the number of lines, and prepare the indents. */
+						num_lines++;
+						if (num_lines > 1 && max_non_first_left_indent < line->bbox.x0 - region.x0)
+							max_non_first_left_indent = line->bbox.x0 - region.x0;
+						if (max_right_indent > max_non_last_right_indent)
+							max_non_last_right_indent = max_right_indent;
+						max_right_indent = region.x1 - line->bbox.x1;
 					}
-					/* Otherwise if we're in the same line, and x is greater, take that. */
-					else if (line->bbox.y0 < bottom_right_y + bottom_right_height/2 && char_rect.x1 > bottom_right_x)
+					/* Otherwise if we're in the same line... */
+					else if (line->bbox.y1 < bottom_right_y + bottom_right_height/2)
 					{
-						bottom_right_x = char_rect.x1;
+						/* if x is greater, take that. */
+						if (char_rect.x1 > bottom_right_x)
+							bottom_right_x = char_rect.x1;
+						/* shrink the right ident we've found so far on this line. */
+						max_right_indent = region.x1 - line->bbox.x1;
 					}
 
 					/* We have a char to consider */
@@ -344,13 +359,18 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 					font_size_n++;
 
 					/* Allow for chars that overlap the edge */
-					if (char_rect.x0 < x0)
+					/* Bit of a hack this. The coords are fed into this program accurate to 3
+					 * decimal places. This can round them down. This upsets our margin
+					 * calculations, as chars can be seen to extend fractionally outside
+					 * the region. Accordingly, we extend the region slightly to avoid this. */
+#define ROUND 0.001f
+					if (char_rect.x0 < x0 - ROUND)
 						margin_l = 0;
-					if (char_rect.x1 > x1)
+					if (char_rect.x1 > x1 + ROUND)
 						margin_r = 0;
-					if (char_rect.y0 < y0)
+					if (char_rect.y0 < y0 - ROUND)
 						margin_t = 0;
-					if (char_rect.y1 > y1)
+					if (char_rect.y1 > y1 + ROUND)
 						margin_b = 0;
 
 					/* Inner margins */
@@ -449,13 +469,14 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	}
 
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g\n",
 		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, region_fonts.len,
 		margin_l, margin_r, margin_t, margin_b,
 		imargin_l, imargin_r, imargin_t, imargin_b,
 		fonts_offset, linespaces_offset,
 		num_underlines,
-		top_left_x, bottom_right_x);
+		top_left_x, bottom_right_x,
+		num_lines, max_non_first_left_indent, max_non_last_right_indent);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -575,7 +596,10 @@ int main
 	printf("linespace offset from most popular linespace,");
 	printf("number of underlined chars,");
 	printf("top left indent,");
-	printf("bottom right indent\n");
+	printf("bottom right indent,");
+	printf("num lines,");
+	printf("max non first left indent,");
+	printf("max non last right indent\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
 	if (!ctx)
