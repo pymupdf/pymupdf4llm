@@ -64,6 +64,7 @@ font_freq_push(fz_context *ctx, font_freq_list *list, fz_font *font, float size)
 	list->list[i].font = fz_keep_font(ctx, font);
 	list->list[i].size = size;
 	list->list[i].freq = 1;
+	list->len++;
 }
 
 static void
@@ -100,7 +101,8 @@ font_freq_common(fz_context *ctx, font_freq_list *list, float delta)
 		if (list->list[i].freq == 0)
 			continue;
 		if (i != j)
-			list->list[j++] = list->list[i];
+			list->list[j] = list->list[i];
+		j++;
 	}
 	list->len = j;
 
@@ -195,7 +197,6 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	float char_space = 0;
 	int char_space_n = 0;
 	float line_space;
-	int line_space_n = 0;
 	font_freq_list fonts = { 0 };
 	font_freq_list region_fonts = { 0 };
 	font_freq_list linespaces = { 0 };
@@ -227,6 +228,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	float max_non_first_left_indent = 0;
 	float max_non_last_right_indent = 0;
 	float max_right_indent = 0;
+	float smargin_l, smargin_t, smargin_r, smargin_b;
 
 	fz_stext_block *block;
 	fz_stext_line *line;
@@ -244,10 +246,12 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		for (line = block->u.t.first_line; line != NULL; line = line->next)
 		{
 			float baseline = line->first_char->origin.y;
-			if (!first_line)
+			if (!first_line && line->first_char)
 			{
+				float threshold_line_change = line->first_char->size/4;
 				line_space = baseline - last_baseline;
-				font_freq_push(ctx, &linespaces, NULL, line_space);
+				if (line_space > threshold_line_change || line_space < -threshold_line_change)
+					font_freq_push(ctx, &linespaces, NULL, line_space);
 			}
 			first_line = 0;
 			last_baseline = baseline;
@@ -259,7 +263,6 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	}
 
 	/* Now collect for the region itself. */
-	line_space = 0;
 	first_line = 1;
 	for (block = page->first_block; block != NULL; block = block->next)
 	{
@@ -269,14 +272,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		for (line = block->u.t.first_line; line != NULL; line = line->next)
 		{
 			float baseline = line->first_char->origin.y;
-			if (!first_line)
-			{
-				line_space += baseline - last_baseline;
-				font_freq_push(ctx, &region_linespaces, NULL, line_space);
-			}
-
-			first_line = 0;
-			last_baseline = baseline;
+			int newline = 1;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
 			{
 				/* Use the centre of the char for bbox comparison */
@@ -288,6 +284,17 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 				if (fz_is_valid_rect(intersect))
 				{
 					float m;
+
+					if (!first_line && newline)
+					{
+						float threshold_line_change = ch->size/4;
+						line_space = baseline - last_baseline;
+						if (line_space > threshold_line_change || line_space < -threshold_line_change)
+							font_freq_push(ctx, &region_linespaces, NULL, line_space);
+						newline = 0;
+					}
+					first_line = 0;
+					last_baseline = baseline;
 
 					/* To calculate the indents at top left/bottom right, we need to
 					 * look at line y0/y1, not char y0/y1, because otherwise alternating
@@ -353,7 +360,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 					if (ch->flags & FZ_STEXT_UNDERLINE)
 						num_underlines++;
 
-					font_freq_push(ctx, &fonts, ch->font, ch->size);
+					font_freq_push(ctx, &region_fonts, ch->font, ch->size);
 
 					font_size += ch->size;
 					font_size_n++;
@@ -421,8 +428,6 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	}
 	if (char_space_n)
 		char_space /= char_space_n;
-	if (line_space_n)
-		line_space /= line_space_n;
 
 	ratio = num_chars / ((x1-x0) * (y1-y0));
 	if (font_size_n)
@@ -443,11 +448,16 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	}
 	linespaces_offset = 0;
 	linespaces_mode = font_freq_mode(ctx, &linespaces);
+	line_space = 0;
 	if (linespaces_mode != -1)
 	{
 		rlinespaces_mode = font_freq_mode(ctx, &region_linespaces);
 		if (rlinespaces_mode != -1)
-			linespaces_offset = font_freq_closest(ctx, &fonts, NULL, region_fonts.list[rlinespaces_mode].size) - fonts_mode;
+		{
+			line_space = region_linespaces.list[rlinespaces_mode].size;
+			linespaces_offset = font_freq_closest(ctx, &linespaces, NULL, line_space);
+			linespaces_offset -= linespaces_mode;
+		}
 	}
 
 	/* Horrible, but will turn region_fonts into a list of the unique fonts in this region. */
@@ -468,15 +478,22 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		bottom_right_x = 0;
 	}
 
+	/* Calculate some synthetic features */
+	smargin_l = margin_l / (font_size != 0 ? font_size : 12);
+	smargin_r = margin_r / (font_size != 0 ? font_size : 12);
+	smargin_t = margin_t / (line_space != 0 ? fabs(line_space) : 1.2f * (font_size != 0 ? font_size : 12));
+	smargin_b = margin_b / (line_space != 0 ? fabs(line_space) : 1.2f * (font_size != 0 ? font_size : 12));
+
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g\n",
 		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, region_fonts.len,
 		margin_l, margin_r, margin_t, margin_b,
 		imargin_l, imargin_r, imargin_t, imargin_b,
 		fonts_offset, linespaces_offset,
 		num_underlines,
 		top_left_x, bottom_right_x,
-		num_lines, max_non_first_left_indent, max_non_last_right_indent);
+		num_lines, max_non_first_left_indent, max_non_last_right_indent,
+		smargin_l, smargin_r, smargin_t, smargin_b);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -577,29 +594,34 @@ int main
 	}
 	for (i = 0; i < n_headers; i++)
 		printf("%s,", csv[i]);
-	printf("number of non-numeral chars in area,");
-	printf("number of numeral chars,");
-	printf("ratio of chars to area,");
-	printf("average char space,");
-	printf("average line space,");
-	printf("average font size,");
-	printf("number of fonts in area,");
-	printf("left margin,");
-	printf("right margin,");
-	printf("top margin,");
-	printf("bottom margin,");
-	printf("left inner margin,");
-	printf("right inner margin,");
-	printf("top inner margin,");
-	printf("bottom inner margin,");
-	printf("font offset from most popular font,");
-	printf("linespace offset from most popular linespace,");
-	printf("number of underlined chars,");
-	printf("top left indent,");
-	printf("bottom right indent,");
-	printf("num lines,");
-	printf("max non first left indent,");
-	printf("max non last right indent\n");
+	printf("num non-numeral chars in area");
+	printf(",num numeral chars");
+	printf(",ratio of chars to area");
+	printf(",avg char space");
+	printf(",avg line space");
+	printf(",avg font size");
+	printf(",num fonts in area");
+	printf(",left margin");
+	printf(",right margin");
+	printf(",top margin");
+	printf(",bottom margin");
+	printf(",left inner margin");
+	printf(",right inner margin");
+	printf(",top inner margin");
+	printf(",bottom inner margin");
+	printf(",font offset from most popular font");
+	printf(",linespace offset from most popular linespace");
+	printf(",num underlined chars");
+	printf(",top left indent");
+	printf(",bottom right indent");
+	printf(",num lines");
+	printf(",max non first left indent");
+	printf(",max non last right indent");
+	printf(",left scaled margin");
+	printf(",right scaled margin");
+	printf(",top scaled margin");
+	printf(",bottom scaled margin");
+	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
 	if (!ctx)
