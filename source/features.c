@@ -229,6 +229,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	float max_non_last_right_indent = 0;
 	float max_right_indent = 0;
 	float smargin_l, smargin_t, smargin_r, smargin_b;
+	int dodgy_paragraph_breaks = 0;
 
 	fz_stext_block *block;
 	fz_stext_line *line;
@@ -266,6 +267,20 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	first_line = 1;
 	for (block = page->first_block; block != NULL; block = block->next)
 	{
+		float space = 99999;
+		int looking_for_space = 0;
+		int maybe_ends_paragraph = 0;
+		float line_gap = 0;
+		/* Confusingly, we have 2 different previous line gaps stored.
+		 * First we have the gap available after the line that was on
+		 * a previous physical line. This is the one we really want. */
+		float prev_physical_line_gap = 0;
+		/* But we don't know when to update that until we find a line
+		 * entry that is on a different physical line. So we also have
+		 * to keep this, the gap available after the previous line in
+		 * the structure (which might actually be on the same physical
+		 * line as the line we are looking at now). */
+		float prev_line_gap = 0;
 		if (block->type != FZ_STEXT_BLOCK_TEXT)
 			continue;
 		first_char = 1;
@@ -273,6 +288,10 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		{
 			float baseline = line->first_char->origin.y;
 			int newline = 1;
+			fz_rect clipped_line = fz_intersect_rect(region, line->bbox);
+
+			prev_line_gap = line_gap;
+			line_gap = block->bbox.x1 - clipped_line.x1;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
 			{
 				/* Use the centre of the char for bbox comparison */
@@ -331,6 +350,24 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 						if (max_right_indent > max_non_last_right_indent)
 							max_non_last_right_indent = max_right_indent;
 						max_right_indent = region.x1 - line->bbox.x1;
+
+
+						prev_physical_line_gap = prev_line_gap;
+						if (looking_for_space)
+						{
+							/* We've moved downwards onto a line, and failed to find
+							 * a space on that line. Presumably that means that whole
+							 * line is a single word. */
+							float line_len = clipped_line.x1 - clipped_line.x0;
+
+							if (line_len + space < prev_physical_line_gap)
+							{
+								/* We could have fitted this word into the previous line. */
+								dodgy_paragraph_breaks++;
+							}
+							looking_for_space = 0;
+						}
+						looking_for_space = maybe_ends_paragraph;
 					}
 					/* Otherwise if we're in the same line... */
 					else if (line->bbox.y1 < bottom_right_y + bottom_right_height/2)
@@ -347,6 +384,43 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 						num_numerals++;
 					else
 						num_non_numerals++;
+
+					if ((ch->c >= 'A' && ch->c <= 'Z') ||
+						(ch->c >= 'a' && ch->c <= 'z') ||
+						(ch->c >= '0' && ch->c <= '9'))
+					{
+						/* In Latin text, paragraphs should always end up some form
+						 * of punctuation. I suspect that's less true of some other
+						 * languages (particularly far-eastern ones). Let's just say
+						 * that if we end in A-Za-z0-9 we can't possibly be the last
+						 * line of a paragraph. */
+						maybe_ends_paragraph = 0;
+					}
+					else
+					{
+						/* Plausibly the next line might be the first line of a new paragraph */
+						maybe_ends_paragraph = 1;
+					}
+
+					if (ch->c == 32)
+					{
+						float this_space = char_rect.x1 - char_rect.x0;
+						if (space > this_space)
+							space = this_space;
+
+						if (looking_for_space)
+						{
+							float line_len = char_rect.x0 - line->bbox.x0;
+							if (line_len + space < prev_physical_line_gap)
+							{
+								/* We could have fitted this word into the previous line. */
+								dodgy_paragraph_breaks++;
+							}
+							looking_for_space = 0;
+						}
+					}
+
+
 					num_chars++;
 					if (!first_char)
 					{
@@ -485,7 +559,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	smargin_b = margin_b / (line_space != 0 ? fabs(line_space) : 1.2f * (font_size != 0 ? font_size : 12));
 
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d\n",
 		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, region_fonts.len,
 		margin_l, margin_r, margin_t, margin_b,
 		imargin_l, imargin_r, imargin_t, imargin_b,
@@ -493,7 +567,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		num_underlines,
 		top_left_x, bottom_right_x,
 		num_lines, max_non_first_left_indent, max_non_last_right_indent,
-		smargin_l, smargin_r, smargin_t, smargin_b);
+		smargin_l, smargin_r, smargin_t, smargin_b, dodgy_paragraph_breaks);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -621,6 +695,7 @@ int main
 	printf(",right scaled margin");
 	printf(",top scaled margin");
 	printf(",bottom scaled margin");
+	printf(",dodgy_paragraph_breaks");
 	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
