@@ -9,19 +9,30 @@
 
 #include <stdio.h>
 
+static int
+do_output_regions(fz_context *ctx, fz_stext_page *page, const char *filename, int pagenum, fz_stext_block *block, int i)
+{
+	for (; block != NULL; block = block->next)
+	{
+		switch (block->type)
+		{
+		case FZ_STEXT_BLOCK_TEXT:
+			printf("%s,%d,", filename, pagenum);
+			printf("%g,%g,%g,%g,0,0,%d\n", block->bbox.x0, block->bbox.y0, block->bbox.x1, block->bbox.y1, i++);
+			break;
+		case FZ_STEXT_BLOCK_STRUCT:
+			if (block->u.s.down)
+				i = do_output_regions(ctx, page, filename, pagenum, block->u.s.down->first_block, i);
+			break;
+		}
+	}
+	return i;
+}
+
 static void
 output_regions(fz_context *ctx, fz_stext_page *page, const char *filename, int pagenum)
 {
-	fz_stext_block *block;
-	int i = 0;
-
-	for (block = page->first_block; block != NULL; block = block->next)
-	{
-		if (block->type != FZ_STEXT_BLOCK_TEXT)
-			continue;
-		printf("%s,%d,", filename, pagenum);
-		printf("%g,%g,%g,%g,0,0,%d\n", block->bbox.x0, block->bbox.y0, block->bbox.x1, block->bbox.y1, i++);
-	}
+	(void)do_output_regions(ctx, page, filename, pagenum, page->first_block, 0);
 }
 
 static int
@@ -98,7 +109,7 @@ int main
 
 		n = fz_count_pages(ctx, doc);
 
-		options.flags = FZ_STEXT_ACCURATE_BBOXES;
+		options.flags = FZ_STEXT_ACCURATE_BBOXES | FZ_STEXT_PARAGRAPH_BREAK | FZ_STEXT_CLIP | FZ_STEXT_SEGMENT | FZ_STEXT_STRIKEOUT;
 		for (i = 0; i < n; i++)
 		{
 			stext = fz_new_stext_page_from_page_number(ctx, doc, 0, &options);
