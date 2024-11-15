@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 
+#define MAX_MARGIN 50
+
 /* This structure, font_freq_list, does double duty, both for
  * fonts, and for linespacings (with fz_font set to NULL). */
 typedef struct
@@ -181,92 +183,119 @@ font_freq_drop(fz_context *ctx, font_freq_list *list)
 	list->max = list->len = 0;
 }
 
-static void
-extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float x1, float y1, int category)
+typedef struct
 {
-	// The number of characters in the area
-	// The number of numerals in the area
-	// Ratio of characters to area.
-	// Average space between characters
-	// Average space between text lines
-	// Average font size
-	// Number of fonts used in the area
-	int num_non_numerals = 0;
-	int num_numerals = 0;
-	int num_chars = 0;
-	float char_space = 0;
-	int char_space_n = 0;
+	font_freq_list fonts;
+	font_freq_list linespaces;
+	font_freq_list region_fonts;
+	font_freq_list region_linespaces;
+	int num_non_numerals;
+	int num_numerals;
+	int num_chars;
+	float char_space;
+	int char_space_n;
 	float line_space;
-	font_freq_list fonts = { 0 };
-	font_freq_list region_fonts = { 0 };
-	font_freq_list linespaces = { 0 };
-	font_freq_list region_linespaces = { 0 };
 	fz_rect last_char_rect;
 	int first_char;
 	float last_baseline;
 	int first_line;
-	float font_size = 0;
-	int font_size_n = 0;
-	int fonts_mode, linespaces_mode;
-	int rfonts_mode, rlinespaces_mode;
-	int fonts_offset, linespaces_offset;
-	int num_underlines = 0;
+	float font_size;
+	int font_size_n;
+	int fonts_mode;
+	int linespaces_mode;
+	int rfonts_mode;
+	int rlinespaces_mode;
+	int fonts_offset;
+	int linespaces_offset;
+	int num_underlines;
 	float ratio;
-	float margin_l = 50;
-	float margin_r = 50;
-	float margin_t = 50;
-	float margin_b = 50;
-	float imargin_l = 50;
-	float imargin_r = 50;
-	float imargin_t = 50;
-	float imargin_b = 50;
-	float top_left_x = x1, top_left_y = y1;
-	float top_left_height = 0;
-	float bottom_right_x = x0, bottom_right_y = y0;
-	float bottom_right_height = 0;
-	int num_lines = 0;
-	float max_non_first_left_indent = 0;
-	float max_non_last_right_indent = 0;
-	float max_right_indent = 0;
-	float smargin_l, smargin_t, smargin_r, smargin_b;
-	int dodgy_paragraph_breaks = 0;
+	float margin_l;
+	float margin_r;
+	float margin_t;
+	float margin_b;
+	float imargin_l;
+	float imargin_r;
+	float imargin_t;
+	float imargin_b;
+	float top_left_x;
+	float top_left_y;
+	float top_left_height;
+	float bottom_right_x;
+	float bottom_right_y;
+	float bottom_right_height;
+	int num_lines;
+	int dodgy_paragraph_breaks;
+	float max_non_first_left_indent;
+	float max_non_last_right_indent;
+	float max_right_indent;
+	float context_above;
+	float context_below;
+	int is_header;
+} feature_stats;
 
-	fz_stext_block *block;
-	fz_stext_line *line;
-	fz_stext_char *ch;
+static void
+gather_global_stats(fz_context *ctx, fz_stext_block *block, feature_stats *stats)
+{
+	int first_line = 1;
+	float last_baseline;
 
-	fz_rect region = { x0, y0, x1, y1 };
-
-	/* Collect global stats */
-	first_line = 1;
-	for (block = page->first_block; block != NULL; block = block->next)
+	for (; block != NULL; block = block->next)
 	{
-		if (block->type != FZ_STEXT_BLOCK_TEXT)
+		fz_stext_line *line;
+		int first_char = 1;
+
+		if (block->type == FZ_STEXT_BLOCK_STRUCT)
+		{
+			if (block->u.s.down)
+				gather_global_stats(ctx, block->u.s.down->first_block, stats);
 			continue;
-		first_char = 1;
+		}
+		else if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
 		for (line = block->u.t.first_line; line != NULL; line = line->next)
 		{
+			fz_stext_char *ch;
 			float baseline = line->first_char->origin.y;
+
 			if (!first_line && line->first_char)
 			{
 				float threshold_line_change = line->first_char->size/4;
-				line_space = baseline - last_baseline;
+				float line_space = baseline - last_baseline;
 				if (line_space > threshold_line_change || line_space < -threshold_line_change)
-					font_freq_push(ctx, &linespaces, NULL, line_space);
+					font_freq_push(ctx, &stats->linespaces, NULL, line_space);
 			}
 			first_line = 0;
 			last_baseline = baseline;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
 			{
-				font_freq_push(ctx, &fonts, ch->font, ch->size);
+				font_freq_push(ctx, &stats->fonts, ch->font, ch->size);
 			}
 		}
 	}
+}
 
-	/* Now collect for the region itself. */
-	first_line = 1;
-	for (block = page->first_block; block != NULL; block = block->next)
+static int
+struct_is_header(fz_stext_struct *s)
+{
+	if (s == NULL)
+		return 0;
+	
+	return s->standard == FZ_STRUCTURE_H ||
+		s->standard == FZ_STRUCTURE_H1 ||
+		s->standard == FZ_STRUCTURE_H2 ||
+		s->standard == FZ_STRUCTURE_H3 ||
+		s->standard == FZ_STRUCTURE_H4 ||
+		s->standard == FZ_STRUCTURE_H5 ||
+		s->standard == FZ_STRUCTURE_H6;
+}
+
+static void
+gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats, int is_header)
+{
+	stats->first_line = 1;
+	for (; block != NULL; block = block->next)
 	{
+		fz_stext_line *line;
 		float space = 99999;
 		int looking_for_space = 0;
 		int maybe_ends_paragraph = 0;
@@ -281,11 +310,22 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		 * the structure (which might actually be on the same physical
 		 * line as the line we are looking at now). */
 		float prev_line_gap = 0;
+		int first_char = 1;
+
+		if (block->type == FZ_STEXT_BLOCK_STRUCT)
+		{
+			if (block->u.s.down != NULL)
+			{
+				int hdr = is_header || struct_is_header(block->u.s.down);
+				gather_region_stats(ctx, block->u.s.down->first_block, region, stats, hdr);
+			}
+			continue;
+		}
 		if (block->type != FZ_STEXT_BLOCK_TEXT)
 			continue;
-		first_char = 1;
 		for (line = block->u.t.first_line; line != NULL; line = line->next)
 		{
+			fz_stext_char *ch;
 			float baseline = line->first_char->origin.y;
 			int newline = 1;
 			fz_rect clipped_line = fz_intersect_rect(region, line->bbox);
@@ -304,16 +344,27 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 				{
 					float m;
 
-					if (!first_line && newline)
+					if (stats->is_header == -1)
+						stats->is_header = is_header;
+					else if (stats->is_header == 2)
+					{
+						/* Already mixed. */
+					}
+					else if (stats->is_header != is_header)
+					{
+						stats->is_header = -2; /* mixed */
+					}
+
+					if (!stats->first_line && newline)
 					{
 						float threshold_line_change = ch->size/4;
-						line_space = baseline - last_baseline;
+						float line_space = baseline - stats->last_baseline;
 						if (line_space > threshold_line_change || line_space < -threshold_line_change)
-							font_freq_push(ctx, &region_linespaces, NULL, line_space);
+							font_freq_push(ctx, &stats->region_linespaces, NULL, line_space);
 						newline = 0;
 					}
-					first_line = 0;
-					last_baseline = baseline;
+					stats->first_line = 0;
+					stats->last_baseline = baseline;
 
 					/* To calculate the indents at top left/bottom right, we need to
 					 * look at line y0/y1, not char y0/y1, because otherwise alternating
@@ -323,33 +374,33 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 					/* If we find a line higher than we've found before (by at least
 					 * half the lineheight, to avoid silly effects), recalculate our
 					 * top_left_corner. */
-					if (line->bbox.y0 < top_left_y - top_left_height/2)
+					if (line->bbox.y0 < stats->top_left_y - stats->top_left_height/2)
 					{
-						top_left_y = line->bbox.y0;
-						top_left_height = line->bbox.y1 - line->bbox.y0;
-						top_left_x = char_rect.x0;
+						stats->top_left_y = line->bbox.y0;
+						stats->top_left_height = line->bbox.y1 - line->bbox.y0;
+						stats->top_left_x = char_rect.x0;
 					}
 					/* Otherwise if we're in the same line, and x is less, take that. */
-					else if (line->bbox.y0 < top_left_y + top_left_height/2 && char_rect.x0 < top_left_x)
+					else if (line->bbox.y0 < stats->top_left_y + stats->top_left_height/2 && char_rect.x0 < stats->top_left_x)
 					{
-						top_left_x = char_rect.x0;
+						stats->top_left_x = char_rect.x0;
 					}
 
 					/* If we find a line lower than we've found before (by at least
 					 * half the lineheight, to avoid silly effects)... */
-					if (line->bbox.y1 > bottom_right_y + bottom_right_height/2)
+					if (line->bbox.y1 > stats->bottom_right_y + stats->bottom_right_height/2)
 					{
 						/* recalculate our bottom right corner */
-						bottom_right_y = line->bbox.y1;
-						bottom_right_height = line->bbox.y1 - line->bbox.y0;
-						bottom_right_x = char_rect.x1;
+						stats->bottom_right_y = line->bbox.y1;
+						stats->bottom_right_height = line->bbox.y1 - line->bbox.y0;
+						stats->bottom_right_x = char_rect.x1;
 						/* Increment the number of lines, and prepare the indents. */
-						num_lines++;
-						if (num_lines > 1 && max_non_first_left_indent < line->bbox.x0 - region.x0)
-							max_non_first_left_indent = line->bbox.x0 - region.x0;
-						if (max_right_indent > max_non_last_right_indent)
-							max_non_last_right_indent = max_right_indent;
-						max_right_indent = region.x1 - line->bbox.x1;
+						stats->num_lines++;
+						if (stats->num_lines > 1 && stats->max_non_first_left_indent < line->bbox.x0 - region.x0)
+							stats->max_non_first_left_indent = line->bbox.x0 - region.x0;
+						if (stats->max_right_indent > stats->max_non_last_right_indent)
+							stats->max_non_last_right_indent = stats->max_right_indent;
+						stats->max_right_indent = region.x1 - line->bbox.x1;
 
 
 						prev_physical_line_gap = prev_line_gap;
@@ -363,27 +414,27 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 							if (line_len + space < prev_physical_line_gap)
 							{
 								/* We could have fitted this word into the previous line. */
-								dodgy_paragraph_breaks++;
+								stats->dodgy_paragraph_breaks++;
 							}
 							looking_for_space = 0;
 						}
 						looking_for_space = maybe_ends_paragraph;
 					}
 					/* Otherwise if we're in the same line... */
-					else if (line->bbox.y1 < bottom_right_y + bottom_right_height/2)
+					else if (line->bbox.y1 < stats->bottom_right_y + stats->bottom_right_height/2)
 					{
 						/* if x is greater, take that. */
-						if (char_rect.x1 > bottom_right_x)
-							bottom_right_x = char_rect.x1;
+						if (char_rect.x1 > stats->bottom_right_x)
+							stats->bottom_right_x = char_rect.x1;
 						/* shrink the right ident we've found so far on this line. */
-						max_right_indent = region.x1 - line->bbox.x1;
+						stats->max_right_indent = region.x1 - line->bbox.x1;
 					}
 
 					/* We have a char to consider */
 					if ((ch->c >= '0' && ch->c <= '9') || ch->c == '.' || ch->c == '%')
-						num_numerals++;
+						stats->num_numerals++;
 					else
-						num_non_numerals++;
+						stats->num_non_numerals++;
 
 					if ((ch->c >= 'A' && ch->c <= 'Z') ||
 						(ch->c >= 'a' && ch->c <= 'z') ||
@@ -414,30 +465,30 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 							if (line_len + space < prev_physical_line_gap)
 							{
 								/* We could have fitted this word into the previous line. */
-								dodgy_paragraph_breaks++;
+								stats->dodgy_paragraph_breaks++;
 							}
 							looking_for_space = 0;
 						}
 					}
 
 
-					num_chars++;
+					stats->num_chars++;
 					if (!first_char)
 					{
-						char_space_n++;
-						if (last_char_rect.x1 < char_rect.x0)
-							char_space += char_rect.x0 - last_char_rect.x1;
+						stats->char_space_n++;
+						if (stats->last_char_rect.x1 < char_rect.x0)
+							stats->char_space += char_rect.x0 - stats->last_char_rect.x1;
 					}
 					first_char = 0;
-					last_char_rect = char_rect;
+					stats->last_char_rect = char_rect;
 
 					if (ch->flags & FZ_STEXT_UNDERLINE)
-						num_underlines++;
+						stats->num_underlines++;
 
-					font_freq_push(ctx, &region_fonts, ch->font, ch->size);
+					font_freq_push(ctx, &stats->region_fonts, ch->font, ch->size);
 
-					font_size += ch->size;
-					font_size_n++;
+					stats->font_size += ch->size;
+					stats->font_size_n++;
 
 					/* Allow for chars that overlap the edge */
 					/* Bit of a hack this. The coords are fed into this program accurate to 3
@@ -445,129 +496,433 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 					 * calculations, as chars can be seen to extend fractionally outside
 					 * the region. Accordingly, we extend the region slightly to avoid this. */
 #define ROUND 0.001f
-					if (char_rect.x0 < x0 - ROUND)
-						margin_l = 0;
-					if (char_rect.x1 > x1 + ROUND)
-						margin_r = 0;
-					if (char_rect.y0 < y0 - ROUND)
-						margin_t = 0;
-					if (char_rect.y1 > y1 + ROUND)
-						margin_b = 0;
+					if (char_rect.x0 < region.x0 - ROUND)
+						stats->margin_l = 0;
+					if (char_rect.x1 > region.x1 + ROUND)
+						stats->margin_r = 0;
+					if (char_rect.y0 < region.y0 - ROUND)
+						stats->margin_t = 0;
+					if (char_rect.y1 > region.y1 + ROUND)
+						stats->margin_b = 0;
 
 					/* Inner margins */
-					m = char_rect.x0 - x0;
+					m = char_rect.x0 - region.x0;
 					if (m < 0)
 						m = 0;
-					if (imargin_l > m)
-						imargin_l = m;
-					m = x1 - char_rect.x1;
+					if (stats->imargin_l > m)
+						stats->imargin_l = m;
+					m = region.x1 - char_rect.x1;
 					if (m < 0)
 						m = 0;
-					if (imargin_r > m)
-						imargin_r = m;
-					m = char_rect.y0 - y0;
+					if (stats->imargin_r > m)
+						stats->imargin_r = m;
+					m = char_rect.y0 - region.y0;
 					if (m < 0)
 						m = 0;
-					if (imargin_t > m)
-						imargin_t = m;
-					m = y1 - char_rect.y1;
+					if (stats->imargin_t > m)
+						stats->imargin_t = m;
+					m = region.y1 - char_rect.y1;
 					if (m < 0)
 						m = 0;
-					if (imargin_b > m)
-						imargin_b = m;
+					if (stats->imargin_b > m)
+						stats->imargin_b = m;
 				}
 				else
 				{
-					if (y0 <= p.y && p.y <= y1)
+					if (region.y0 <= p.y && p.y <= region.y1)
 					{
-						float m = x0 - char_rect.x1;
-						if (m >= 0 && margin_l > m)
-							margin_l = m;
-						m = char_rect.x0 - x1;
-						if (m >= 0 && margin_r > m)
-							margin_r = m;
+						float m = region.x0 - char_rect.x1;
+						if (m >= 0 && stats->margin_l > m)
+							stats->margin_l = m;
+						m = char_rect.x0 - region.x1;
+						if (m >= 0 && stats->margin_r > m)
+							stats->margin_r = m;
 					}
-					if (x0 <= p.x && p.x <= x1)
+					if (region.x0 <= p.x && p.x <= region.x1)
 					{
-						float m = y0 - char_rect.y1;
-						if (m >= 0 && margin_t > m)
-							margin_t = m;
-						m = char_rect.y0 - y1;
-						if (m >= 0 && margin_b > m)
-							margin_b = m;
+						float m = region.y0 - char_rect.y1;
+						if (m >= 0 && stats->margin_t > m)
+							stats->margin_t = m;
+						m = char_rect.y0 - region.y1;
+						if (m >= 0 && stats->margin_b > m)
+							stats->margin_b = m;
 					}
 				}
 			}
 		}
 	}
-	if (char_space_n)
-		char_space /= char_space_n;
+}
 
-	ratio = num_chars / ((x1-x0) * (y1-y0));
-	if (font_size_n)
-		font_size /= font_size_n;
+typedef struct
+{
+	fz_stext_block *block;
+	fz_stext_line *line;
+	fz_stext_line *end;
+	float metric;
+	int is_header;
+} best_line;
 
-	font_freq_common(ctx, &fonts, 0.5);
-	font_freq_common(ctx, &linespaces, 0.5);
-	font_freq_common(ctx, &region_fonts, 0.5);
-	font_freq_common(ctx, &region_linespaces, 0.5);
-
-	fonts_offset = 0;
-	fonts_mode = font_freq_mode(ctx, &fonts);
-	if (fonts_mode != -1)
+static void
+find_line_above_region(fz_context *ctx, fz_stext_block *block, fz_rect region, best_line *best, int in_header)
+{
+	for (; block != NULL; block = block->next)
 	{
-		rfonts_mode = font_freq_mode(ctx, &region_fonts);
-		if (rfonts_mode != -1)
-			fonts_offset = font_freq_closest(ctx, &fonts, region_fonts.list[rfonts_mode].font, region_fonts.list[rfonts_mode].size) - fonts_mode;
-	}
-	linespaces_offset = 0;
-	linespaces_mode = font_freq_mode(ctx, &linespaces);
-	line_space = 0;
-	if (linespaces_mode != -1)
-	{
-		rlinespaces_mode = font_freq_mode(ctx, &region_linespaces);
-		if (rlinespaces_mode != -1)
+		fz_stext_line *line;
+
+		/* If the whole block is no higher than the region, trivially exclude it. */
+		if (block->bbox.y0 >= region.y0)
+			continue;
+		if (block->type == FZ_STEXT_BLOCK_STRUCT)
 		{
-			line_space = region_linespaces.list[rlinespaces_mode].size;
-			linespaces_offset = font_freq_closest(ctx, &linespaces, NULL, line_space);
-			linespaces_offset -= linespaces_mode;
+			if (block->u.s.down)
+			{
+				int hdr = in_header || struct_is_header(block->u.s.down);
+				find_line_above_region(ctx, block->u.s.down->first_block, region, best, hdr);
+			}
+			continue;
+		}
+		else if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
+
+		for (line = block->u.t.first_line; line != NULL; line = line->next)
+		{
+			float score = region.y0 - line->bbox.y1;
+			if (score < 0)
+				continue;
+			if (line->bbox.x0 >= region.x1 || line->bbox.x1 <= region.x0)
+				continue;
+			if (best->block == NULL || score < best->metric)
+			{
+				best->block = block;
+				best->line = line;
+				best->metric = score;
+				best->is_header = in_header;
+			}
+		}
+	}
+}
+
+static void
+find_line_below_region(fz_context *ctx, fz_stext_block *block, fz_rect region, best_line *best, int in_header)
+{
+	for (; block != NULL; block = block->next)
+	{
+		fz_stext_line *line;
+
+		/* If the whole block is no lower than the region, trivially exclude it. */
+		if (block->bbox.y1 <= region.y1)
+			continue;
+		if (block->type == FZ_STEXT_BLOCK_STRUCT)
+		{
+			if (block->u.s.down)
+			{
+				int hdr = in_header || struct_is_header(block->u.s.down);
+				find_line_below_region(ctx, block->u.s.down->first_block, region, best, hdr);
+			}
+			continue;
+		}
+		else if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
+
+		for (line = block->u.t.first_line; line != NULL; line = line->next)
+		{
+			float score = line->bbox.y0 - region.y1;
+			if (score < 0)
+				continue;
+			if (line->bbox.x0 >= region.x1 || line->bbox.x1 <= region.x0)
+				continue;
+			if (best->block == NULL || score < best->metric)
+			{
+				best->block = block;
+				best->line = line;
+				best->metric = score;
+				best->is_header = in_header;
+			}
+		}
+	}
+}
+
+static fz_rect
+gather_line(fz_context *ctx, best_line *best, fz_rect region)
+{
+	fz_stext_line *start = best->line;
+	fz_stext_line *end = best->line;
+	float lineheight = best->line->bbox.y1 - best->line->bbox.y0;
+	fz_rect bbox = start->bbox;
+
+	while (start->prev)
+	{
+		fz_stext_line *prev = start->prev;
+		if (prev->bbox.y0 >= best->line->bbox.y1 || prev->bbox.y1 <= best->line->bbox.y0)
+			break;
+		//if (prev->bbox.x1 < region.x0 || prev->bbox.x0 > region.x1 )
+		//	break;
+		start = prev;
+		bbox = fz_union_rect(bbox, start->bbox);
+	}
+	while (end->next)
+	{
+		fz_stext_line *next = end->next;
+		if (next->bbox.y0 >= best->line->bbox.y1 || next->bbox.y1 <= best->line->bbox.y0)
+			break;
+		//if (next->bbox.x1 < region.x0 || next->bbox.x0 > region.x1 )
+		//	break;
+		end = next;
+		bbox = fz_union_rect(bbox, end->bbox);
+	}
+
+	best->line = start;
+	best->end = end;
+
+	return bbox;
+}
+
+static float
+average_font_size(fz_context *ctx, fz_stext_line *start, fz_stext_line *end)
+{
+	int n = 0;
+	float sum = 0;
+
+	while (1)
+	{
+		fz_stext_char *ch;
+
+		for (ch = start->first_char; ch != NULL; ch = ch->next)
+		{
+			n++;
+			sum += ch->size;
+		}
+		if (start == end)
+			break;
+		start = start->next;
+	}
+
+	return n == 0 ? 12.0f : (sum/n);
+}
+
+static void
+contextual_features_above(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats)
+{
+	best_line best = { 0 };
+	fz_rect bbox;
+	float size, delta;
+
+	find_line_above_region(ctx, block, region, &best, 0);
+	if (best.block == NULL)
+	{
+		/* There is no line above the region. */
+		return;
+	}
+	bbox = gather_line(ctx, &best, region);
+
+	if (bbox.y1 + MAX_MARGIN <= region.y0)
+	{
+		/* This line is outside margin range. */
+		return;
+	}
+
+	size = average_font_size(ctx, best.line, best.end);
+	delta = fabsf(size - stats->font_size);
+	
+	if (delta > stats->font_size * 0.8f)
+	{
+		/* Different average font size. Probably not the same
+		 * block type. */
+		return;
+	}
+	if (stats->is_header == 0 && best.is_header)
+	{
+		/* We're not a header, and the line before was. Good that we broke there. */
+		return;
+	}
+	if (stats->is_header == 1 && !best.is_header)
+	{
+		/* We're a header, and the line before wasn't. Good that we broke there. */
+		return;
+	}
+	if (region.x1 - stats->font_size/2 > bbox.x1)
+	{
+		/* The line above stopped before our right hand edge. Probably an
+		 * indent at the end of a paragraph. Probably not the same block. */
+		return;
+	}
+
+	stats->context_above = MAX_MARGIN - (region.y0 - bbox.y1);
+}
+
+static void
+contextual_features_below(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats)
+{
+	best_line best = { 0 };
+	fz_rect bbox;
+	float size, delta;
+
+	find_line_below_region(ctx, block, region, &best, 0);
+	if (best.block == NULL)
+	{
+		/* There is no line below the region. */
+		return;
+	}
+	bbox = gather_line(ctx, &best, region);
+
+	if (bbox.y0 - MAX_MARGIN >= region.y1)
+	{
+		/* This line is outside margin range. */
+		return;
+	}
+	size = average_font_size(ctx, best.line, best.end);
+	delta = fabsf(size - stats->font_size);
+	
+	if (delta > stats->font_size * 0.8f)
+	{
+		/* Different average font size. Probably not the same
+		 * block type. */
+		return;
+	}
+	if (stats->is_header == 0 && best.is_header)
+	{
+		/* We're not a header, and the line after was. Good that we broke there. */
+		return;
+	}
+	if (stats->is_header == 1 && !best.is_header)
+	{
+		/* We're a header, and the line after wasn't. Good that we broke there. */
+		return;
+	}
+	if (stats->bottom_right_x + stats->font_size/2 < bbox.x1)
+	{
+		/* Our bottom left stopped before the right hand edge of the following line.
+		 * Probably not the same block. (Think indent at end of paragraph). */
+		 return;
+	}
+	if (bbox.x0 > region.x0 + size)
+	{
+		/* Indent at the start of the line afterwards. Probably a paragraph start. */
+		return;
+	}
+
+	stats->context_below = MAX_MARGIN - (bbox.y0 - region.y1);
+}
+
+static void
+process_font_stats(fz_context *ctx, fz_rect region, feature_stats *stats)
+{
+	if (stats->char_space_n)
+		stats->char_space /= stats->char_space_n;
+
+	stats->ratio = stats->num_chars / ((region.x1-region.x0) * (region.y1-region.y0));
+	if (stats->font_size_n)
+		stats->font_size /= stats->font_size_n;
+
+	font_freq_common(ctx, &stats->fonts, 0.5);
+	font_freq_common(ctx, &stats->linespaces, 0.5);
+	font_freq_common(ctx, &stats->region_fonts, 0.5);
+	font_freq_common(ctx, &stats->region_linespaces, 0.5);
+
+	stats->fonts_offset = 0;
+	stats->fonts_mode = font_freq_mode(ctx, &stats->fonts);
+	if (stats->fonts_mode != -1)
+	{
+		stats->rfonts_mode = font_freq_mode(ctx, &stats->region_fonts);
+		if (stats->rfonts_mode != -1)
+			stats->fonts_offset = font_freq_closest(ctx, &stats->fonts, stats->region_fonts.list[stats->rfonts_mode].font, stats->region_fonts.list[stats->rfonts_mode].size) - stats->fonts_mode;
+	}
+	stats->linespaces_offset = 0;
+	stats->linespaces_mode = font_freq_mode(ctx, &stats->linespaces);
+	stats->line_space = 0;
+	if (stats->linespaces_mode != -1)
+	{
+		stats->rlinespaces_mode = font_freq_mode(ctx, &stats->region_linespaces);
+		if (stats->rlinespaces_mode != -1)
+		{
+			stats->line_space = stats->region_linespaces.list[stats->rlinespaces_mode].size;
+			stats->linespaces_offset = font_freq_closest(ctx, &stats->linespaces, NULL, stats->line_space);
+			stats->linespaces_offset -= stats->linespaces_mode;
 		}
 	}
 
 	/* Horrible, but will turn region_fonts into a list of the unique fonts in this region. */
-	font_freq_common(ctx, &region_fonts, 100000);
+	font_freq_common(ctx, &stats->region_fonts, 100000);
+}
 
-	top_left_x -= x0;
-	if (top_left_x < 0)
+static void
+extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float x1, float y1, int category)
+{
+	feature_stats stats = { 0 };
+	stats.margin_l = MAX_MARGIN;
+	stats.margin_r = MAX_MARGIN;
+	stats.margin_t = MAX_MARGIN;
+	stats.margin_b = MAX_MARGIN;
+	stats.imargin_l = MAX_MARGIN;
+	stats.imargin_r = MAX_MARGIN;
+	stats.imargin_t = MAX_MARGIN;
+	stats.imargin_b = MAX_MARGIN;
+	stats.top_left_x = x1;
+	stats.top_left_y = y1;
+	stats.bottom_right_x = x0;
+	stats.bottom_right_y = y0;
+	stats.is_header = -1;
+	float smargin_l, smargin_t, smargin_r, smargin_b;
+
+	fz_rect region = { x0, y0, x1, y1 };
+
+	/* Collect global stats */
+	gather_global_stats(ctx, page->first_block, &stats);
+
+	/* Now collect for the region itself. */
+	gather_region_stats(ctx, page->first_block, region, &stats, 0);
+
+	process_font_stats(ctx, region, &stats);
+
+	/* Now we scan again, to try to make contextual features. */
+	contextual_features_above(ctx, page->first_block, region, &stats);
+	contextual_features_below(ctx, page->first_block, region, &stats);
+
+	stats.top_left_x -= x0;
+	if (stats.top_left_x < 0)
 	{
 		/* We should only ever be negative by a rounding error. */
-		assert(top_left_x > -0.01);
-		top_left_x = 0;
+		assert(stats.top_left_x > -0.01);
+		stats.top_left_x = 0;
 	}
-	bottom_right_x = x1 - bottom_right_x;
-	if (bottom_right_x < 0)
+	stats.bottom_right_x = x1 - stats.bottom_right_x;
+	if (stats.bottom_right_x < 0)
 	{
 		/* We should only ever be negative by a rounding error. */
-		assert(bottom_right_x > -0.01);
-		bottom_right_x = 0;
+		assert(stats.bottom_right_x > -0.01);
+		stats.bottom_right_x = 0;
 	}
 
 	/* Calculate some synthetic features */
-	smargin_l = margin_l / (font_size != 0 ? font_size : 12);
-	smargin_r = margin_r / (font_size != 0 ? font_size : 12);
-	smargin_t = margin_t / (line_space != 0 ? fabs(line_space) : 1.2f * (font_size != 0 ? font_size : 12));
-	smargin_b = margin_b / (line_space != 0 ? fabs(line_space) : 1.2f * (font_size != 0 ? font_size : 12));
+	smargin_l = stats.margin_l / (stats.font_size != 0 ? stats.font_size : 12);
+	smargin_r = stats.margin_r / (stats.font_size != 0 ? stats.font_size : 12);
+	smargin_t = stats.margin_t / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
+	smargin_b = stats.margin_b / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
 
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d\n",
-		num_non_numerals, num_numerals, ratio, char_space, line_space, font_size, region_fonts.len,
-		margin_l, margin_r, margin_t, margin_b,
-		imargin_l, imargin_r, imargin_t, imargin_b,
-		fonts_offset, linespaces_offset,
-		num_underlines,
-		top_left_x, bottom_right_x,
-		num_lines, max_non_first_left_indent, max_non_last_right_indent,
-		smargin_l, smargin_r, smargin_t, smargin_b, dodgy_paragraph_breaks);
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%g\n",
+		stats.num_non_numerals,
+		stats.num_numerals,
+		stats.ratio,
+		stats.char_space,
+		stats.line_space,
+		stats.font_size,
+		stats.region_fonts.len,
+		stats.margin_l, stats.margin_r, stats.margin_t, stats.margin_b,
+		stats.imargin_l, stats.imargin_r, stats.imargin_t, stats.imargin_b,
+		stats.fonts_offset,
+		stats.linespaces_offset,
+		stats.num_underlines,
+		stats.top_left_x,
+		stats.bottom_right_x,
+		stats.num_lines,
+		stats.max_non_first_left_indent,
+		stats.max_non_last_right_indent,
+		smargin_l, smargin_r, smargin_t, smargin_b,
+		stats.dodgy_paragraph_breaks,
+		stats.is_header,
+		stats.context_above,
+		stats.context_below);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -584,10 +939,10 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		x0, y0, x1, y0, x1, y1, x0, y1, x0, y0);
 #endif
 
-	font_freq_drop(ctx, &fonts);
-	font_freq_drop(ctx, &region_fonts);
-	font_freq_drop(ctx, &linespaces);
-	font_freq_drop(ctx, &region_linespaces);
+	font_freq_drop(ctx, &stats.fonts);
+	font_freq_drop(ctx, &stats.region_fonts);
+	font_freq_drop(ctx, &stats.linespaces);
+	font_freq_drop(ctx, &stats.region_linespaces);
 }
 
 static int
@@ -632,7 +987,7 @@ int main
 	fz_stext_page *stext = NULL;
 	char *csvfile;
 	FILE *infile;
-	fz_stext_options options = { FZ_STEXT_ACCURATE_BBOXES };
+	fz_stext_options options = { FZ_STEXT_ACCURATE_BBOXES | FZ_STEXT_SEGMENT | FZ_STEXT_PARAGRAPH_BREAK };
 	char **csv;
 	int page_num, last_page_num = -1;
 	const char *directory = NULL;
@@ -696,6 +1051,9 @@ int main
 	printf(",top scaled margin");
 	printf(",bottom scaled margin");
 	printf(",dodgy_paragraph_breaks");
+	printf(",is_header");
+	printf(",context_above");
+	printf(",context_below");
 	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
