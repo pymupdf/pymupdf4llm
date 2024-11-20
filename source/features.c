@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 
+/* #define DEBUG_CHARS */
+
 #define MAX_MARGIN 50
 
 /* This structure, font_freq_list, does double duty, both for
@@ -228,8 +230,14 @@ typedef struct
 	float max_non_first_left_indent;
 	float max_non_last_right_indent;
 	float max_right_indent;
-	float context_above;
-	float context_below;
+	float context_above_font_size;
+	int context_above_is_header;
+	float context_above_indent;
+	float context_above_outdent;
+	float context_below_font_size;
+	int context_below_is_header;
+	float context_below_indent;
+	float context_below_outdent;
 	int is_header;
 } feature_stats;
 
@@ -289,35 +297,39 @@ struct_is_header(fz_stext_struct *s)
 		s->standard == FZ_STRUCTURE_H6;
 }
 
+typedef struct
+{
+	float space;
+	int looking_for_space;
+	int maybe_ends_paragraph;
+	float line_gap;
+	/* Confusingly, we have 2 different previous line gaps stored.
+	 * First we have the gap available after the line that was on
+	 * a previous physical line. This is the one we really want. */
+	float prev_physical_line_gap;
+	/* But we don't know when to update that until we find a line
+	 * entry that is on a different physical line. So we also have
+	 * to keep this, the gap available after the previous line in
+	 * the structure (which might actually be on the same physical
+	 * line as the line we are looking at now). */
+	float prev_line_gap;
+	int first_char;
+} gather_state;
+
 static void
-gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats, int is_header)
+gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats, gather_state *state, int is_header)
 {
 	stats->first_line = 1;
 	for (; block != NULL; block = block->next)
 	{
 		fz_stext_line *line;
-		float space = 99999;
-		int looking_for_space = 0;
-		int maybe_ends_paragraph = 0;
-		float line_gap = 0;
-		/* Confusingly, we have 2 different previous line gaps stored.
-		 * First we have the gap available after the line that was on
-		 * a previous physical line. This is the one we really want. */
-		float prev_physical_line_gap = 0;
-		/* But we don't know when to update that until we find a line
-		 * entry that is on a different physical line. So we also have
-		 * to keep this, the gap available after the previous line in
-		 * the structure (which might actually be on the same physical
-		 * line as the line we are looking at now). */
-		float prev_line_gap = 0;
-		int first_char = 1;
 
 		if (block->type == FZ_STEXT_BLOCK_STRUCT)
 		{
 			if (block->u.s.down != NULL)
 			{
 				int hdr = is_header || struct_is_header(block->u.s.down);
-				gather_region_stats(ctx, block->u.s.down->first_block, region, stats, hdr);
+				gather_region_stats_aux(ctx, block->u.s.down->first_block, region, stats, state, hdr);
 			}
 			continue;
 		}
@@ -330,8 +342,8 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 			int newline = 1;
 			fz_rect clipped_line = fz_intersect_rect(region, line->bbox);
 
-			prev_line_gap = line_gap;
-			line_gap = block->bbox.x1 - clipped_line.x1;
+			state->prev_line_gap = state->line_gap;
+			state->line_gap = block->bbox.x1 - clipped_line.x1;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
 			{
 				/* Use the centre of the char for bbox comparison */
@@ -352,7 +364,7 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 					}
 					else if (stats->is_header != is_header)
 					{
-						stats->is_header = -2; /* mixed */
+						stats->is_header = 2; /* mixed */
 					}
 
 					if (!stats->first_line && newline)
@@ -390,6 +402,9 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 					 * half the lineheight, to avoid silly effects)... */
 					if (line->bbox.y1 > stats->bottom_right_y + stats->bottom_right_height/2)
 					{
+#ifdef DEBUG_CHARS
+						fprintf(stderr, "<newline>");
+#endif
 						/* recalculate our bottom right corner */
 						stats->bottom_right_y = line->bbox.y1;
 						stats->bottom_right_height = line->bbox.y1 - line->bbox.y0;
@@ -403,22 +418,25 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 						stats->max_right_indent = region.x1 - line->bbox.x1;
 
 
-						prev_physical_line_gap = prev_line_gap;
-						if (looking_for_space)
+						state->prev_physical_line_gap = state->prev_line_gap;
+						if (state->looking_for_space)
 						{
 							/* We've moved downwards onto a line, and failed to find
 							 * a space on that line. Presumably that means that whole
 							 * line is a single word. */
 							float line_len = clipped_line.x1 - clipped_line.x0;
 
-							if (line_len + space < prev_physical_line_gap)
+							if (line_len + state->space < state->prev_physical_line_gap)
 							{
 								/* We could have fitted this word into the previous line. */
 								stats->dodgy_paragraph_breaks++;
 							}
-							looking_for_space = 0;
+							state->looking_for_space = 0;
 						}
-						looking_for_space = maybe_ends_paragraph;
+#ifdef DEBUG_CHARS
+						fprintf(stderr, "<maybe_ends_paragraph=%d>", state->maybe_ends_paragraph);
+#endif
+						state->looking_for_space = state->maybe_ends_paragraph;
 					}
 					/* Otherwise if we're in the same line... */
 					else if (line->bbox.y1 < stats->bottom_right_y + stats->bottom_right_height/2)
@@ -430,6 +448,9 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 						stats->max_right_indent = region.x1 - line->bbox.x1;
 					}
 
+#ifdef DEBUG_CHARS
+					fprintf(stderr, "%c", ch->c);
+#endif
 					/* We have a char to consider */
 					if ((ch->c >= '0' && ch->c <= '9') || ch->c == '.' || ch->c == '%')
 						stats->num_numerals++;
@@ -445,41 +466,50 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 						 * languages (particularly far-eastern ones). Let's just say
 						 * that if we end in A-Za-z0-9 we can't possibly be the last
 						 * line of a paragraph. */
-						maybe_ends_paragraph = 0;
+						state->maybe_ends_paragraph = 0;
+#ifdef DEBUG_CHARS
+						fprintf(stderr, "0");
+#endif
 					}
 					else
 					{
 						/* Plausibly the next line might be the first line of a new paragraph */
-						maybe_ends_paragraph = 1;
+						state->maybe_ends_paragraph = 1;
+#ifdef DEBUG_CHARS
+						fprintf(stderr, "1");
+#endif
 					}
 
 					if (ch->c == 32)
 					{
 						float this_space = char_rect.x1 - char_rect.x0;
-						if (space > this_space)
-							space = this_space;
+						if (state->space > this_space)
+							state->space = this_space;
 
-						if (looking_for_space)
+						if (state->looking_for_space)
 						{
 							float line_len = char_rect.x0 - line->bbox.x0;
-							if (line_len + space < prev_physical_line_gap)
+#ifdef DEBUG_CHARS
+							fprintf(stderr, "<looking...>");
+#endif
+							if (line_len + state->space < state->prev_physical_line_gap)
 							{
 								/* We could have fitted this word into the previous line. */
 								stats->dodgy_paragraph_breaks++;
 							}
-							looking_for_space = 0;
+							state->looking_for_space = 0;
 						}
 					}
 
 
 					stats->num_chars++;
-					if (!first_char)
+					if (!state->first_char)
 					{
 						stats->char_space_n++;
 						if (stats->last_char_rect.x1 < char_rect.x0)
 							stats->char_space += char_rect.x0 - stats->last_char_rect.x1;
 					}
-					first_char = 0;
+					state->first_char = 0;
 					stats->last_char_rect = char_rect;
 
 					if (ch->flags & FZ_STEXT_UNDERLINE)
@@ -529,6 +559,9 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 				}
 				else
 				{
+#ifdef DEBUG_CHARS
+					fprintf(stderr, "<%c>", ch->c);
+#endif
 					if (region.y0 <= p.y && p.y <= region.y1)
 					{
 						float m = region.x0 - char_rect.x1;
@@ -549,8 +582,22 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feat
 					}
 				}
 			}
+#ifdef DEBUG_CHARS
+			fprintf(stderr, "\n");
+#endif
 		}
 	}
+}
+
+static void
+gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats)
+{
+	gather_state state = { 0 };
+
+	state.space = 99999;
+	state.first_char = 1;
+
+	gather_region_stats_aux(ctx, block, region, stats, &state, 0);
 }
 
 typedef struct
@@ -724,30 +771,10 @@ contextual_features_above(fz_context *ctx, fz_stext_block *block, fz_rect region
 	size = average_font_size(ctx, best.line, best.end);
 	delta = fabsf(size - stats->font_size);
 	
-	if (delta > stats->font_size * 0.8f)
-	{
-		/* Different average font size. Probably not the same
-		 * block type. */
-		return;
-	}
-	if (stats->is_header == 0 && best.is_header)
-	{
-		/* We're not a header, and the line before was. Good that we broke there. */
-		return;
-	}
-	if (stats->is_header == 1 && !best.is_header)
-	{
-		/* We're a header, and the line before wasn't. Good that we broke there. */
-		return;
-	}
-	if (region.x1 - stats->font_size/2 > bbox.x1)
-	{
-		/* The line above stopped before our right hand edge. Probably an
-		 * indent at the end of a paragraph. Probably not the same block. */
-		return;
-	}
-
-	stats->context_above = MAX_MARGIN - (region.y0 - bbox.y1);
+	stats->context_above_font_size = stats->font_size != 0 ? delta / stats->font_size : 0;
+	stats->context_above_is_header = best.is_header;
+	stats->context_above_outdent = region.x1 - bbox.x1;
+	stats->context_above_indent = bbox.x0 - region.x0;
 }
 
 static void
@@ -773,35 +800,10 @@ contextual_features_below(fz_context *ctx, fz_stext_block *block, fz_rect region
 	size = average_font_size(ctx, best.line, best.end);
 	delta = fabsf(size - stats->font_size);
 	
-	if (delta > stats->font_size * 0.8f)
-	{
-		/* Different average font size. Probably not the same
-		 * block type. */
-		return;
-	}
-	if (stats->is_header == 0 && best.is_header)
-	{
-		/* We're not a header, and the line after was. Good that we broke there. */
-		return;
-	}
-	if (stats->is_header == 1 && !best.is_header)
-	{
-		/* We're a header, and the line after wasn't. Good that we broke there. */
-		return;
-	}
-	if (stats->bottom_right_x + stats->font_size/2 < bbox.x1)
-	{
-		/* Our bottom left stopped before the right hand edge of the following line.
-		 * Probably not the same block. (Think indent at end of paragraph). */
-		 return;
-	}
-	if (bbox.x0 > region.x0 + size)
-	{
-		/* Indent at the start of the line afterwards. Probably a paragraph start. */
-		return;
-	}
-
-	stats->context_below = MAX_MARGIN - (bbox.y0 - region.y1);
+	stats->context_below_font_size = stats->font_size != 0 ? delta / stats->font_size : 0;
+	stats->context_below_is_header = best.is_header;
+	stats->context_below_outdent = bbox.x1 - stats->bottom_right_x;
+	stats->context_below_indent = bbox.x0 - region.x0;
 }
 
 static void
@@ -870,7 +872,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	gather_global_stats(ctx, page->first_block, &stats);
 
 	/* Now collect for the region itself. */
-	gather_region_stats(ctx, page->first_block, region, &stats, 0);
+	gather_region_stats(ctx, page->first_block, region, &stats);
 
 	process_font_stats(ctx, region, &stats);
 
@@ -900,7 +902,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	smargin_b = stats.margin_b / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
 
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%g\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g\n",
 		stats.num_non_numerals,
 		stats.num_numerals,
 		stats.ratio,
@@ -921,8 +923,14 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		smargin_l, smargin_r, smargin_t, smargin_b,
 		stats.dodgy_paragraph_breaks,
 		stats.is_header,
-		stats.context_above,
-		stats.context_below);
+		stats.context_above_font_size,
+		stats.context_above_is_header,
+		stats.context_above_indent,
+		stats.context_above_outdent,
+		stats.context_below_font_size,
+		stats.context_below_is_header,
+		stats.context_below_indent,
+		stats.context_below_outdent);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -1052,8 +1060,14 @@ int main
 	printf(",bottom scaled margin");
 	printf(",dodgy_paragraph_breaks");
 	printf(",is_header");
-	printf(",context_above");
-	printf(",context_below");
+	printf(",context_above_font_size");
+	printf(",context_above_is_header");
+	printf(",context_above_indent");
+	printf(",context_above_outdent");
+	printf(",context_below_font_size");
+	printf(",context_below_is_header");
+	printf(",context_below_indent");
+	printf(",context_below_outdent");
 	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
