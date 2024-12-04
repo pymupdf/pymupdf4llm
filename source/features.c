@@ -239,6 +239,8 @@ typedef struct
 	float context_below_indent;
 	float context_below_outdent;
 	int is_header;
+	int line_bullets;
+	int non_line_bullets;
 } feature_stats;
 
 static void
@@ -295,6 +297,67 @@ struct_is_header(fz_stext_struct *s)
 		s->standard == FZ_STRUCTURE_H4 ||
 		s->standard == FZ_STRUCTURE_H5 ||
 		s->standard == FZ_STRUCTURE_H6;
+}
+
+static int
+is_bullet(int chr)
+{
+	if (chr == '*' ||
+		chr == 0x00B7 || /* Middle Dot */
+		chr == 0x2022 || /* Bullet */
+		chr == 0x2023 || /* Triangular Bullet */
+		chr == 0x2043 || /* Hyphen Bullet */
+		chr == 0x204C || /* Back leftwards bullet */
+		chr == 0x204D || /* Back rightwards bullet */
+		chr == 0x2219 || /* Bullet operator */
+		chr == 0x25C9 || /* Fisheye */
+		chr == 0x25CB || /* White circle */
+		chr == 0x25CF || /* Black circle */
+		chr == 0x25D8 || /* Inverse Bullet */
+		chr == 0x25E6 || /* White Bullet */
+		chr == 0x2619 || /* Reversed Rotated Floral Heart Bullet / Fleuron */
+		chr == 0x261a || /* Black left pointing index */
+		chr == 0x261b || /* Black right pointing index */
+		chr == 0x261c || /* White left pointing index */
+		chr == 0x261d || /* White up pointing index */
+		chr == 0x261e || /* White right pointing index */
+		chr == 0x261f || /* White down pointing index */
+		chr == 0x2765 || /* Rotated Heavy Heart Black Heart Bullet */
+		chr == 0x2767 || /* Rotated Floral Heart Bullet / Fleuron */
+		chr == 0x29BE || /* Circled White Bullet */
+		chr == 0x29BF || /* Circled Bullet */
+		chr == 0x2660 || /* Black Spade suit */
+		chr == 0x2661 || /* White Heart suit */
+		chr == 0x2662 || /* White Diamond suit */
+		chr == 0x2663 || /* Black Club suit */
+		chr == 0x2664 || /* White Spade suit */
+		chr == 0x2665 || /* Black Heart suit */
+		chr == 0x2666 || /* Black Diamond suit */
+		chr == 0x2667 || /* White Clud suit */
+		chr == 0x1F446 || /* WHITE UP POINTING BACKHAND INDEX */
+		chr == 0x1F447 || /* WHITE DOWN POINTING BACKHAND INDEX */
+		chr == 0x1F448 || /* WHITE LEFT POINTING BACKHAND INDEX */
+		chr == 0x1F449 || /* WHITE RIGHT POINTING BACKHAND INDEX */
+		chr == 0x1f597 || /* White down pointing left hand index */
+		chr == 0x1F598 || /* SIDEWAYS WHITE LEFT POINTING INDEX */
+		chr == 0x1F599 || /* SIDEWAYS WHITE RIGHT POINTING INDEX */
+		chr == 0x1F59A || /* SIDEWAYS BLACK LEFT POINTING INDEX */
+		chr == 0x1F59B || /* SIDEWAYS BLACK RIGHT POINTING INDEX */
+		chr == 0x1F59C || /* BLACK LEFT POINTING BACKHAND INDEX */
+		chr == 0x1F59D || /* BLACK RIGHT POINTING BACKHAND INDEX */
+		chr == 0x1F59E || /* SIDEWAYS WHITE UP POINTING INDEX */
+		chr == 0x1F59F || /* SIDEWAYS WHITE DOWN POINTING INDEX */
+		chr == 0x1F5A0 || /* SIDEWAYS BLACK UP POINTING INDEX */
+		chr == 0x1F5A1 || /* SIDEWAYS BLACK DOWN POINTING INDEX */
+		chr == 0x1F5A2 || /* BLACK UP POINTING BACKHAND INDEX */
+		chr == 0x1F5A3 || /* BLACK DOWN POINTING BACKHAND INDEX */
+		chr == 0x1FBC1 || /* LEFT THIRD WHITE RIGHT POINTING INDEX */
+		chr == 0x1FBC2 || /* MIDDLE THIRD WHITE RIGHT POINTING INDEX */
+		chr == 0x1FBC3 || /* RIGHT THIRD WHITE RIGHT POINTING INDEX */
+		0)
+		return 1;
+
+	return 0;
 }
 
 typedef struct
@@ -355,6 +418,9 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 				if (fz_is_valid_rect(intersect))
 				{
 					float m;
+					int char_is_bullet = is_bullet(ch->c);
+
+					stats->non_line_bullets += char_is_bullet;
 
 					if (stats->is_header == -1)
 						stats->is_header = is_header;
@@ -437,6 +503,13 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 						fprintf(stderr, "<maybe_ends_paragraph=%d>", state->maybe_ends_paragraph);
 #endif
 						state->looking_for_space = state->maybe_ends_paragraph;
+
+						stats->line_bullets += char_is_bullet;
+						stats->non_line_bullets -= char_is_bullet;
+						/* HACK: We count an unknown char as a bullet if it's the first thing on
+						 * a line. */
+						if (ch->c == 0xFFFD)
+							stats->line_bullets++;
 					}
 					/* Otherwise if we're in the same line... */
 					else if (line->bbox.y1 < stats->bottom_right_y + stats->bottom_right_height/2)
@@ -902,7 +975,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	smargin_b = stats.margin_b / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
 
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d\n",
 		stats.num_non_numerals,
 		stats.num_numerals,
 		stats.ratio,
@@ -930,7 +1003,9 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		stats.context_below_font_size,
 		stats.context_below_is_header,
 		stats.context_below_indent,
-		stats.context_below_outdent);
+		stats.context_below_outdent,
+		stats.line_bullets,
+		stats.non_line_bullets);
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
@@ -1068,6 +1143,8 @@ int main
 	printf(",context_below_is_header");
 	printf(",context_below_indent");
 	printf(",context_below_outdent");
+	printf(",line_bullets");
+	printf(",non_line_bullets");
 	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
