@@ -238,6 +238,8 @@ typedef struct
 	int context_below_is_header;
 	float context_below_indent;
 	float context_below_outdent;
+	int context_below_bullet;
+	int context_header_differs;
 	int is_header;
 	int line_bullets;
 	int non_line_bullets;
@@ -877,6 +879,7 @@ contextual_features_below(fz_context *ctx, fz_stext_block *block, fz_rect region
 	stats->context_below_is_header = best.is_header;
 	stats->context_below_outdent = bbox.x1 - stats->bottom_right_x;
 	stats->context_below_indent = bbox.x0 - region.x0;
+	stats->context_below_bullet = (best.line && best.line->first_char ? is_bullet(best.line->first_char->c) : 0);
 }
 
 static void
@@ -952,21 +955,14 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	/* Now we scan again, to try to make contextual features. */
 	contextual_features_above(ctx, page->first_block, region, &stats);
 	contextual_features_below(ctx, page->first_block, region, &stats);
+	stats.context_header_differs = stats.is_header != stats.context_above_is_header || stats.is_header != stats.context_below_is_header;
 
 	stats.top_left_x -= x0;
 	if (stats.top_left_x < 0)
-	{
-		/* We should only ever be negative by a rounding error. */
-		assert(stats.top_left_x > -0.01);
 		stats.top_left_x = 0;
-	}
 	stats.bottom_right_x = x1 - stats.bottom_right_x;
 	if (stats.bottom_right_x < 0)
-	{
-		/* We should only ever be negative by a rounding error. */
-		assert(stats.bottom_right_x > -0.01);
 		stats.bottom_right_x = 0;
-	}
 
 	/* Calculate some synthetic features */
 	smargin_l = stats.margin_l / (stats.font_size != 0 ? stats.font_size : 12);
@@ -975,7 +971,7 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	smargin_b = stats.margin_b / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
 
 	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d\n",
+	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d\n",
 		stats.num_non_numerals,
 		stats.num_numerals,
 		stats.ratio,
@@ -1004,6 +1000,8 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 		stats.context_below_is_header,
 		stats.context_below_indent,
 		stats.context_below_outdent,
+		stats.context_below_bullet,
+		stats.context_header_differs,
 		stats.line_bullets,
 		stats.non_line_bullets);
 
@@ -1143,6 +1141,8 @@ int main
 	printf(",context_below_is_header");
 	printf(",context_below_indent");
 	printf(",context_below_outdent");
+	printf(",context_below_bullet");
+	printf(",context_header_differs");
 	printf(",line_bullets");
 	printf(",non_line_bullets");
 	printf("\n");
