@@ -29,6 +29,7 @@ typedef struct
 	font_freq_t *list;
 } font_freq_list;
 
+#if 0
 static int feq(float a, float b)
 {
 	a -= b;
@@ -36,6 +37,7 @@ static int feq(float a, float b)
 		a = -a;
 	return (a < 0.01);
 }
+#endif
 
 static void
 font_freq_push(fz_context *ctx, font_freq_list *list, fz_font *font, float size)
@@ -254,7 +256,6 @@ gather_global_stats(fz_context *ctx, fz_stext_block *block, feature_stats *stats
 	for (; block != NULL; block = block->next)
 	{
 		fz_stext_line *line;
-		int first_char = 1;
 
 		if (block->type == FZ_STEXT_BLOCK_STRUCT)
 		{
@@ -769,7 +770,6 @@ gather_line(fz_context *ctx, best_line *best, fz_rect region)
 {
 	fz_stext_line *start = best->line;
 	fz_stext_line *end = best->line;
-	float lineheight = best->line->bbox.y1 - best->line->bbox.y0;
 	fz_rect bbox = start->bbox;
 
 	while (start->prev)
@@ -926,6 +926,8 @@ process_font_stats(fz_context *ctx, fz_rect region, feature_stats *stats)
 static void
 extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float x1, float y1, int category)
 {
+	float smargin_l, smargin_t, smargin_r, smargin_b;
+	fz_rect region = { x0, y0, x1, y1 };
 	feature_stats stats = { 0 };
 	stats.margin_l = MAX_MARGIN;
 	stats.margin_r = MAX_MARGIN;
@@ -940,9 +942,6 @@ extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float
 	stats.bottom_right_x = x0;
 	stats.bottom_right_y = y0;
 	stats.is_header = -1;
-	float smargin_l, smargin_t, smargin_r, smargin_b;
-
-	fz_rect region = { x0, y0, x1, y1 };
 
 	/* Collect global stats */
 	gather_global_stats(ctx, page->first_block, &stats);
