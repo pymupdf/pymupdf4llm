@@ -1063,6 +1063,7 @@ int main
 	char **line;
 	int i, n, n_headers;
 	char *doc_name = NULL;
+	char *last_doc_name = NULL;
 	fz_document *doc = NULL;
 	fz_stext_page *stext = NULL;
 	char *csvfile;
@@ -1175,7 +1176,7 @@ int main
 
 			fz_try(ctx)
 			{
-				if (doc_name != NULL && strcmp(doc_name, line[0]))
+				if (last_doc_name != NULL && strcmp(last_doc_name, line[0]))
 				{
 					fz_drop_document(ctx, doc);
 					doc = NULL;
@@ -1185,6 +1186,7 @@ int main
 				if (doc_name == NULL)
 				{
 					doc_name = make_prefixed_name(ctx, directory, line[0]);
+					last_doc_name = doc_name + strlen(doc_name) - strlen(line[0]);
 					doc = fz_open_document(ctx, doc_name);
 					last_page_num = -1;
 				}
