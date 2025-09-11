@@ -985,21 +985,6 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 	stats->smargin_t = stats->margin_t / (stats->line_space != 0 ? fabs(stats->line_space) : 1.2f * (stats->font_size != 0 ? stats->font_size : 12));
 	stats->smargin_b = stats->margin_b / (stats->line_space != 0 ? fabs(stats->line_space) : 1.2f * (stats->font_size != 0 ? stats->font_size : 12));
 
-#if 0
-	fprintf(stderr, "1 0 0 setrgbcolor\n");
-	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		region.x0-stats->margin_l, region.y0, region.x0, region.y0, region.x0, region.y1, region.x0-stats->margin_l, region.y1, region.x0-stats->margin_l, region.y0);
-	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		region.x1, region.y0, region.x1+stats->margin_r, region.y0, region.x1+stats->margin_r, region.y1, region.x1, region.y1, region.x1, region.y0);
-	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		region.x0, region.y0, region.x1, region.y0, region.x1, region.y0-stats->margin_t, region.x0, region.y0-stats->margin_t, region.x0, region.y0);
-	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		region.x0, region.y1, region.x1, region.y1, region.x1, region.y1+stats->margin_b, region.x0, region.y1+stats->margin_b, region.x0, region.y1);
-	fprintf(stderr, "0 1 0 setrgbcolor\n");
-	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		region.x0, region.y0, region.x1, region.y0, region.x1, region.y1, region.x0, region.y1, region.x0, region.y0);
-#endif
-
 	return stats;
 }
 

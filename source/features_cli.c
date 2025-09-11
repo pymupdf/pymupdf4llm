@@ -240,6 +240,22 @@ int main
 					stats->context_header_differs,
 					stats->line_bullets,
 					stats->non_line_bullets);
+
+#if 0
+				fprintf(stderr, "1 0 0 setrgbcolor\n");
+				fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
+					region.x0-stats->margin_l, region.y0, region.x0, region.y0, region.x0, region.y1, region.x0-stats->margin_l, region.y1, region.x0-stats->margin_l, region.y0);
+				fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
+					region.x1, region.y0, region.x1+stats->margin_r, region.y0, region.x1+stats->margin_r, region.y1, region.x1, region.y1, region.x1, region.y0);
+				fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
+					region.x0, region.y0, region.x1, region.y0, region.x1, region.y0-stats->margin_t, region.x0, region.y0-stats->margin_t, region.x0, region.y0);
+				fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
+					region.x0, region.y1, region.x1, region.y1, region.x1, region.y1+stats->margin_b, region.x0, region.y1+stats->margin_b, region.x0, region.y1);
+				fprintf(stderr, "0 1 0 setrgbcolor\n");
+				fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
+					region.x0, region.y0, region.x1, region.y0, region.x1, region.y1, region.x0, region.y1, region.x0, region.y0);
+#endif
+
 			}
 			fz_catch(ctx)
 				// ignore error and continue
