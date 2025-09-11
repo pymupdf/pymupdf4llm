@@ -288,7 +288,6 @@ int main
 	char *csvfile;
 	FILE *infile;
 	fz_stext_options options = { FZ_STEXT_ACCURATE_BBOXES };
-	char **csv;
 	int page_num, last_page_num = -1;
 	region_list regions = { 0 };
 	const char *directory = NULL;
@@ -316,7 +315,7 @@ int main
 		return 1;
 	}
 
-	csv = csv_read_line(infile, &n_headers);
+	csv_read_line(infile, &n_headers);
 	if (n_headers < 6)
 	{
 		fprintf(stderr, "Malformed line\n");
