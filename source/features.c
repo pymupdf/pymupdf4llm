@@ -2,7 +2,7 @@
 //
 // This software may only be used under license.
 
-#include "mupdf/fitz.h"
+#include "features.h"
 
 #include "csv.h"
 #include "utils.h"
@@ -28,6 +28,27 @@ typedef struct
 	int len;
 	font_freq_t *list;
 } font_freq_list;
+
+struct fz_features
+{
+	fz_feature_stats stats;
+	font_freq_list fonts;
+	font_freq_list linespaces;
+	font_freq_list region_fonts;
+	font_freq_list region_linespaces;
+	fz_stext_page *page;
+	int num_chars;
+	int font_size_n;
+	int fonts_mode;
+	int linespaces_mode;
+	int rfonts_mode;
+	int rlinespaces_mode;
+	float top_left_y;
+	float top_left_height;
+	float bottom_right_y;
+	float bottom_right_height;
+	float max_right_indent;
+};
 
 #if 0
 static int feq(float a, float b)
@@ -187,68 +208,8 @@ font_freq_drop(fz_context *ctx, font_freq_list *list)
 	list->max = list->len = 0;
 }
 
-typedef struct
-{
-	font_freq_list fonts;
-	font_freq_list linespaces;
-	font_freq_list region_fonts;
-	font_freq_list region_linespaces;
-	int num_non_numerals;
-	int num_numerals;
-	int num_chars;
-	float char_space;
-	int char_space_n;
-	float line_space;
-	fz_rect last_char_rect;
-	int first_char;
-	float last_baseline;
-	int first_line;
-	float font_size;
-	int font_size_n;
-	int fonts_mode;
-	int linespaces_mode;
-	int rfonts_mode;
-	int rlinespaces_mode;
-	int fonts_offset;
-	int linespaces_offset;
-	int num_underlines;
-	float ratio;
-	float margin_l;
-	float margin_r;
-	float margin_t;
-	float margin_b;
-	float imargin_l;
-	float imargin_r;
-	float imargin_t;
-	float imargin_b;
-	float top_left_x;
-	float top_left_y;
-	float top_left_height;
-	float bottom_right_x;
-	float bottom_right_y;
-	float bottom_right_height;
-	int num_lines;
-	int dodgy_paragraph_breaks;
-	float max_non_first_left_indent;
-	float max_non_last_right_indent;
-	float max_right_indent;
-	float context_above_font_size;
-	int context_above_is_header;
-	float context_above_indent;
-	float context_above_outdent;
-	float context_below_font_size;
-	int context_below_is_header;
-	float context_below_indent;
-	float context_below_outdent;
-	int context_below_bullet;
-	int context_header_differs;
-	int is_header;
-	int line_bullets;
-	int non_line_bullets;
-} feature_stats;
-
 static void
-gather_global_stats(fz_context *ctx, fz_stext_block *block, feature_stats *stats)
+gather_global_stats(fz_context *ctx, fz_stext_block *block, fz_features *features)
 {
 	int first_line = 1;
 	float last_baseline;
@@ -260,7 +221,7 @@ gather_global_stats(fz_context *ctx, fz_stext_block *block, feature_stats *stats
 		if (block->type == FZ_STEXT_BLOCK_STRUCT)
 		{
 			if (block->u.s.down)
-				gather_global_stats(ctx, block->u.s.down->first_block, stats);
+				gather_global_stats(ctx, block->u.s.down->first_block, features);
 			continue;
 		}
 		else if (block->type != FZ_STEXT_BLOCK_TEXT)
@@ -275,13 +236,13 @@ gather_global_stats(fz_context *ctx, fz_stext_block *block, feature_stats *stats
 				float threshold_line_change = line->first_char->size/4;
 				float line_space = baseline - last_baseline;
 				if (line_space > threshold_line_change || line_space < -threshold_line_change)
-					font_freq_push(ctx, &stats->linespaces, NULL, line_space);
+					font_freq_push(ctx, &features->linespaces, NULL, line_space);
 			}
 			first_line = 0;
 			last_baseline = baseline;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
 			{
-				font_freq_push(ctx, &stats->fonts, ch->font, ch->size);
+				font_freq_push(ctx, &features->fonts, ch->font, ch->size);
 			}
 		}
 	}
@@ -383,9 +344,12 @@ typedef struct
 } gather_state;
 
 static void
-gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats, gather_state *state, int is_header)
+gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_features *features, gather_state *state, int is_header)
 {
-	stats->first_line = 1;
+	fz_feature_stats *stats = &features->stats;
+	float last_baseline;
+
+	int first_line = 1;
 	for (; block != NULL; block = block->next)
 	{
 		fz_stext_line *line;
@@ -395,7 +359,7 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 			if (block->u.s.down != NULL)
 			{
 				int hdr = is_header || struct_is_header(block->u.s.down);
-				gather_region_stats_aux(ctx, block->u.s.down->first_block, region, stats, state, hdr);
+				gather_region_stats_aux(ctx, block->u.s.down->first_block, region, features, state, hdr);
 			}
 			continue;
 		}
@@ -436,16 +400,16 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 						stats->is_header = 2; /* mixed */
 					}
 
-					if (!stats->first_line && newline)
+					if (!first_line && newline)
 					{
 						float threshold_line_change = ch->size/4;
-						float line_space = baseline - stats->last_baseline;
+						float line_space = baseline - last_baseline;
 						if (line_space > threshold_line_change || line_space < -threshold_line_change)
-							font_freq_push(ctx, &stats->region_linespaces, NULL, line_space);
+							font_freq_push(ctx, &features->region_linespaces, NULL, line_space);
 						newline = 0;
 					}
-					stats->first_line = 0;
-					stats->last_baseline = baseline;
+					first_line = 0;
+					last_baseline = baseline;
 
 					/* To calculate the indents at top left/bottom right, we need to
 					 * look at line y0/y1, not char y0/y1, because otherwise alternating
@@ -455,36 +419,36 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 					/* If we find a line higher than we've found before (by at least
 					 * half the lineheight, to avoid silly effects), recalculate our
 					 * top_left_corner. */
-					if (line->bbox.y0 < stats->top_left_y - stats->top_left_height/2)
+					if (line->bbox.y0 < features->top_left_y - features->top_left_height/2)
 					{
-						stats->top_left_y = line->bbox.y0;
-						stats->top_left_height = line->bbox.y1 - line->bbox.y0;
+						features->top_left_y = line->bbox.y0;
+						features->top_left_height = line->bbox.y1 - line->bbox.y0;
 						stats->top_left_x = char_rect.x0;
 					}
 					/* Otherwise if we're in the same line, and x is less, take that. */
-					else if (line->bbox.y0 < stats->top_left_y + stats->top_left_height/2 && char_rect.x0 < stats->top_left_x)
+					else if (line->bbox.y0 < features->top_left_y + features->top_left_height/2 && char_rect.x0 < stats->top_left_x)
 					{
 						stats->top_left_x = char_rect.x0;
 					}
 
 					/* If we find a line lower than we've found before (by at least
 					 * half the lineheight, to avoid silly effects)... */
-					if (line->bbox.y1 > stats->bottom_right_y + stats->bottom_right_height/2)
+					if (line->bbox.y1 > features->bottom_right_y + features->bottom_right_height/2)
 					{
 #ifdef DEBUG_CHARS
 						fprintf(stderr, "<newline>");
 #endif
 						/* recalculate our bottom right corner */
-						stats->bottom_right_y = line->bbox.y1;
-						stats->bottom_right_height = line->bbox.y1 - line->bbox.y0;
+						features->bottom_right_y = line->bbox.y1;
+						features->bottom_right_height = line->bbox.y1 - line->bbox.y0;
 						stats->bottom_right_x = char_rect.x1;
 						/* Increment the number of lines, and prepare the indents. */
 						stats->num_lines++;
 						if (stats->num_lines > 1 && stats->max_non_first_left_indent < line->bbox.x0 - region.x0)
 							stats->max_non_first_left_indent = line->bbox.x0 - region.x0;
-						if (stats->max_right_indent > stats->max_non_last_right_indent)
-							stats->max_non_last_right_indent = stats->max_right_indent;
-						stats->max_right_indent = region.x1 - line->bbox.x1;
+						if (features->max_right_indent > stats->max_non_last_right_indent)
+							stats->max_non_last_right_indent = features->max_right_indent;
+						features->max_right_indent = region.x1 - line->bbox.x1;
 
 
 						state->prev_physical_line_gap = state->prev_line_gap;
@@ -515,13 +479,13 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 							stats->line_bullets++;
 					}
 					/* Otherwise if we're in the same line... */
-					else if (line->bbox.y1 < stats->bottom_right_y + stats->bottom_right_height/2)
+					else if (line->bbox.y1 < features->bottom_right_y + features->bottom_right_height/2)
 					{
 						/* if x is greater, take that. */
 						if (char_rect.x1 > stats->bottom_right_x)
 							stats->bottom_right_x = char_rect.x1;
 						/* shrink the right ident we've found so far on this line. */
-						stats->max_right_indent = region.x1 - line->bbox.x1;
+						features->max_right_indent = region.x1 - line->bbox.x1;
 					}
 
 #ifdef DEBUG_CHARS
@@ -578,7 +542,7 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 					}
 
 
-					stats->num_chars++;
+					features->num_chars++;
 					if (!state->first_char)
 					{
 						stats->char_space_n++;
@@ -591,10 +555,10 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 					if (ch->flags & FZ_STEXT_UNDERLINE)
 						stats->num_underlines++;
 
-					font_freq_push(ctx, &stats->region_fonts, ch->font, ch->size);
+					font_freq_push(ctx, &features->region_fonts, ch->font, ch->size);
 
 					stats->font_size += ch->size;
-					stats->font_size_n++;
+					features->font_size_n++;
 
 					/* Allow for chars that overlap the edge */
 					/* Bit of a hack this. The coords are fed into this program accurate to 3
@@ -666,14 +630,16 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 }
 
 static void
-gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats)
+gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_features *features)
 {
 	gather_state state = { 0 };
 
 	state.space = 99999;
 	state.first_char = 1;
 
-	gather_region_stats_aux(ctx, block, region, stats, &state, 0);
+	gather_region_stats_aux(ctx, block, region, features, &state, 0);
+
+	features->stats.num_fonts_in_region = features->region_fonts.len;
 }
 
 typedef struct
@@ -823,7 +789,7 @@ average_font_size(fz_context *ctx, fz_stext_line *start, fz_stext_line *end)
 }
 
 static void
-contextual_features_above(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats)
+contextual_features_above(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_feature_stats *stats)
 {
 	best_line best = { 0 };
 	fz_rect bbox;
@@ -853,7 +819,7 @@ contextual_features_above(fz_context *ctx, fz_stext_block *block, fz_rect region
 }
 
 static void
-contextual_features_below(fz_context *ctx, fz_stext_block *block, fz_rect region, feature_stats *stats)
+contextual_features_below(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_feature_stats *stats)
 {
 	best_line best = { 0 };
 	fz_rect bbox;
@@ -883,357 +849,157 @@ contextual_features_below(fz_context *ctx, fz_stext_block *block, fz_rect region
 }
 
 static void
-process_font_stats(fz_context *ctx, fz_rect region, feature_stats *stats)
+process_global_font_stats(fz_context *ctx, fz_rect region, fz_features *features)
 {
+	fz_feature_stats *stats = &features->stats;
+
 	if (stats->char_space_n)
 		stats->char_space /= stats->char_space_n;
 
-	stats->ratio = stats->num_chars / ((region.x1-region.x0) * (region.y1-region.y0));
-	if (stats->font_size_n)
-		stats->font_size /= stats->font_size_n;
+	stats->ratio = features->num_chars / ((region.x1-region.x0) * (region.y1-region.y0));
+	if (features->font_size_n)
+		stats->font_size /= features->font_size_n;
 
-	font_freq_common(ctx, &stats->fonts, 0.5);
-	font_freq_common(ctx, &stats->linespaces, 0.5);
-	font_freq_common(ctx, &stats->region_fonts, 0.5);
-	font_freq_common(ctx, &stats->region_linespaces, 0.5);
+	font_freq_common(ctx, &features->fonts, 0.5);
+	font_freq_common(ctx, &features->linespaces, 0.5);
+
+	features->fonts_mode = font_freq_mode(ctx, &features->fonts);
+	features->linespaces_mode = font_freq_mode(ctx, &features->linespaces);
+}
+
+static void
+process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features)
+{
+	fz_feature_stats *stats = &features->stats;
+
+	font_freq_common(ctx, &features->region_fonts, 0.5);
+	font_freq_common(ctx, &features->region_linespaces, 0.5);
 
 	stats->fonts_offset = 0;
-	stats->fonts_mode = font_freq_mode(ctx, &stats->fonts);
-	if (stats->fonts_mode != -1)
+	if (features->fonts_mode != -1)
 	{
-		stats->rfonts_mode = font_freq_mode(ctx, &stats->region_fonts);
-		if (stats->rfonts_mode != -1)
-			stats->fonts_offset = font_freq_closest(ctx, &stats->fonts, stats->region_fonts.list[stats->rfonts_mode].font, stats->region_fonts.list[stats->rfonts_mode].size) - stats->fonts_mode;
+		features->rfonts_mode = font_freq_mode(ctx, &features->region_fonts);
+		if (features->rfonts_mode != -1)
+			stats->fonts_offset = font_freq_closest(ctx, &features->fonts, features->region_fonts.list[features->rfonts_mode].font, features->region_fonts.list[features->rfonts_mode].size) - features->fonts_mode;
 	}
 	stats->linespaces_offset = 0;
-	stats->linespaces_mode = font_freq_mode(ctx, &stats->linespaces);
 	stats->line_space = 0;
-	if (stats->linespaces_mode != -1)
+	if (features->linespaces_mode != -1)
 	{
-		stats->rlinespaces_mode = font_freq_mode(ctx, &stats->region_linespaces);
-		if (stats->rlinespaces_mode != -1)
+		features->rlinespaces_mode = font_freq_mode(ctx, &features->region_linespaces);
+		if (features->rlinespaces_mode != -1)
 		{
-			stats->line_space = stats->region_linespaces.list[stats->rlinespaces_mode].size;
-			stats->linespaces_offset = font_freq_closest(ctx, &stats->linespaces, NULL, stats->line_space);
-			stats->linespaces_offset -= stats->linespaces_mode;
+			stats->line_space = features->region_linespaces.list[features->rlinespaces_mode].size;
+			stats->linespaces_offset = font_freq_closest(ctx, &features->linespaces, NULL, stats->line_space);
+			stats->linespaces_offset -= features->linespaces_mode;
 		}
 	}
 
 	/* Horrible, but will turn region_fonts into a list of the unique fonts in this region. */
-	font_freq_common(ctx, &stats->region_fonts, 100000);
+	font_freq_common(ctx, &features->region_fonts, 100000);
 }
 
-static void
-extract_features(fz_context *ctx, fz_stext_page *page, float x0, float y0, float x1, float y1, int category)
+fz_features *
+fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 {
-	float smargin_l, smargin_t, smargin_r, smargin_b;
-	fz_rect region = { x0, y0, x1, y1 };
-	feature_stats stats = { 0 };
-	stats.margin_l = MAX_MARGIN;
-	stats.margin_r = MAX_MARGIN;
-	stats.margin_t = MAX_MARGIN;
-	stats.margin_b = MAX_MARGIN;
-	stats.imargin_l = MAX_MARGIN;
-	stats.imargin_r = MAX_MARGIN;
-	stats.imargin_t = MAX_MARGIN;
-	stats.imargin_b = MAX_MARGIN;
-	stats.top_left_x = x1;
-	stats.top_left_y = y1;
-	stats.bottom_right_x = x0;
-	stats.bottom_right_y = y0;
-	stats.is_header = -1;
+	fz_features *features = NULL;
+
+	fz_var(features);
+
+	fz_try(ctx)
+	{
+		features = fz_malloc_struct(ctx, fz_features);
+		features->page = page;
+		page = NULL;
+	}
+	fz_always(ctx)
+	{
+		fz_drop_stext_page(ctx, page);
+	}
+	fz_catch(ctx)
+	{
+		fz_rethrow(ctx);
+	}
 
 	/* Collect global stats */
-	gather_global_stats(ctx, page->first_block, &stats);
+	gather_global_stats(ctx, features->page->first_block, features);
+	process_global_font_stats(ctx, features->page->mediabox, features);
+
+	return features;
+}
+
+void
+fz_drop_page_features(fz_context *ctx, fz_features *features)
+{
+	if (features == NULL)
+		return;
+
+	font_freq_drop(ctx, &features->fonts);
+	font_freq_drop(ctx, &features->region_fonts);
+	font_freq_drop(ctx, &features->linespaces);
+	font_freq_drop(ctx, &features->region_linespaces);
+
+	fz_drop_stext_page(ctx, features->page);
+
+	fz_free(ctx, features);
+}
+
+fz_feature_stats *
+fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, int category)
+{
+	fz_feature_stats *stats = &features->stats;
+	fz_stext_page *page = features->page;
+	stats->margin_l = MAX_MARGIN;
+	stats->margin_r = MAX_MARGIN;
+	stats->margin_t = MAX_MARGIN;
+	stats->margin_b = MAX_MARGIN;
+	stats->imargin_l = MAX_MARGIN;
+	stats->imargin_r = MAX_MARGIN;
+	stats->imargin_t = MAX_MARGIN;
+	stats->imargin_b = MAX_MARGIN;
+	stats->top_left_x = region.x1;
+	features->top_left_y = region.y1;
+	stats->bottom_right_x = region.x0;
+	features->bottom_right_y = region.y0;
+	stats->is_header = -1;
 
 	/* Now collect for the region itself. */
-	gather_region_stats(ctx, page->first_block, region, &stats);
-
-	process_font_stats(ctx, region, &stats);
+	gather_region_stats(ctx, page->first_block, region, features);
+	process_region_font_stats(ctx, region, features);
 
 	/* Now we scan again, to try to make contextual features. */
-	contextual_features_above(ctx, page->first_block, region, &stats);
-	contextual_features_below(ctx, page->first_block, region, &stats);
-	stats.context_header_differs = stats.is_header != stats.context_above_is_header || stats.is_header != stats.context_below_is_header;
+	contextual_features_above(ctx, page->first_block, region, &features->stats);
+	contextual_features_below(ctx, page->first_block, region, &features->stats);
+	stats->context_header_differs = stats->is_header != stats->context_above_is_header || stats->is_header != stats->context_below_is_header;
 
-	stats.top_left_x -= x0;
-	if (stats.top_left_x < 0)
-		stats.top_left_x = 0;
-	stats.bottom_right_x = x1 - stats.bottom_right_x;
-	if (stats.bottom_right_x < 0)
-		stats.bottom_right_x = 0;
+	stats->top_left_x -= region.x0;
+	if (stats->top_left_x < 0)
+		stats->top_left_x = 0;
+	stats->bottom_right_x = region.x1 - stats->bottom_right_x;
+	if (stats->bottom_right_x < 0)
+		stats->bottom_right_x = 0;
 
 	/* Calculate some synthetic features */
-	smargin_l = stats.margin_l / (stats.font_size != 0 ? stats.font_size : 12);
-	smargin_r = stats.margin_r / (stats.font_size != 0 ? stats.font_size : 12);
-	smargin_t = stats.margin_t / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
-	smargin_b = stats.margin_b / (stats.line_space != 0 ? fabs(stats.line_space) : 1.2f * (stats.font_size != 0 ? stats.font_size : 12));
-
-	/* Output the result */
-	printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d\n",
-		stats.num_non_numerals,
-		stats.num_numerals,
-		stats.ratio,
-		stats.char_space,
-		stats.line_space,
-		stats.font_size,
-		stats.region_fonts.len,
-		stats.margin_l, stats.margin_r, stats.margin_t, stats.margin_b,
-		stats.imargin_l, stats.imargin_r, stats.imargin_t, stats.imargin_b,
-		stats.fonts_offset,
-		stats.linespaces_offset,
-		stats.num_underlines,
-		stats.top_left_x,
-		stats.bottom_right_x,
-		stats.num_lines,
-		stats.max_non_first_left_indent,
-		stats.max_non_last_right_indent,
-		smargin_l, smargin_r, smargin_t, smargin_b,
-		stats.dodgy_paragraph_breaks,
-		stats.is_header,
-		stats.context_above_font_size,
-		stats.context_above_is_header,
-		stats.context_above_indent,
-		stats.context_above_outdent,
-		stats.context_below_font_size,
-		stats.context_below_is_header,
-		stats.context_below_indent,
-		stats.context_below_outdent,
-		stats.context_below_bullet,
-		stats.context_header_differs,
-		stats.line_bullets,
-		stats.non_line_bullets);
+	stats->smargin_l = stats->margin_l / (stats->font_size != 0 ? stats->font_size : 12);
+	stats->smargin_r = stats->margin_r / (stats->font_size != 0 ? stats->font_size : 12);
+	stats->smargin_t = stats->margin_t / (stats->line_space != 0 ? fabs(stats->line_space) : 1.2f * (stats->font_size != 0 ? stats->font_size : 12));
+	stats->smargin_b = stats->margin_b / (stats->line_space != 0 ? fabs(stats->line_space) : 1.2f * (stats->font_size != 0 ? stats->font_size : 12));
 
 #if 0
 	fprintf(stderr, "1 0 0 setrgbcolor\n");
 	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		x0-margin_l, y0, x0, y0, x0, y1, x0-margin_l, y1, x0-margin_l, y0);
+		region.x0-stats->margin_l, region.y0, region.x0, region.y0, region.x0, region.y1, region.x0-stats->margin_l, region.y1, region.x0-stats->margin_l, region.y0);
 	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		x1, y0, x1+margin_r, y0, x1+margin_r, y1, x1, y1, x1, y0);
+		region.x1, region.y0, region.x1+stats->margin_r, region.y0, region.x1+stats->margin_r, region.y1, region.x1, region.y1, region.x1, region.y0);
 	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		x0, y0, x1, y0, x1, y0-margin_t, x0, y0-margin_t, x0, y0);
+		region.x0, region.y0, region.x1, region.y0, region.x1, region.y0-stats->margin_t, region.x0, region.y0-stats->margin_t, region.x0, region.y0);
 	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		x0, y1, x1, y1, x1, y1+margin_b, x0, y1+margin_b, x0, y1);
+		region.x0, region.y1, region.x1, region.y1, region.x1, region.y1+stats->margin_b, region.x0, region.y1+stats->margin_b, region.x0, region.y1);
 	fprintf(stderr, "0 1 0 setrgbcolor\n");
 	fprintf(stderr, "%g %g moveto %g %g lineto %g %g lineto %g %g lineto %g %g lineto stroke\n",
-		x0, y0, x1, y0, x1, y1, x0, y1, x0, y0);
+		region.x0, region.y0, region.x1, region.y0, region.x1, region.y1, region.x0, region.y1, region.x0, region.y0);
 #endif
 
-	font_freq_drop(ctx, &stats.fonts);
-	font_freq_drop(ctx, &stats.region_fonts);
-	font_freq_drop(ctx, &stats.linespaces);
-	font_freq_drop(ctx, &stats.region_linespaces);
+	return stats;
 }
 
-static int
-usage(void)
-{
-	fprintf(stderr,
-		"usage: features [options] csvfile\n"
-		"\t-d -\tThe directory to load PDF files from\n"
-		"\n"
-		"The CSV file should start with a header line, and each line\n"
-		"should contain at least 6 fields:\n"
-		" - PDF filename\n"
-		" - Page number\n"
-		" - minimum x coordinate for region\n"
-		" - minimum u coordinate for region\n"
-		" - maximum x coordinate for region\n"
-		" - maximum y coordinate for region\n"
-		" - class (ignored, passed through unchanged)\n"
-		" - score (ignored, passed through unchanged)\n"
-		" - order (ignored, passed through unchanged)\n"
-		" Any other fields are passed through unchanged\n"
-		"\n"
-		"The updated CSV is written to stdout. Each line from the input\n"
-		"is output with feature details appended.\n"
-		);
-	return 1;
-}
-
-#ifdef _MSC_VER
-static int main_char
-#else
-int main
-#endif
-(int argc, char *argv[])
-{
-	int c;
-	fz_context *ctx;
-	char **line;
-	int i, n, n_headers;
-	char *doc_name = NULL;
-	char *last_doc_name = NULL;
-	fz_document *doc = NULL;
-	fz_stext_page *stext = NULL;
-	char *csvfile;
-	FILE *infile;
-	fz_stext_options options = { FZ_STEXT_ACCURATE_BBOXES | FZ_STEXT_SEGMENT | FZ_STEXT_PARAGRAPH_BREAK };
-	char **csv;
-	int page_num, last_page_num = -1;
-	const char *directory = NULL;
-
-	fz_var(doc);
-
-	while ((c = fz_getopt(argc, argv, "d:")) != -1)
-	{
-		switch (c)
-		{
-		case 'd': directory = fz_optarg; break;
-		default: return usage();
-		}
-	}
-
-	if (fz_optind == argc)
-		return usage();
-
-	csvfile = argv[fz_optind];
-
-	infile = fopen(csvfile, "r");
-	if (infile == NULL)
-	{
-		fprintf(stderr, "Can't read %s\n", csvfile);
-		return 1;
-	}
-
-	csv = csv_read_line(infile, &n_headers);
-	if (n_headers < 6)
-	{
-		fprintf(stderr, "Malformed line\n");
-		return 1;
-	}
-	for (i = 0; i < n_headers; i++)
-		printf("%s,", csv[i]);
-	printf("num non-numeral chars in area");
-	printf(",num numeral chars");
-	printf(",ratio of chars to area");
-	printf(",avg char space");
-	printf(",avg line space");
-	printf(",avg font size");
-	printf(",num fonts in area");
-	printf(",left margin");
-	printf(",right margin");
-	printf(",top margin");
-	printf(",bottom margin");
-	printf(",left inner margin");
-	printf(",right inner margin");
-	printf(",top inner margin");
-	printf(",bottom inner margin");
-	printf(",font offset from most popular font");
-	printf(",linespace offset from most popular linespace");
-	printf(",num underlined chars");
-	printf(",top left indent");
-	printf(",bottom right indent");
-	printf(",num lines");
-	printf(",max non first left indent");
-	printf(",max non last right indent");
-	printf(",left scaled margin");
-	printf(",right scaled margin");
-	printf(",top scaled margin");
-	printf(",bottom scaled margin");
-	printf(",dodgy_paragraph_breaks");
-	printf(",is_header");
-	printf(",context_above_font_size");
-	printf(",context_above_is_header");
-	printf(",context_above_indent");
-	printf(",context_above_outdent");
-	printf(",context_below_font_size");
-	printf(",context_below_is_header");
-	printf(",context_below_indent");
-	printf(",context_below_outdent");
-	printf(",context_below_bullet");
-	printf(",context_header_differs");
-	printf(",line_bullets");
-	printf(",non_line_bullets");
-	printf("\n");
-
-	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
-	if (!ctx)
-	{
-		fprintf(stderr, "cannot initialise context\n");
-		exit(1);
-	}
-
-	fz_register_document_handlers(ctx);
-
-	fz_var(doc_name);
-	fz_var(doc);
-	fz_var(stext);
-	fz_var(last_page_num);
-
-	fz_try(ctx)
-	{
-		while (!feof(infile))
-		{
-			line = csv_read_line(infile, &n);
-			if (n == 0)
-				continue;
-			if (n != n_headers)
-			{
-				fprintf(stderr, "Malformed line - number of fields (%d) does not match number of headers (%d)\n", n, n_headers);
-				continue;
-			}
-
-			fz_try(ctx)
-			{
-				if (last_doc_name != NULL && strcmp(last_doc_name, line[0]))
-				{
-					fz_drop_document(ctx, doc);
-					doc = NULL;
-					fz_free(ctx, doc_name);
-					doc_name = NULL;
-				}
-				if (doc_name == NULL)
-				{
-					doc_name = make_prefixed_name(ctx, directory, line[0]);
-					last_doc_name = doc_name + strlen(doc_name) - strlen(line[0]);
-					doc = fz_open_document(ctx, doc_name);
-					last_page_num = -1;
-				}
-				page_num = atoi(line[1]);
-				if (page_num != last_page_num)
-				{
-					fz_drop_stext_page(ctx, stext);
-					stext = NULL;
-					last_page_num = -1;
-
-					stext = fz_new_stext_page_from_page_number(ctx, doc, page_num, &options);
-					last_page_num = page_num;
-				}
-
-				for (i = 0; i < n; i++)
-					printf("%s,", line[i]);
-				extract_features(ctx, stext, atof(line[2]), atof(line[3]), atof(line[4]), atof(line[5]), atoi(line[6]));
-			}
-			fz_catch(ctx)
-				// ignore error and continue
-				fz_report_error(ctx);
-		}
-	}
-	fz_always(ctx)
-	{
-		fz_drop_document(ctx, doc);
-		fz_free(ctx, doc_name);
-		fz_drop_stext_page(ctx, stext);
-	}
-	fz_catch(ctx)
-	{
-		fz_report_error(ctx);
-		fprintf(stderr, "Feature extraction failed\n");
-	}
-
-	fz_drop_context(ctx);
-	
-	return 0;
-}
-
-
-#ifdef _MSC_VER
-int wmain(int argc, wchar_t *wargv[])
-{
-	char **argv = fz_argv_from_wargv(argc, wargv);
-	int ret = main_char(argc, argv);
-	fz_free_argv(argc, argv);
-	return ret;
-}
-#endif
