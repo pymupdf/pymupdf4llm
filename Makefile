@@ -93,15 +93,15 @@ LIBTHIRDPARTY = mupdf/$(THEIR_LIBTHIRDPARTY)
 mupdf: $(LIBMUPDF) $(LIBTHIRDPARTY)
 
 $(LIBMUPDF):
-	cd mupdf && make build=$(build) $(THEIR_LIBMUPDF)
+	cd mupdf && make barcode=no build=$(build) $(THEIR_LIBMUPDF)
 $(LIBTHIRDPARTY):
-	cd mupdf && make build=$(build) $(THEIR_THIRDPARTY)
+	cd mupdf && make barcode=no build=$(build) $(THEIR_THIRDPARTY)
 
 # --- File lists ---
 
 UTILS_SRC := source/csv.c source/utils.c
 CANDIDATES_SRC := source/candidates.c
-FEATURES_SRC := source/features.c
+FEATURES_SRC := source/features.c source/features_cli.c
 PICKER_SRC := source/picker.c
 
 UTILS_OBJ := $(UTILS_SRC:%.c=$(OUT)/%.o)
