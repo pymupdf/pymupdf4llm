@@ -6,7 +6,7 @@
 
 #include "csv.h"
 #include "utils.h"
-#include "features.h"
+#include "features_decls.h"
 
 #include <stdio.h>
 static int

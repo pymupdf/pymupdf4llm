@@ -2,7 +2,8 @@
 //
 // This software may only be used under license.
 
-#include "features.h"
+// features.h is a special header with gcc.
+#include "features_decls.h"
 
 #include "csv.h"
 #include "utils.h"
@@ -82,7 +83,7 @@ font_freq_push(fz_context *ctx, font_freq_list *list, fz_font *font, float size)
 		int newmax = list->max * 2;
 		if (newmax == 0)
 			newmax = 32;
-		list->list = fz_realloc(ctx, list->list, newmax * sizeof(list->list[0]));
+		list->list = (font_freq_t*) fz_realloc(ctx, list->list, newmax * sizeof(list->list[0]));
 		list->max = newmax;
 	}
 

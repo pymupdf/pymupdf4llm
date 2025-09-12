@@ -7,6 +7,10 @@
 
 #include "mupdf/fitz.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct
 {
 	int num_non_numerals;
@@ -61,5 +65,9 @@ fz_features *fz_new_page_features(fz_context *ctx, fz_stext_page *page);
 void fz_drop_page_features(fz_context *ctx, fz_features *features);
 
 fz_feature_stats *fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, int category);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MUPDF_FITZ_FEATURES_H */
