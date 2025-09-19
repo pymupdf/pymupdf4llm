@@ -611,6 +611,8 @@ def to_markdown(
             all_strikeout = all([s["char_flags"] & 1 for s in spans])
             # full line italic?
             all_italic = all([s["flags"] & 2 for s in spans])
+            # full line underline?
+            all_underline = all([s["char_flags"] & 2 for s in spans])
             # full line bold?
             all_bold = all([(s["flags"] & 16) or (s["char_flags"] & 8) for s in spans])
             # full line mono-spaced?
@@ -627,6 +629,8 @@ def to_markdown(
                     text = "_" + text + "_"
                 if all_bold:
                     text = "**" + text + "**"
+                if all_underline:
+                    text = "___" + text + "___"
                 if all_strikeout:
                     text = "~~" + text + "~~"
                 if hdr_string != prev_hdr_string:
@@ -684,6 +688,7 @@ def to_markdown(
                 mono = s["flags"] & 8
                 bold = s["flags"] & 16 or s["char_flags"] & 8
                 italic = s["flags"] & 2
+                underline = s["char_flags"] & 2
                 strikeout = s["char_flags"] & 1
 
                 prefix = ""
@@ -697,6 +702,9 @@ def to_markdown(
                 if italic:
                     prefix = "_" + prefix
                     suffix += "_"
+                if underline:
+                    prefix = "___" + prefix
+                    suffix += "___"
                 if strikeout:
                     prefix = "~~" + prefix
                     suffix += "~~"
