@@ -360,6 +360,12 @@ def to_markdown(
         min_table_cols: (int, 2) minimum number of columns for a table to be included.
 
     """
+    # Validate min_table_rows and min_table_cols parameters
+    if not isinstance(min_table_rows, int) or min_table_rows < 1:
+        raise ValueError("min_table_rows must be a positive integer (>= 1)")
+    if not isinstance(min_table_cols, int) or min_table_cols < 1:
+        raise ValueError("min_table_cols must be a positive integer (>= 1)")
+
     if write_images is False and embed_images is False and force_text is False:
         raise ValueError("Image and text on images cannot both be suppressed.")
     if embed_images is True:
