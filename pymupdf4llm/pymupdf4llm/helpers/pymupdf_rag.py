@@ -329,6 +329,8 @@ def to_markdown(
     show_progress=False,
     use_glyphs=False,
     ignore_alpha=False,
+    min_table_rows=2,
+    min_table_cols=2,
 ) -> str:
     """Process the document and return the text of the selected pages.
 
@@ -354,6 +356,8 @@ def to_markdown(
         show_progress: (bool, False) print progress as each page is processed.
         use_glyphs: (bool, False) replace the Invalid Unicode by glyph numbers.
         ignore_alpha: (bool, True) ignore text with alpha = 0 (transparent).
+        min_table_rows: (int, 2) minimum number of rows for a table to be included.
+        min_table_cols: (int, 2) minimum number of columns for a table to be included.
 
     """
     if write_images is False and embed_images is False and force_text is False:
@@ -929,7 +933,7 @@ def to_markdown(
         return nwords
 
     def get_page_output(
-        doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS
+        doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS, min_table_rows, min_table_cols
     ):
         """Process one page.
 
@@ -1036,7 +1040,7 @@ def to_markdown(
             tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
             for t in tabs.tables:
                 # remove tables with too few rows or columns
-                if t.row_count < 2 or t.col_count < 2:
+                if t.row_count < min_table_rows or t.col_count < min_table_cols:
                     omitted_table_rects.append(pymupdf.Rect(t.bbox))
                     continue
                 parms.tabs.append(t)
@@ -1200,7 +1204,7 @@ def to_markdown(
         pages = ProgressBar(pages)
     for pno in pages:
         parms = get_page_output(
-            doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS
+            doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS, min_table_rows, min_table_cols
         )
         if page_chunks is False:
             document_output += parms.md_string
