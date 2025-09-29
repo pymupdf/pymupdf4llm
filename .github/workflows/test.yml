@@ -1,0 +1,57 @@
+name: Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      args:
+        default: ''
+        description: 'Arguments to be passed to scripts/test.py.'
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # 2025-06-04: windows-latest known to fail to build mupdf - see
+        # https://github.com/actions/runner-images/issues/12316
+        #
+        os: [
+                ubuntu-latest,
+                windows-2022,
+                macos-13,
+                macos-14,
+                ]
+
+      # Avoid cancelling of all runs after a single failure.
+      fail-fast: false
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+
+      # https://github.com/pypa/cibuildwheel/issues/2114
+      # https://cibuildwheel.pypa.io/en/stable/faq/#emulation
+      #
+      - name: Set up QEMU
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+      
+      - name: test
+        env:
+          PYMUPDFLAYOUT_test_args: ${{inputs.args}}
+        run:
+          python scripts/test.py -a PYMUPDFLAYOUT_test_args
+      
+      # Upload generated wheels, to be accessible from github Actions page.
+      # We include pymupdf wheels in case `-p <pymupdf>` was specified.
+      #
+      - uses: actions/upload-artifact@v4
+        with:
+          path: ./wheelhouse/pymupdf*.whl
+          name: artifact-${{ matrix.os }}
