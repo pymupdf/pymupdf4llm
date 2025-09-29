@@ -215,7 +215,7 @@ def sdist():
 # Define PyMuPDFPro package.
 #
 p = pipcl.Package(
-        'pymupdflayout',
+        'pymupdf-layout',
         g_version,
         requires_dist = [
                 f'PyMuPDF=={g_pymupdf_version}' if g_pymupdf_version else None,
