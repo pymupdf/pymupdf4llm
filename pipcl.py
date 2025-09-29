@@ -532,6 +532,12 @@ class Package:
         assert_str_or_multi( requires_external)
         assert_str_or_multi( project_url)
         assert_str_or_multi( provides_extra)
+        
+        assert re.match('^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])\\Z', name, re.IGNORECASE), (
+                f'Invalid package name'
+                f' (https://packaging.python.org/en/latest/specifications/name-normalization/)'
+                f': {name!r}'
+                )
 
         # https://packaging.python.org/en/latest/specifications/core-metadata/.
         assert re.match('([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$', name, re.IGNORECASE), \
@@ -761,7 +767,7 @@ class Package:
             else:
                 items = self.fn_sdist()
 
-        prefix = f'{_normalise(self.name)}-{self.version}'
+        prefix = f'{_normalise2(self.name)}-{self.version}'
         os.makedirs(sdist_directory, exist_ok=True)
         tarpath = f'{sdist_directory}/{prefix}.tar.gz'
         log2(f'Creating sdist: {tarpath}')
@@ -833,9 +839,11 @@ class Package:
         Get two-digit python version, e.g. 'cp3.8' for python-3.8.6.
         '''
         if self.tag_python_:
-            return self.tag_python_
+            ret = self.tag_python_
         else:
-            return 'cp' + ''.join(platform.python_version().split('.')[:2])
+            ret = 'cp' + ''.join(platform.python_version().split('.')[:2])
+        assert '-' not in ret
+        return ret
 
     def tag_abi(self):
         '''
@@ -891,10 +899,13 @@ class Package:
                 ret = ret2
 
         log0( f'tag_platform(): returning {ret=}.')
+        assert '-' not in ret
         return ret
 
     def wheel_name(self):
-        return f'{_normalise(self.name)}-{self.version}-{self.tag_python()}-{self.tag_abi()}-{self.tag_platform()}.whl'
+        ret = f'{_normalise2(self.name)}-{self.version}-{self.tag_python()}-{self.tag_abi()}-{self.tag_platform()}.whl'
+        assert ret.count('-') == 4, f'Expected 4 dash characters in {ret=}.'
+        return ret
 
     def wheel_name_match(self, wheel):
         '''
@@ -923,7 +934,7 @@ class Package:
                 log2(f'py_limited_api; {tag_python=} compatible with {self.tag_python()=}.')
                 py_limited_api_compatible = True
             
-        log2(f'{_normalise(self.name) == name=}')
+        log2(f'{_normalise2(self.name) == name=}')
         log2(f'{self.version == version=}')
         log2(f'{self.tag_python() == tag_python=} {self.tag_python()=} {tag_python=}')
         log2(f'{py_limited_api_compatible=}')
@@ -932,7 +943,7 @@ class Package:
         log2(f'{self.tag_platform()=}')
         log2(f'{tag_platform.split(".")=}')
         ret = (1
-                and _normalise(self.name) == name
+                and _normalise2(self.name) == name
                 and self.version == version
                 and (self.tag_python() == tag_python or py_limited_api_compatible)
                 and self.tag_abi() == tag_abi
@@ -1059,7 +1070,7 @@ class Package:
         it writes to a slightly different directory.
         '''
         if root is None:
-            root = f'{self.name}-{self.version}.dist-info'
+            root = f'{normalise2(self.name)}-{self.version}.dist-info'
         self._write_info(f'{root}/METADATA')
         if self.license:
             with open( f'{root}/COPYING', 'w') as f:
@@ -1347,7 +1358,7 @@ class Package:
             )
 
     def _dist_info_dir( self):
-        return f'{_normalise(self.name)}-{self.version}.dist-info'
+        return f'{_normalise2(self.name)}-{self.version}.dist-info'
 
     def _metainfo(self):
         '''
@@ -1487,7 +1498,7 @@ class Package:
             to_ = f'{self._dist_info_dir()}/{to_[ len(prefix):]}'
         prefix = '$data/'
         if to_.startswith( prefix):
-            to_ = f'{self.name}-{self.version}.data/{to_[ len(prefix):]}'
+            to_ = f'{_normalise2(self.name)}-{self.version}.data/{to_[ len(prefix):]}'
         if isinstance(from_, str):
             from_, _ = self._path_relative_to_root( from_, assert_within_root=False)
         to_ = self._path_relative_to_root(to_)
@@ -2794,6 +2805,11 @@ def _fs_mtime( filename, default=0):
 def _normalise(name):
     # https://packaging.python.org/en/latest/specifications/name-normalization/#name-normalization
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _normalise2(name):
+    # https://packaging.python.org/en/latest/specifications/binary-distribution-format/
+    return _normalise(name).replace('-', '_')
 
 
 def _assert_version_pep_440(version):
