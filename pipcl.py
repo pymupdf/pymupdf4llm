@@ -2,19 +2,32 @@
 Python packaging operations, including PEP-517 support, for use by a `setup.py`
 script.
 
-The intention is to take care of as many packaging details as possible so that
-setup.py contains only project-specific information, while also giving as much
-flexibility as possible.
+Overview:
 
-For example we provide a function `build_extension()` that can be used to build
-a SWIG extension, but we also give access to the located compiler/linker so
-that a `setup.py` script can take over the details itself.
+    The intention is to take care of as many packaging details as possible so
+    that setup.py contains only project-specific information, while also giving
+    as much flexibility as possible.
 
-Run doctests with: `python -m doctest pipcl.py`
+    For example we provide a function `build_extension()` that can be used
+    to build a SWIG extension, but we also give access to the located
+    compiler/linker so that a `setup.py` script can take over the details
+    itself.
 
-For Graal we require that PIPCL_GRAAL_PYTHON is set to non-graal Python (we
-build for non-graal except with Graal Python's include paths and library
-directory).
+Doctests:
+    Doctest strings are provided in some comments.
+
+    Test in the usual way with:
+        python -m doctest pipcl.py
+
+    Test specific functions/classes with:
+        python pipcl.py --doctest run_if ...
+
+        If no functions or classes are specified, this tests everything.
+
+Graal:
+    For Graal we require that PIPCL_GRAAL_PYTHON is set to non-graal Python (we
+    build for non-graal except with Graal Python's include paths and library
+    directory).
 '''
 
 import base64
@@ -2580,7 +2593,7 @@ def _cpu_name():
     return f'x{32 if sys.maxsize == 2**31 - 1 else 64}'
 
 
-def run_if( command, out, *prerequisites):
+def run_if( command, out, *prerequisites, caller=1):
     '''
     Runs a command only if the output file is not up to date.
 
@@ -2610,21 +2623,26 @@ def run_if( command, out, *prerequisites):
         ...     os.remove( out)
         >>> if os.path.exists( f'{out}.cmd'):
         ...     os.remove( f'{out}.cmd')
-        >>> run_if( f'touch {out}', out)
+        >>> run_if( f'touch {out}', out, caller=0)
         pipcl.py:run_if(): Running command because: File does not exist: 'run_if_test_out'
         pipcl.py:run_if(): Running: touch run_if_test_out
         True
 
     If we repeat, the output file will be up to date so the command is not run:
 
-        >>> run_if( f'touch {out}', out)
+        >>> run_if( f'touch {out}', out, caller=0)
         pipcl.py:run_if(): Not running command because up to date: 'run_if_test_out'
 
     If we change the command, the command is run:
 
-        >>> run_if( f'touch  {out}', out)
-        pipcl.py:run_if(): Running command because: Command has changed
-        pipcl.py:run_if(): Running: touch  run_if_test_out
+        >>> run_if( f'touch {out};', out, caller=0)
+        pipcl.py:run_if(): Running command because: Command has changed:
+        pipcl.py:run_if():     @@ -1,2 +1,2 @@
+        pipcl.py:run_if():      touch
+        pipcl.py:run_if():     -run_if_test_out
+        pipcl.py:run_if():     +run_if_test_out;
+        pipcl.py:run_if(): 
+        pipcl.py:run_if(): Running: touch run_if_test_out;
         True
 
     If we add a prerequisite that is newer than the output, the command is run:
@@ -2633,15 +2651,20 @@ def run_if( command, out, *prerequisites):
         >>> prerequisite = 'run_if_test_prerequisite'
         >>> run( f'touch {prerequisite}', caller=0)
         pipcl.py:run(): Running: touch run_if_test_prerequisite
-        >>> run_if( f'touch  {out}', out, prerequisite)
-        pipcl.py:run_if(): Running command because: Prerequisite is new: 'run_if_test_prerequisite'
+        >>> run_if( f'touch  {out}', out, prerequisite, caller=0)
+        pipcl.py:run_if(): Running command because: Command has changed:
+        pipcl.py:run_if():     @@ -1,2 +1,2 @@
+        pipcl.py:run_if():      touch
+        pipcl.py:run_if():     -run_if_test_out;
+        pipcl.py:run_if():     +run_if_test_out
+        pipcl.py:run_if(): 
         pipcl.py:run_if(): Running: touch  run_if_test_out
         True
 
     If we repeat, the output will be newer than the prerequisite, so the
     command is not run:
 
-        >>> run_if( f'touch  {out}', out, prerequisite)
+        >>> run_if( f'touch  {out}', out, prerequisite, caller=0)
         pipcl.py:run_if(): Not running command because up to date: 'run_if_test_out'
     '''
     doit = False
@@ -2698,9 +2721,9 @@ def run_if( command, out, *prerequisites):
         for p in prerequisites:
             prerequisites_all += _make_prerequisites( p)
         if 0:
-            log2( 'prerequisites_all:')
+            log2( 'prerequisites_all:', caller=caller+1)
             for i in  prerequisites_all:
-                log2( f'    {i!r}')
+                log2( f'    {i!r}', caller=caller+1)
         pre_mtime = 0
         pre_path = None
         for prerequisite in prerequisites_all:
@@ -2726,16 +2749,16 @@ def run_if( command, out, *prerequisites):
             os.remove( cmd_path)
         except Exception:
             pass
-        log1( f'Running command because: {doit}', caller=2)
+        log1( f'Running command because: {doit}', caller=caller+1)
 
-        run( command, caller=2)
+        run( command, caller=caller+1)
 
         # Write the command we ran, into `cmd_path`.
         with open( cmd_path, 'w') as f:
             f.write( command)
         return True
     else:
-        log1( f'Not running command because up to date: {out!r}', caller=2)
+        log1( f'Not running command because up to date: {out!r}', caller=caller+1)
 
     if 0:
         log2( f'out_mtime={time.ctime(out_mtime)} pre_mtime={time.ctime(pre_mtime)}.'
@@ -3245,7 +3268,15 @@ if __name__ == '__main__':
     # graal_legacy_python_config is true.
     #
     includes, ldflags = sysconfig_python_flags()
-    if sys.argv[1:] == ['--graal-legacy-python-config', '--includes']:
+    if sys.argv[1] == '--doctest':
+        import doctest
+        if sys.argv[2:]:
+            for f in sys.argv[2:]:
+                ff = globals()[f]
+                doctest.run_docstring_examples(ff, globals())
+        else:
+            doctest.testmod(None)
+    elif sys.argv[1:] == ['--graal-legacy-python-config', '--includes']:
         print(includes)
     elif sys.argv[1:] == ['--graal-legacy-python-config', '--ldflags']:
         print(ldflags)
