@@ -1,5 +1,5 @@
-import pymupdf.layout
+import pymupdf.features
 
 def test_simple():
-    l = pymupdf.layout.features_test('foo')
+    l = pymupdf.features.features_test('foo')
     assert l == 3
