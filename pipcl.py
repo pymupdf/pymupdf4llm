@@ -335,63 +335,86 @@ class Package:
             wheel_compresslevel = None,
             ):
         '''
-        The initial args before `root` define the package
-        metadata and closely follow the definitions in:
+        The initial args before `entry_points` define the
+        package metadata and closely follow the definitions in:
         https://packaging.python.org/specifications/core-metadata/
 
         Args:
 
             name:
+                Used for metadata `Name`.
                 A string, the name of the Python package.
             version:
+                Used for metadata `Version`.
                 A string, the version of the Python package. Also see PEP-440
                 `Version Identification and Dependency Specification`.
             platform:
+                Used for metadata `Platform`.
                 A string or list of strings.
             supported_platform:
+                Used for metadata `Supported-Platform`.
                 A string or list of strings.
             summary:
+                Used for metadata `Summary`.
                 A string, short description of the package.
             description:
+                Used for metadata `Description`.
                 A string. If contains newlines, a detailed description of the
                 package. Otherwise the path of a file containing the detailed
                 description of the package.
             description_content_type:
+                Used for metadata `Description-Content-Type`.
                 A string describing markup of `description` arg. For example
                 `text/markdown; variant=GFM`.
             keywords:
+                Used for metadata `Keywords`.
                 A string containing comma-separated keywords.
             home_page:
+                Used for metadata `Home-page`.
                 URL of home page.
             download_url:
+                Used for metadata `Download-URL`.
                 Where this version can be downloaded from.
             author:
+                Used for metadata `Author`.
                 Author.
             author_email:
+                Used for metadata `Author-email`.
                 Author email.
             maintainer:
+                Used for metadata `Maintainer`.
                 Maintainer.
             maintainer_email:
+                Used for metadata `Maintainer-email`.
                 Maintainer email.
             license:
+                Used for metadata `License`.
                 A string containing the license text. Written into metadata
                 file `COPYING`. Is also written into metadata itself if not
                 multi-line.
             classifier:
+                Used for metadata `Classifier`.
                 A string or list of strings. Also see:
 
                 * https://pypi.org/pypi?%3Aaction=list_classifiers
                 * https://pypi.org/classifiers/
 
             requires_dist:
-                A string or list of strings. None items are ignored. Also see PEP-508.
+                Used for metadata `Requires-Dist`.
+                A string or list of strings, Python packages required
+                at runtime. None items are ignored.
             requires_python:
+                Used for metadata `Requires-Python`.
                 A string or list of strings.
             requires_external:
+                Used for metadata `Requires-External`.
                 A string or list of strings.
             project_url:
-                A string or list of strings, each of the form: `{name}, {url}`.
+                Used for metadata `Project-URL`.
+                A string or list of strings, each of the form: `{name},
+                {url}`.
             provides_extra:
+                Used for metadata `Provides-Extra`.
                 A string or list of strings.
 
             entry_points:
