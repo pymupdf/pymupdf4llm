@@ -169,7 +169,7 @@ def build():
         linker_extra = None
     
     sharedlibrary_leaf = pipcl.build_extension(
-            'layout',
+            'features',
             f'{root}/source/features.i',
             source_extra=f'{root}/source/features.c',
             outdir=build_dir,
@@ -199,11 +199,12 @@ def build():
     #
     to_dir = 'pymupdf/'
     ret = [
-            (f'{build_dir}/layout.py', to_dir),
-            (f'{build_dir}/{sharedlibrary_leaf}', to_dir),
-            (build_py.encode(), f'{to_dir}/_layout_build.py'),
+            (f'{build_dir}/features.py', f'{to_dir}/'),
+            (f'{build_dir}/{sharedlibrary_leaf}', f'{to_dir}/'),
+            (build_py.encode(), f'{to_dir}/_features_build.py'),
             ]
-            
+    for p in pipcl.git_items(f'{g_root}/source/layout'):
+        ret.append( (f'{g_root}/source/layout/{p}', f'{to_dir}/layout/'))
     return ret
 
 
@@ -219,6 +220,10 @@ p = pipcl.Package(
         g_version,
         requires_dist = [
                 f'PyMuPDF=={g_pymupdf_version}' if g_pymupdf_version else None,
+                'pyyaml',
+                'numpy',
+                'onnxruntime',
+                'networkx',
                 ],
         summary = 'Commercial extension for PyMuPDF',
         description = 'README.md',
