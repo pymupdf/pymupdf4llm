@@ -1,6 +1,6 @@
 %{
-
-#include <stdio.h>
+#include "mupdf/classes.h"
+#include "mupdf/internal.h"
 
 #include "features_decls.h"
 
@@ -13,7 +13,21 @@ int features_test(const char* t)
     return strlen(t);
 }
 
+fz_feature_stats fz_features_for_region(mupdf::FzStextPage& stext_page, mupdf::FzRect region, int category)
+{
+    fz_context* ctx = mupdf::internal_context_get();
+    fz_features* features = fz_new_page_features(ctx, stext_page.m_internal);
+    fz_feature_stats* feature_stats = fz_features_for_region(ctx, features, *region.internal(), category);
+    fz_feature_stats feature_stats_ret = *feature_stats;
+    fz_drop_page_features(ctx, features);
+    return feature_stats_ret;
+}
+
 %}
 
-#include <stdio.h>
+%include "features_decls.h"
+
 int features_test(const char* t);
+
+/* Python-friendly wrapper for fz_features_for_region(). */
+fz_feature_stats fz_features_for_region(mupdf::FzStextPage& stext_page, mupdf::FzRect region, int category);
