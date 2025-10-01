@@ -199,12 +199,15 @@ def build():
     #
     to_dir = 'pymupdf/'
     ret = [
-            (f'{build_dir}/features.py', f'{to_dir}/'),
-            (f'{build_dir}/{sharedlibrary_leaf}', f'{to_dir}/'),
-            (build_py.encode(), f'{to_dir}/_features_build.py'),
+            (f'{build_dir}/features.py', to_dir),
+            (f'{build_dir}/{sharedlibrary_leaf}', to_dir),
+            (build_py.encode(), f'{to_dir}_features_build.py'),
             ]
     for p in pipcl.git_items(f'{g_root}/source/layout'):
-        ret.append( (f'{g_root}/source/layout/{p}', f'{to_dir}/layout/'))
+        ret.append( (f'{g_root}/source/layout/{p}', f'{to_dir}layout/{p}'))
+    
+    for f, t in ret:
+        log(f'    {f=} {t=}')
     return ret
 
 
