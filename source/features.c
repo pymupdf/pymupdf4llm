@@ -907,25 +907,20 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 
 	fz_var(features);
 
+	features = fz_malloc_struct(ctx, fz_features);
+	features->page = fz_keep_stext_page(ctx, page);
+
 	fz_try(ctx)
 	{
-		features = fz_malloc_struct(ctx, fz_features);
-		features->page = page;
-		page = NULL;
-	}
-	fz_always(ctx)
-	{
-		fz_drop_stext_page(ctx, page);
+	    /* Collect global stats */
+	    gather_global_stats(ctx, features->page->first_block, features);
+	    process_global_font_stats(ctx, features->page->mediabox, features);
 	}
 	fz_catch(ctx)
 	{
+		fz_drop_page_features(ctx, features);
 		fz_rethrow(ctx);
 	}
-
-	/* Collect global stats */
-	gather_global_stats(ctx, features->page->first_block, features);
-	process_global_font_stats(ctx, features->page->mediabox, features);
-
 	return features;
 }
 
