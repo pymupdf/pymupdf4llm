@@ -182,6 +182,7 @@ def build():
             linker_extra=linker_extra,
             py_limited_api=1,
             debug=(SCE_SETUP_BUILD_TYPE == 'debug'),
+            optimise=(SCE_SETUP_BUILD_TYPE != 'debug'),
             )
     
     # Create text for _layout_build.py with build-time information.
