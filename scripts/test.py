@@ -32,6 +32,10 @@ Parameters:
         * Does nothing if <env_name> is unset.
         * Useful when running via Github action.
     
+    -b <build>
+        Set build type for `build` commands. `<build>` should be one of
+        'release', 'debug', 'memento'.
+    
     -m <mupdf>
         Specify mupdf location.
     
@@ -54,6 +58,12 @@ Parameters:
     
     -t <pytest_args>
         Extra pytest args.
+    
+    -T <prefix>
+        Use specified prefix when running pytest, must be one of:
+            gdb
+            helgrind
+            valgrind
     
     -v <venv>
         0
@@ -89,10 +99,12 @@ def main():
     commands = list()
     env_extra = dict()
     
+    build_type = None
     mupdf = None
     os_names = list()
     pymupdf = None
     pytest_args = None
+    pytest_prefix = None
     sync_paths = False
     
     venv = 2
@@ -113,6 +125,18 @@ def main():
             _args = shlex.split(_value) + list(args)
             args = iter(_args)
         
+        elif arg == '-b':
+            build_type = next(args)
+            assert build_type in ('release', 'debug', 'memento')
+            env_extra['PYMUPDF_SETUP_MUPDF_BUILD_TYPE'] = build_type
+            env_extra['SCE_SETUP_BUILD_TYPE'] = build_type
+        
+        elif arg == '-e':
+            _nv = next(args)
+            assert '=' in _nv, f'-e <name>=<value> does not contain "=": {_nv!r}'
+            _name, _value = _nv.split('=', 1)
+            env_extra[_name] = _value
+        
         elif arg == '-m':
             mupdf = next(args)
         
@@ -124,6 +148,11 @@ def main():
         
         elif arg == '-t':
             pytest_args = next(args)
+        
+        elif arg == '-T':
+            pytest_prefix = next(args)
+            assert pytest_prefix in ('gdb', 'helgrind', 'valgrind'), \
+                    f'Unrecognised {pytest_prefix=}, should be one of: gdb valgrind helgrind.'
         
         elif arg == '-v':
             venv = int(next(args))
@@ -213,10 +242,56 @@ def main():
         
         elif command == 'test':
             pipcl.run(f'pip install -U pytest')
-            command = f'pytest {g_root}/tests'
+            
+            command = ''
+            
+            if pytest_prefix is None:
+                pass
+            elif pytest_prefix == 'gdb':
+                command += 'gdb --args '
+            elif pytest_prefix == 'valgrind':
+                env_extra['PYMUPDF_RUNNING_ON_VALGRIND'] = '1'
+                env_extra['PYTHONMALLOC'] = 'malloc'
+                command += (
+                        f'valgrind'
+                        f' --suppressions={pymupdf_dir_abs}/valgrind.supp'
+                        f' --trace-children=no'
+                        f' --num-callers=20'
+                        f' --error-exitcode=100'
+                        f' --errors-for-leak-kinds=none'
+                        f' --fullpath-after='
+                        f' '
+                        )
+            elif pytest_prefix == 'helgrind':
+                env_extra['PYMUPDF_RUNNING_ON_VALGRIND'] = '1'
+                env_extra['PYTHONMALLOC'] = 'malloc'
+                command = (
+                        f'valgrind'
+                        f' --tool=helgrind'
+                        f' --trace-children=no'
+                        f' --num-callers=20'
+                        f' --error-exitcode=100'
+                        f' --fullpath-after='
+                        f' '
+                        )
+            else:
+                assert 0, f'Unrecognised {pytest_prefix=}'
+            
+            command += f'python -m pytest {g_root}/tests'
+            
+            if not pytest_args and pytest_prefix == 'valgrind':
+                pytest_args = '-sv'
             if pytest_args:
                 command += f' {pytest_args}'
-            pipcl.run(command)
+            
+            if pytest_prefix in ('valgrind', 'helgrind'):
+                if 1:
+                    log('Installing valgrind.')
+                    run(f'sudo apt update')
+                    run(f'sudo apt install --upgrade valgrind')
+                run(f'valgrind --version')
+
+            pipcl.run(command, env_extra=env_extra)
         
         else:
             assert 0, f'Unrecognised {command=}.'
