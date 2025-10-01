@@ -25,6 +25,13 @@ Example usage:
     scripts/test.py build test
 
 Parameters:
+
+    -a <env_name>
+        Read next space-separated argument(s) from environmental variable
+        <env_name>.
+        * Does nothing if <env_name> is unset.
+        * Useful when running via Github action.
+    
     -m <mupdf>
         Specify mupdf location.
     
@@ -62,7 +69,9 @@ Commands:
 
 import os
 import platform
+import shlex
 import sys
+
 
 g_root_abs = os.path.abspath( f'{__file__}/../..')
 
@@ -97,6 +106,12 @@ def main():
         
         if arg in ('-h', '--help'):
             print(__doc__)
+        
+        elif arg == '-a':
+            _name = next(args)
+            _value = os.environ.get(_name, '')
+            _args = shlex.split(_value) + list(args)
+            args = iter(_args)
         
         elif arg == '-m':
             mupdf = next(args)
