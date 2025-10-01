@@ -8,7 +8,8 @@ def activate():
     import pymupdf
     from . import DocumentLayoutAnalyzer
     from . import onnx
-    CU = onnx.common_util
+    from . import common_util
+    CU = common_util
     MODEL = DocumentLayoutAnalyzer.get_model()
 
     def _get_layout(*args, **kwargs):

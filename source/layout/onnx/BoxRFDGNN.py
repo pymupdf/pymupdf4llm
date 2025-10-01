@@ -6,7 +6,7 @@ import onnxruntime as ort
 
 from pathlib import Path
 
-from layout.common_util import (get_boxes_transform, get_edge_by_directional_nn, get_edge_transform_bbox,
+from ..common_util import (get_boxes_transform, get_edge_by_directional_nn, get_edge_transform_bbox,
                                 get_edge_by_knn,
                                 get_text_pattern, get_edge_matrix, group_node_by_edge_with_networkx_and_class_prior,
                                 extract_bbox_features, resize_image, to_gray)
