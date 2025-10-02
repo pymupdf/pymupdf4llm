@@ -181,7 +181,7 @@ def main():
 
     if os_names:
         if platform.system().lower() not in os_names:
-            log(f'Not running because {platform.system().lower()=} not in {os_names=}')
+            pipcl.log(f'Not running because {platform.system().lower()=} not in {os_names=}')
             return
     
     if commands:
@@ -197,7 +197,7 @@ def main():
                         )
                 sys.exit(e)
     else:
-        log(f'Warning, no commands specified so nothing to do.')
+        pipcl.log(f'Warning, no commands specified so nothing to do.')
     
     for command in commands:
         no_build_isolation = ''
@@ -235,7 +235,7 @@ def main():
             pipcl.run(f'pip install{no_build_isolation} -v {g_root_abs}', env_extra=env_extra, prefix=f'## pip install sce/: ')
         
         elif command == 'wheel':
-            new_files = pipcl.NewFiles(f'wheelhouse/*.whl')
+            new_files = pipcl.NewFiles(f'wheelhouse/pymupdf_layout-*.whl')
             pipcl.run(f'pip wheel{no_build_isolation} -w wheelhouse -v {g_root_abs}', env_extra=env_extra, prefix=f'## pip wheel sce/: ')
             wheel = new_files.get_one()
             pipcl.run(f'pip install {wheel}')
@@ -286,7 +286,7 @@ def main():
             
             if pytest_prefix in ('valgrind', 'helgrind'):
                 if 1:
-                    log('Installing valgrind.')
+                    pipcl.log('Installing valgrind.')
                     run(f'sudo apt update')
                     run(f'sudo apt install --upgrade valgrind')
                 run(f'valgrind --version')
