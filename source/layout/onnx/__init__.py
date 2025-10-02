@@ -127,7 +127,7 @@ class BoxRFDGNN:
 
     def load_onnx_model(self, model_path):
         ort.set_default_logger_severity(3)
-        self.session = ort.InferenceSession(model_path)
+        self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
 
     def predict(self, data_dict, verbose=False):
         import numpy as np
