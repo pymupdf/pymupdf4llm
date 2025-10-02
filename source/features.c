@@ -900,6 +900,10 @@ process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 	font_freq_common(ctx, &features->region_fonts, 100000);
 }
 
+#if FZ_VERSION_MAJOR > 1 || (FZ_VERSION_MAJOR == 1 && FZ_VERSION_MINOR >= 27)
+    #define STEXT_PAGE_IS_REFERENCE_COUNTED
+#endif
+
 fz_features *
 fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 {
@@ -908,8 +912,11 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 	fz_var(features);
 
 	features = fz_malloc_struct(ctx, fz_features);
-	features->page = fz_keep_stext_page(ctx, page);
-
+    #ifdef STEXT_PAGE_IS_REFERENCE_COUNTED
+		features->page = fz_keep_stext_page(ctx, page);
+	#else
+		features->page = page;
+	#endif
 	fz_try(ctx)
 	{
 	    /* Collect global stats */
@@ -934,8 +941,9 @@ fz_drop_page_features(fz_context *ctx, fz_features *features)
 	font_freq_drop(ctx, &features->region_fonts);
 	font_freq_drop(ctx, &features->linespaces);
 	font_freq_drop(ctx, &features->region_linespaces);
-
-	fz_drop_stext_page(ctx, features->page);
+	#ifdef STEXT_PAGE_IS_REFERENCE_COUNTED
+		fz_drop_stext_page(ctx, features->page);
+	#endif
 
 	fz_free(ctx, features);
 }

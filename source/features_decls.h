@@ -60,6 +60,10 @@ typedef struct
 
 typedef struct fz_features fz_features;
 
+/* If mupdf>=1.27 we use fz_keep_stext_page() and
+fz_drop_stext_page(). Otherwise it is caller's responsibility to keep <page>
+alive for the duration of the returned fz_features. */
+
 fz_features *fz_new_page_features(fz_context *ctx, fz_stext_page *page);
 
 void fz_drop_page_features(fz_context *ctx, fz_features *features);
