@@ -2887,6 +2887,9 @@ def log_line_numbers(yes):
     global g_log_line_numbers
     g_log_line_numbers = bool(yes)
 
+def log(text='', caller=1):
+    _log(text, 0, caller+1)
+
 def log0(text='', caller=1):
     _log(text, 0, caller+1)
 
