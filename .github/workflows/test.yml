@@ -49,9 +49,7 @@ jobs:
           python scripts/test.py -a PYMUPDFLAYOUT_test_args
       
       # Upload generated wheels, to be accessible from github Actions page.
-      # We include pymupdf wheels in case `-p <pymupdf>` was specified.
-      #
       - uses: actions/upload-artifact@v4
         with:
-          path: ./wheelhouse/pymupdf*.whl
+          path: ./wheelhouse/pymupdf_layout-*.whl
           name: artifact-${{ matrix.os }}
