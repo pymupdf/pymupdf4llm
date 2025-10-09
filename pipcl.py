@@ -69,6 +69,9 @@ class Package:
     by legacy distutils/setuptools and described in:
     https://pip.pypa.io/en/stable/reference/build-system/setup-py/
 
+    The file pyproject.toml must exist; this is checked if/when fn_build() is
+    called.
+
     Here is a `doctest` example of using pipcl to create a SWIG extension
     module. Requires `swig`.
 
@@ -479,6 +482,11 @@ class Package:
                 default being `sysconfig.get_path('platlib')` e.g.
                 `myvenv/lib/python3.9/site-packages/`.
 
+                When calling this function, we assert that the file
+                pyproject.toml exists in the current directory. (We do this
+                here rather than in pipcl.Package's constructor, as otherwise
+                importing setup.py from non-package-related code could fail.)
+
             fn_clean:
                 A function taking a single arg `all_` that cleans generated
                 files. `all_` is true iff `--all` is in argv.
@@ -497,8 +505,7 @@ class Package:
                 It can be convenient to use `pipcl.git_items()`.
 
                 The specification for sdists requires that the list contains
-                `pyproject.toml`; we enforce this with a diagnostic rather than
-                raising an exception, to allow legacy command-line usage.
+                `pyproject.toml`; we enforce this with a Python assert.
 
             tag_python:
                 First element of wheel tag defined in PEP-425. If None we use
@@ -789,6 +796,7 @@ class Package:
 
         Returns leafname of generated archive within `sdist_directory`.
         '''
+        assert self.fn_sdist, f'fn_sdist() not provided.'
         log2(
                 f' sdist_directory={sdist_directory!r}'
                 f' formats={formats!r}'
@@ -797,11 +805,10 @@ class Package:
         if formats and formats != 'gztar':
             raise Exception( f'Unsupported: formats={formats}')
         items = list()
-        if self.fn_sdist:
-            if inspect.signature(self.fn_sdist).parameters:
-                items = self.fn_sdist(config_settings)
-            else:
-                items = self.fn_sdist()
+        if inspect.signature(self.fn_sdist).parameters:
+            items = self.fn_sdist(config_settings)
+        else:
+            items = self.fn_sdist()
 
         prefix = f'{_normalise2(self.name)}-{self.version}'
         os.makedirs(sdist_directory, exist_ok=True)
@@ -845,12 +852,11 @@ class Package:
                         assert 0, f'Path is inside sdist_directory={sdist_directory}: {from_!r}'
                     assert os.path.exists(from_), f'Path does not exist: {from_!r}'
                     assert os.path.isfile(from_), f'Path is not a file: {from_!r}'
-                    if to_rel == 'pyproject.toml':
-                        found_pyproject_toml = True
                     add(from_, to_rel)
+                if to_rel == 'pyproject.toml':
+                    found_pyproject_toml = True
 
-            if not found_pyproject_toml:
-                log0(f'Warning: no pyproject.toml specified.')
+            assert found_pyproject_toml, f'Cannot create sdist because file not specified: pyproject.toml'
 
             # Always add a PKG-INFO file.
             add_string(self._metainfo(), 'PKG-INFO')
@@ -922,17 +928,7 @@ class Package:
             ret = ret.replace('-', '_').replace('.', '_').lower()
             log0(f'From sysconfig.get_platform(): {ret=}.')
 
-            # We need to patch things on MacOS.
-            #
-            # E.g. `foo-1.2.3-cp311-none-macosx_13_x86_64.whl`
-            # causes `pip` to fail with: `not a supported wheel on this
-            # platform`. We seem to need to add `_0` to the OS version.
-            #
-            m = re.match( '^(macosx_[0-9]+)(_[^0-9].+)$', ret)
-            if m:
-                ret2 = f'{m.group(1)}_0{m.group(2)}'
-                log0(f'After macos patch, changing from {ret!r} to {ret2!r}.')
-                ret = ret2
+            ret = _macos_fixup_platform_tag(ret)
 
         log0( f'tag_platform(): returning {ret=}.')
         assert '-' not in ret
@@ -1001,6 +997,9 @@ class Package:
 
     def _call_fn_build( self, config_settings=None):
         assert self.fn_build
+        assert os.path.isfile('pyproject.toml'), (
+                'Cannot create package because file does not exist: pyproject.toml'
+                )
         log2(f'calling self.fn_build={self.fn_build}')
         if inspect.signature(self.fn_build).parameters:
             ret = self.fn_build(config_settings)
@@ -1008,6 +1007,28 @@ class Package:
             ret = self.fn_build()
         assert isinstance( ret, (list, tuple)), \
                 f'Expected list/tuple from {self.fn_build} but got: {ret!r}'
+
+        # Check that any extensions that we have built, have same
+        # py_limited_api value. If package is marked with py_limited_api=True
+        # then non-py_limited_api extensions seem to fail at runtime on
+        # Windows.
+        #
+        # (We could possibly allow package py_limited_api=False and extensions
+        # py_limited_api=True, but haven't tested this, and it seems simpler to
+        # be strict.)
+        for item in ret:
+            from_, (to_abs, to_rel) = self._fromto(item)
+            from_abs = os.path.abspath(from_)
+            is_py_limited_api = _extensions_to_py_limited_api.get(from_abs)
+            if is_py_limited_api is not None:
+                assert bool(self.py_limited_api) == bool(is_py_limited_api), (
+                        f'Extension was built with'
+                        f' py_limited_api={is_py_limited_api} but pipcl.Package'
+                        f' name={self.name!r} has'
+                        f' py_limited_api={self.py_limited_api}:'
+                        f' {from_abs!r}'
+                        )
+        
         return ret
 
 
@@ -1542,6 +1563,7 @@ class Package:
         log2(f'returning {from_=} {to_=}')
         return from_, to_
 
+_extensions_to_py_limited_api = dict()
 
 def build_extension(
         name,
@@ -1651,6 +1673,11 @@ def build_extension(
             `compile_extra`.
         py_limited_api:
             If true we build for current Python's limited API / stable ABI.
+
+            Note that we will assert false if this extension is added to a
+            pipcl.Package that has a different <py_limited_api>, because
+            on Windows importing a non-py_limited_api extension inside a
+            py_limited=True package fails.
 
     Returns the leafname of the generated library file within `outdir`, e.g.
     `_{name}.so` on Unix or `_{name}.cp311-win_amd64.pyd` on Windows.
@@ -1909,6 +1936,8 @@ def build_extension(
         #run(f'ls -l {path_so}', check=0)
         #run(f'file {path_so}', check=0)
 
+    _extensions_to_py_limited_api[os.path.abspath(path_so)] = py_limited_api
+    
     return path_so_leaf
 
 
@@ -2143,7 +2172,7 @@ def git_get(
             If true, we clone with `--recursive --shallow-submodules` and run
             `git submodule update --init --recursive` before returning.
     '''
-    log0(f'{remote=} {local=} {branch=} {tag=}')
+    log0(f'{remote=} {local=} {branch=} {tag=} {text=}')
     
     if text:
         if text.startswith('git:'):
@@ -2237,6 +2266,8 @@ def run(
         timeout=None,
         caller=1,
         prefix=None,
+        encoding=None,  # System default.
+        errors='backslashreplace',
         ):
     '''
     Runs a command using `subprocess.run()`.
@@ -2292,11 +2323,12 @@ def run(
     lines = _command_lines( command)
     if verbose:
         text = f'Running:'
-        if env_extra:
-            for k in sorted(env_extra.keys()):
-                text += f' {k}={shlex.quote(env_extra[k])}'
-        nl = '\n'
+        nl = '\n    '
         text += f' {nl.join(lines)}'
+        if env_extra:
+            text += f'\nwith:\n'
+            for k in sorted(env_extra.keys()):
+                text += f'    {k}={shlex.quote(env_extra[k])}\n'
         log1(text, caller=caller+1)
     sep = ' ' if windows() else ' \\\n'
     command2 = sep.join( lines)
@@ -2308,29 +2340,30 @@ def run(
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                encoding='utf8',
+                encoding=encoding,
+                errors=errors,
                 env=env,
                 )
         if capture:
             capture_text = ''
-        decoder = codecs.getincrementaldecoder('utf8')('replace')
+        decoder = codecs.getincrementaldecoder(child.stdout.encoding)(errors)
         line_start = True
+        
         while 1:
             raw = os.read( child.stdout.fileno(), 10000)
             text = decoder.decode(raw, final=not raw)
-            if text:
-                if capture:
-                    capture_text += text
-                lines = text.split('\n')
-                for i, line in enumerate(lines):
-                    if line_start:
-                        sys.stdout.write(prefix)
-                        line_start = False
-                    sys.stdout.write(line)
-                    if i < len(lines) - 1:
-                        sys.stdout.write('\n')
-                        line_start = True
-                sys.stdout.flush()
+            if capture:
+                capture_text += text
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                if line_start:
+                    sys.stdout.write(prefix)
+                    line_start = False
+                sys.stdout.write(line)
+                if i < len(lines) - 1:
+                    sys.stdout.write('\n')
+                    line_start = True
+            sys.stdout.flush()
             if not raw:
                 break
         if not line_start:
@@ -2349,7 +2382,8 @@ def run(
                 stdout=subprocess.PIPE if capture else None,
                 stderr=subprocess.STDOUT if capture else None,
                 check=check,
-                encoding='utf8',
+                encoding=encoding,
+                errors=errors,
                 env=env,
                 timeout=timeout,
                 )
@@ -2578,6 +2612,40 @@ def macos_patch( library, *sublibraries):
     subprocess.run( command, shell=1, check=1)
     subprocess.run( f'otool -L {library}', shell=1, check=1)
 
+
+def _macos_fixup_platform_tag(tag):
+    '''
+    Patch up platform tag on MacOS.
+
+    E.g. `foo-1.2.3-cp311-none-macosx_13_x86_64.whl` causes `pip` to fail with:
+    `not a supported wheel on this platform`. We seem to need to add `_0` to
+    the OS version. (This is documented at
+    https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#macos).
+
+    And with graal we need to replace trailing `universal2` with x86_64
+    or arm64. On non-graal this causes problems because non-universal
+    platform tags seem more restricted than platform tags from
+    sysconfig.get_platform(). For example:
+    
+        pip install ...-macosx_10_13_arm64.whl
+            ERROR: ...-macosx_10_13_arm64.whl is not a supported wheel on this platform.
+        pip install ...-macosx_10_13_universal2.whl
+            Ok.
+    '''
+    m = re.match( '^macosx_([0-9_]+)_([^0-9].+)$', tag)
+    if not m:
+        return tag
+    a = m.group(1)
+    if '_' not in a:
+        a += '_0'
+    b = m.group(2)
+    if sys.implementation.name == 'graalpy' and b == 'universal2':
+        # Replace 'universal2' with x86_64 or arm64.
+        b = platform.machine()
+    ret = f'macosx_{a}_{b}'
+    #log0(f'Changing from {tag=} to {ret=}.')
+    return ret
+    
 
 # Internal helpers.
 #
@@ -2901,7 +2969,7 @@ def log2(text='', caller=1):
 
 def _log(text, level, caller):
     '''
-    Logs lines with prefix, if <level> is lower than <g_verbose>.
+    Logs lines with prefix, if <level> is lower or equal to <g_verbose>.
     '''
     if level <= g_verbose:
         fr = inspect.stack(context=0)[caller]
@@ -3163,6 +3231,7 @@ def swig_get(swig, quick, swig_local='pipcl-swig-git'):
             if darwin():
                 run(f'brew install automake')
                 run(f'brew install pcre2')
+                run(f'brew install bison')
                 # Default bison doesn't work, and Brew's bison is not added to $PATH.
                 #
                 # > bison is keg-only, which means it was not symlinked into /opt/homebrew,
@@ -3172,11 +3241,8 @@ def swig_get(swig, quick, swig_local='pipcl-swig-git'):
                 # > If you need to have bison first in your PATH, run:
                 # >   echo 'export PATH="/opt/homebrew/opt/bison/bin:$PATH"' >> ~/.zshrc
                 #
-                run(f'brew install bison')
-                PATH = os.environ['PATH']
-                prefix_bison = run('brew --prefix bison', capture=1).strip()
-                PATH = f'{prefix_bison}/bin:{PATH}'
-                swig_env_extra = dict(PATH=PATH)
+                swig_env_extra = dict()
+                macos_add_brew_path('bison', swig_env_extra)
                 run(f'which bison')
                 run(f'which bison', env_extra=swig_env_extra)
             # Build swig.
@@ -3188,6 +3254,48 @@ def swig_get(swig, quick, swig_local='pipcl-swig-git'):
         return swig_binary
     else:
         return swig
+
+
+def macos_add_brew_path(package, env=None, gnubin=True):
+    '''
+    Adds path(s) for Brew <package>'s binaries to env['PATH'].
+    
+    We assert-fail if the relevant directory does no exist.
+    
+    Args:
+        package:
+            Name of package. We get <package_root> of installed package by
+            running `brew --prefix <package>`.
+        env:
+            The environment dict to modify. If None we use os.environ. If PATH
+            is not in <env>, we first copy os.environ['PATH'] into <env>.
+        gnubin:
+            If true, we also add path to gnu binaries if it exists,
+            <package_root>/libexe/gnubin.
+    '''
+    if not darwin():
+        return
+    if env is None:
+        env = os.environ
+    if 'PATH' not in env:
+        env['PATH'] = os.environ['PATH']
+    package_root = run(f'brew --prefix {package}', capture=1).strip()
+    log(f'{package=} {package_root=}')
+    def add(path):
+        log(f'{path=}')
+        if os.path.isdir(path):
+            log(f'Prepending to $PATH: {path}')
+            PATH = env['PATH']
+            env['PATH'] = f'{path}:{PATH}'
+            return 1
+        else:
+            log(f'Not a directory: {path=}')
+            return 0
+    n = 0
+    n += add(f'{package_root}/bin')
+    if gnubin:
+        n += add(f'{package_root}/libexec/gnubin')
+    assert n, f'Failed to add to $PATH, {package=} {gnubin=}.'
 
 
 def _show_dict(d):
