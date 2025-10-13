@@ -212,12 +212,7 @@ def build():
     return ret
 
 
-def sdist():
-    root = os.path.normpath(f'{__file__}/..')
-    return pipcl.git_items(root)
-
-
-# Define PyMuPDFPro package.
+# Define PyMuPDF-layout package.
 #
 p = pipcl.Package(
         'pymupdf-layout',
@@ -253,7 +248,6 @@ p = pipcl.Package(
         author_email = 'support@artifex.com',
         requires_python = '>=3.9',
         fn_build = build,
-        fn_sdist = sdist,
         py_limited_api = True,
         )
 
