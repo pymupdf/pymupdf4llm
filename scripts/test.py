@@ -23,6 +23,14 @@ Other:
 Example usage:
 
     scripts/test.py build test
+        * Installs pymupdf from pypi.org and builds and installs pymupdf_layout.
+        * Runs tests.
+    
+    scripts/test.py wheel test -p PyMuPDF -m mupdf
+        * Builds pymupdf wheel in wheelhouse/ with specified mupdf, and
+          installs.
+        * Builds pymupdf_layout wheel in wheelhouse/ and installs.
+        * Runs tests.
 
 Parameters:
 
@@ -36,6 +44,20 @@ Parameters:
         Set build type for `build` commands. `<build>` should be one of
         'release', 'debug', 'memento'.
     
+    -i <package>
+        Install miscellaneous package in venv before running any
+        build/test/wheel/cibw commands.  We simply run `pip install
+        <package>`. So for example:
+        
+            -i pymupdf4llm
+                Install pymupdf4llm from pypi.org.
+            
+            -i ./pymupdf4llm
+                Build and install pymupdf4llm from local checkout.
+            
+            -i pymupdf4llm-....whl
+                Install local pymupdf4llm wheel.
+
     -m <mupdf>
         Specify mupdf location.
     
@@ -66,15 +88,26 @@ Parameters:
             valgrind
     
     -v <venv>
-        0
-        1
-        2
-        3
+        venv is:
+        0 - do not use a venv.
+        1 - Use venv. If it already exists, we assume the existing directory
+            was created by us earlier and is a valid venv containing all
+            necessary packages; this saves a little time.
+        2 - Use venv.
+        3 - Use venv but delete it first if it already exists.
+        The default is 2.
 
 Commands:
     build
+        Build and install pymupdf_layout. If `-p` is specified we also build
+        and install pymupdf.
+    cibw
+        Build/test using cibw.
     test
+        Run pytest tests.
     wheel
+        Build (in wheelhouse/) and install pymupdf_layout wheel. If `-p` is
+        specified also build and install a pymupdf wheel.
 '''
 
 import os
@@ -100,6 +133,7 @@ def main():
     env_extra = dict()
     
     build_type = None
+    linux_aarch64 = False
     mupdf = None
     os_names = list()
     pymupdf = None
@@ -157,10 +191,13 @@ def main():
         elif arg == '-v':
             venv = int(next(args))
         
+        elif arg == '--linux-aarch64':
+             linux_aarch64 = int(next(args))
+        
         elif arg == '--sync-paths':
             sync_paths = next(args)
             
-        elif arg in ('build', 'test', 'wheel'):
+        elif arg in ('build', 'cibw', 'test', 'wheel'):
             commands.append(arg)
         
         else:
@@ -220,8 +257,14 @@ def main():
                         branch='main',
                         text=pymupdf,
                         )
-                pipcl.run(f'pip uninstall -y pymupdf', check=0)
-                pipcl.run(f'pip install -v {pymupdf}', env_extra=env_extra, prefix=f'## pip install pymupdf/: ')
+                pipcl.run(f'pip uninstall -y pymupdf', check=0, env_extra=env_extra)
+                if command == 'wheel':
+                    newfiles = pipcl.NewFiles(f'wheelhouse/*.whl')
+                    pipcl.run(f'pip wheel -w wheelhouse -v {pymupdf}', env_extra=env_extra)
+                    pymupdf_wheel = newfiles.get_one()
+                    pipcl.run(f'pip install -v {pymupdf_wheel}', env_extra=env_extra)
+                else:
+                    pipcl.run(f'pip install -v {pymupdf}', env_extra=env_extra, prefix=f'## pip install pymupdf/: ')
                 pipcl.run(f'pip install -v -U swig', env_extra=env_extra, prefix=f'## pip install swig: ')
                 # Tell our setup.py not to return pymupdf from
                 # sce/setup.py:get_requires_for_build_wheel(), or specify it as
@@ -229,16 +272,105 @@ def main():
                 env_extra['SCE_SETUP_BUILD_PYMUPDF'] = '1'
                 no_build_isolation = ' --no-build-isolation'
             
-            pipcl.run(f'pip uninstall -y pymupdfsce', check=0)
+            pipcl.run(f'pip uninstall -y pymupdf_layout', check=0, env_extra=env_extra)
+            if command == 'build':
+                pipcl.run(f'pip install{no_build_isolation} -v {g_root_abs}', env_extra=env_extra, prefix=f'## pip install sce/: ')
+            elif command == 'wheel':
+                new_files = pipcl.NewFiles(f'wheelhouse/pymupdf_layout-*.whl')
+                pipcl.run(f'pip wheel{no_build_isolation} -w wheelhouse -v {g_root_abs}', env_extra=env_extra, prefix=f'## pip wheel sce/: ')
+                wheel = new_files.get_one()
+                pipcl.run(f'pip install {wheel}', env_extra=env_extra)
+                if pymupdf:
+                    pipcl.log(f'## Have built wheel: {pymupdf_wheel}')
+                pipcl.log(f'## Have built wheel: {wheel}')
+            else:
+                assert 0
         
-        if command == 'build':
-            pipcl.run(f'pip install{no_build_isolation} -v {g_root_abs}', env_extra=env_extra, prefix=f'## pip install sce/: ')
-        
-        elif command == 'wheel':
-            new_files = pipcl.NewFiles(f'wheelhouse/pymupdf_layout-*.whl')
-            pipcl.run(f'pip wheel{no_build_isolation} -w wheelhouse -v {g_root_abs}', env_extra=env_extra, prefix=f'## pip wheel sce/: ')
-            wheel = new_files.get_one()
-            pipcl.run(f'pip install {wheel}')
+        elif command == 'cibw':
+            
+            print(f'### Building wheels using cibuildwheel.')
+            
+            # Need to get sot checkout here because (on linux at least)
+            # there is no `ssh` command available inside cibuildwheel's
+            # docker. And we put the sot checkout within PyMuPDFPro/ so that it
+            # is available inside docker.
+            #
+            print(f'Importing setup.py')
+            sys.path.insert(0, g_root)
+            try:
+                import setup
+            finally:
+                del sys.path[0]
+            
+            # Specify python versions.
+            CIBW_BUILD = env_extra.get('CIBW_BUILD')
+            pipcl.log(f'{CIBW_BUILD=}')
+            if CIBW_BUILD is None:
+                if 1 or os.environ.get('GITHUB_ACTIONS') == 'true':
+                    # Build/test all supported Python versions.
+                    # 2025-10-14: we don't attempt to test with python-3.14
+                    # because our prerequisite onnxruntime does not currently
+                    # support it.
+                    if linux_aarch64 and platform.system() == 'Linux':
+                        # Build is slow, and testing all python versions
+                        # overruns Github's 6h timeout.
+                        CIBW_BUILD = 'cp39* cp313*'
+                    else:
+                        CIBW_BUILD = 'cp39* cp310* cp311* cp312* cp313*'
+                else:
+                    # Build/test current Python only.
+                    v = platform.python_version_tuple()[:2]
+                    v = ''.join(v)
+                    pipcl.log(f'{v=}')
+                    CIBW_BUILD = f'cp{v}*'
+            
+            pipcl.run(f'pip install --upgrade cibuildwheel')
+            env_extra['CIBW_BUILD_VERBOSITY'] = '1'
+            # `cp3??t-*` excludes free-threading, which currently fails tests.
+            env_extra['CIBW_SKIP'] = '*i686 *musllinux* *-win32 *-aarch64 cp3??t-*'
+            if linux_aarch64:
+                env_extra['CIBW_ARCHS_LINUX'] = 'aarch64'
+            else:
+                env_extra['CIBW_ARCHS_LINUX'] = 'auto64'
+            env_extra['CIBW_ARCHS_WINDOWS'] = 'auto64'
+            env_extra['CIBW_ARCHS_MACOS'] = 'auto64'
+
+            # Build will run inside a CentOS-7 container; it looks
+            # like we need to install fontconfig-devel so `#include
+            # <fontconfig/fonctconfig.h>` works. And for SO build we need ssh
+            # to allow its git submodule commands.
+            #
+            env_extra['CIBW_BEFORE_BUILD_LINUX'] = (
+                    'echo "installing fontconfig-devel and ssh"'
+                    ' && yum -y install fontconfig-devel'
+                    ' && yum groupinstall -y fonts'
+                    ' && yum install -y openssh-clients'
+                    )
+            
+            # Tell cibuildwheel not to use `auditwheel` on Linux and MacOS,
+            # because it cannot cope with us deliberately having required
+            # libraries in different wheel - specifically in the PyMuPDF or
+            # PyMuPDFb wheel.
+            #
+            # We cannot use a subset of auditwheel's functionality
+            # with `auditwheel addtag` because it says `No tags
+            # to be added` and terminates with non-zero. See:
+            # https://github.com/pypa/auditwheel/issues/439.
+            #
+            env_extra['CIBW_REPAIR_WHEEL_COMMAND_LINUX'] = ''
+            env_extra['CIBW_REPAIR_WHEEL_COMMAND_MACOS'] = ''
+            
+            # Tell cibuildwheel how to test PyMuPDFPro.
+            env_extra['CIBW_TEST_COMMAND'] = f'python {{project}}/scripts/test.py test'
+            
+            # Pass all the environment variables we have set, to Linux
+            # docker. Note that this will miss any settings in the original
+            # environment.
+            env_extra['CIBW_ENVIRONMENT_PASS_LINUX'] = ' '.join(sorted(env_extra.keys()))
+
+            env_extra['CIBW_BUILD'] = CIBW_BUILD
+            pipcl.run(f'cd {g_root} && cibuildwheel', env_extra=env_extra, prefix='cibw: ')
+            pipcl.run(f'ls -ld {g_root}/wheelhouse/*')
         
         elif command == 'test':
             pipcl.run(f'pip install -U pytest')
@@ -287,9 +419,9 @@ def main():
             if pytest_prefix in ('valgrind', 'helgrind'):
                 if 1:
                     pipcl.log('Installing valgrind.')
-                    run(f'sudo apt update')
-                    run(f'sudo apt install --upgrade valgrind')
-                run(f'valgrind --version')
+                    pipcl.run(f'sudo apt update')
+                    pipcl.run(f'sudo apt install --upgrade valgrind')
+                pipcl.run(f'valgrind --version')
 
             pipcl.run(command, env_extra=env_extra)
         
