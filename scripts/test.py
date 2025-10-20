@@ -134,6 +134,7 @@ def main():
     
     build_type = None
     linux_aarch64 = False
+    misc_packages = list()
     mupdf = None
     os_names = list()
     pymupdf = None
@@ -170,6 +171,9 @@ def main():
             assert '=' in _nv, f'-e <name>=<value> does not contain "=": {_nv!r}'
             _name, _value = _nv.split('=', 1)
             env_extra[_name] = _value
+        
+        elif arg == '-i':
+            misc_packages.append(next(args))
         
         elif arg == '-m':
             mupdf = next(args)
@@ -235,6 +239,9 @@ def main():
                 sys.exit(e)
     else:
         pipcl.log(f'Warning, no commands specified so nothing to do.')
+    
+    for name in misc_packages:
+        pipcl.run(f'pip install -v {name}')
     
     for command in commands:
         no_build_isolation = ''
