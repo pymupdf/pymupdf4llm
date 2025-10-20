@@ -49,7 +49,7 @@ if 1:
 # Use a fourth digit if making multiple releases of PyMuPDFPro that are to be
 # used with the same version of PyMuPDF, for example `1.24.9.1`.
 #
-g_version = '1.26.4'
+g_version = '1.26.5'
 
 # We build and run with PyMuPDF version equal to the first three numbers of our
 # version.
@@ -73,6 +73,8 @@ def build():
     root = os.path.normpath(f'{__file__}/..')
     root = pipcl.relpath(root, allow_up=0)
     
+    run(f'swig --version')
+    
     SCE_SETUP_BUILD_TYPE = os.environ.get('SCE_SETUP_BUILD_TYPE')
     
     SCE_SETUP_VSGRADE = os.environ.get('SCE_SETUP_VSGRADE')
@@ -94,44 +96,7 @@ def build():
     # directories.
     import pymupdf
     p = os.path.normpath(f'{pymupdf.__file__}/..')
-    if pymupdf.pymupdf_version_tuple >= (1, 26, 6):
-        mupdf_include, mupdf_lib = pymupdf._mupdf_devel()
-    else:
-        # pymupdf._mupdf_devel() not available so we do things here.
-        mupdf_include = f'{p}/mupdf-devel/include'
-        if platform.system() == 'Windows':
-            # Separate .lib files are used at build time.
-            mupdf_lib = f'{p}/mupdf-devel/lib'
-        else:
-            # .so files are used for both buildtime and runtime linking.
-            mupdf_lib = p
-            # Make symbolic links within the installed pymupdf module so
-            # that ld can find libmupdf.so etc. This is a bit of a hack, but
-            # necessary because wheels cannot contain symbolic links.
-            #
-            # For example we create `libmupdf.so -> libmupdf.so.24.8`.
-            #
-            # We are careful to only create symlinks for the expected MuPDF
-            # version, in case old .so files from a previous install are still
-            # in place.
-            #
-            log(f'Creating symlinks in {mupdf_lib=} for MuPDF-{pymupdf.mupdf_version} .so files.')
-            regex_suffix = pymupdf.mupdf_version.split('.')[1:3]
-            regex_suffix = '[.]'.join(regex_suffix)
-            mupdf_lib_regex = f'^(lib[^.]+[.]so)[.]{regex_suffix}$'
-            log(f'{mupdf_lib_regex=}.')
-            for leaf in os.listdir(mupdf_lib):
-                m = re.match(mupdf_lib_regex, leaf)
-                if m:
-                    pfrom = f'{mupdf_lib}/{m.group(1)}'
-                    # os.path.exists() can return false if softlink exists
-                    # but points to non-existent file, so we also use
-                    # `os.path.islink()`.
-                    if os.path.islink(pfrom) or os.path.exists(pfrom):
-                        log(f'Removing existing link {pfrom=}.')
-                        os.remove(pfrom)
-                    log(f'Creating symlink: {pfrom} -> {leaf}')
-                    os.symlink(leaf, pfrom)
+    mupdf_include, mupdf_lib = pymupdf._mupdf_devel()
 
     log(f'Within installed PyMuPDF:')
     log(f'    {mupdf_include=}')
