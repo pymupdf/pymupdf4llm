@@ -1,3 +1,3 @@
 # Generated file - do not edit.
-MINIMUM_PYMUPDF_VERSION = (1, 26, 3)
-VERSION = '0.0.27'
+MINIMUM_PYMUPDF_VERSION = (1, 26, 5)
+VERSION = '0.1.3'

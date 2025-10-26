@@ -14,8 +14,8 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-version = "0.0.28"
-requires = ["pymupdf>=1.26.3"]
+version = "0.1.3"
+requires = ["pymupdf>=1.26.5"]
 
 text = requires[0].split("=")[1]
 text = tuple(map(int, text.split(".")))
@@ -32,7 +32,7 @@ setuptools.setup(
     long_description=readme,
     long_description_content_type="text/markdown",
     install_requires=requires,
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
     url="https://github.com/pymupdf/RAG",
     classifiers=classifiers,

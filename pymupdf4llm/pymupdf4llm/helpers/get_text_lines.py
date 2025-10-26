@@ -26,7 +26,8 @@ def is_white(text):
 
 
 def get_raw_lines(
-    textpage,
+    textpage=None,
+    blocks=None,
     clip=None,
     tolerance=3,
     ignore_invisible=True,
@@ -44,7 +45,10 @@ def get_raw_lines(
     formats like Markdown or JSON.
 
     Args:
-        textpage: (mandatory) TextPage object
+        textpage: TextPage object. Can be None if blocks are given.
+        blocks: (list) if given, use these blocks instead of extracting them
+              from the TextPage. This allows to re-use blocks extracted
+              by the caller.
         clip: (Rect) specifies a sub-rectangle of the textpage rect (which in
               turn may be based on a sub-rectangle of the full page).
         tolerance: (float) put spans on the same line if their top or bottom
@@ -71,7 +75,7 @@ def get_raw_lines(
         left to right.
 
         Arg:
-            A list of spans - as drived from TextPage.extractDICT()
+            A list of spans - as derived from TextPage.extractDICT()
         Returns:
             A list of sorted, and potentially cleaned-up spans
         """
@@ -101,14 +105,18 @@ def get_raw_lines(
             line[i - 1] = s0  # update the span
         return line
 
+    if not isinstance(textpage, pymupdf.TextPage) and blocks is None:
+        raise ValueError("Either textpage or blocks must be provided.")
+
     if clip is None:  # use TextPage rect if not provided
         clip = textpage.rect
     # extract text blocks - if bbox is not empty
-    blocks = [
-        b
-        for b in textpage.extractDICT()["blocks"]
-        if b["type"] == 0 and not pymupdf.Rect(b["bbox"]).is_empty
-    ]
+    if blocks is None:
+        blocks = [
+            b
+            for b in textpage.extractDICT()["blocks"]
+            if b["type"] == 0 and not pymupdf.Rect(b["bbox"]).is_empty
+        ]
     spans = []  # all spans in TextPage here
     for bno, b in enumerate(blocks):  # the numbered blocks
         for lno, line in enumerate(b["lines"]):  # the numbered lines
@@ -127,7 +135,7 @@ def get_raw_lines(
                     continue
                 if abs(sbbox & clip) < abs(sbbox) * 0.8:  # if not in clip
                     continue
-                if s["flags"] & 1 == 1:  # if a superscript, modify bbox
+                if s["flags"] & 1:  # if a superscript, modify bbox
                     # with that of the preceding or following span
                     i = 1 if sno == 0 else sno - 1
                     if len(line["spans"]) > i:

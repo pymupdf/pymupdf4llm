@@ -38,13 +38,14 @@ CA 94129, USA, for further information.
 import os
 import string
 from binascii import b2a_base64
+from collections import defaultdict
+from dataclasses import dataclass
+
 import pymupdf
 from pymupdf import mupdf
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines, is_white
 from pymupdf4llm.helpers.multi_column import column_boxes
 from pymupdf4llm.helpers.progress import ProgressBar
-from dataclasses import dataclass
-from collections import defaultdict
 
 pymupdf.TOOLS.unset_quad_corrections(True)
 
@@ -356,7 +357,17 @@ def to_markdown(
         ignore_alpha: (bool, True) ignore text with alpha = 0 (transparent).
 
     """
-    if write_images is False and embed_images is False and force_text is False:
+    if callable(pymupdf._get_layout):  # advanced layout features available?
+        import pymupdf4llm.helpers.document_layout as DL
+
+        parsed_doc = DL.parse_document(doc, image_dpi=dpi, image_format=image_format)
+        return parsed_doc.to_markdown(
+            header=True,
+            footer=True,
+            write_images=write_images,
+        )
+
+    if 1 and write_images is False and embed_images is False and force_text is False:
         raise ValueError("Image and text on images cannot both be suppressed.")
     if embed_images is True:
         write_images = False
@@ -572,7 +583,7 @@ def to_markdown(
                     if i in parms.written_images:
                         continue
                     r = parms.img_rects[i]
-                    if r.y1 <= lrect.y0 and (
+                    if max(r.y0, lrect.y0) < min(r.y1, lrect.y1) and (
                         0
                         or lrect.x0 <= r.x0 < lrect.x1
                         or lrect.x0 < r.x1 <= lrect.x1
@@ -1024,6 +1035,9 @@ def to_markdown(
         graphics_count = len([b for b in page.get_bboxlog() if "path" in b[0]])
         if GRAPHICS_LIMIT and graphics_count > GRAPHICS_LIMIT:
             IGNORE_GRAPHICS = True
+            too_many_graphics = True
+        else:
+            too_many_graphics = False
 
         # Locate all tables on page
         parms.written_tables = []  # stores already written tables
@@ -1075,7 +1089,7 @@ def to_markdown(
         else:
             paths = []
         # catch too-many-graphics situation
-        if GRAPHICS_LIMIT and len(paths) > GRAPHICS_LIMIT:
+        if IGNORE_GRAPHICS:
             paths = []
 
         # We also ignore vector graphics that only represent
@@ -1101,17 +1115,27 @@ def to_markdown(
         parms.vg_clusters0 = refine_boxes(vg_clusters0)
 
         parms.vg_clusters = dict((i, r) for i, r in enumerate(parms.vg_clusters0))
+        block_count = len(parms.textpage.extractBLOCKS())
+        if block_count > 0:
+            char_density = len(parms.textpage.extractTEXT()) / block_count
+        else:
+            char_density = 0
         # identify text bboxes on page, avoiding tables, images and graphics
-        text_rects = column_boxes(
-            parms.page,
-            paths=parms.actual_paths,
-            no_image_text=not force_text,
-            textpage=parms.textpage,
-            avoid=parms.tab_rects0 + parms.vg_clusters0,
-            footer_margin=margins[3],
-            header_margin=margins[1],
-            ignore_images=IGNORE_IMAGES,
-        )
+        if too_many_graphics and char_density < 20:
+            # This page has too many isolated text pieces for meaningful
+            # layout analysis. Treat whole page as one text block.
+            text_rects = [parms.clip]
+        else:
+            text_rects = column_boxes(
+                parms.page,
+                paths=parms.actual_paths,
+                no_image_text=not force_text,
+                textpage=parms.textpage,
+                avoid=parms.tab_rects0 + parms.vg_clusters0,
+                footer_margin=margins[3],
+                header_margin=margins[1],
+                ignore_images=IGNORE_IMAGES,
+            )
 
         """
         ------------------------------------------------------------------
@@ -1200,7 +1224,13 @@ def to_markdown(
         pages = ProgressBar(pages)
     for pno in pages:
         parms = get_page_output(
-            doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS
+            doc,
+            pno,
+            margins,
+            textflags,
+            FILENAME,
+            IGNORE_IMAGES,
+            IGNORE_GRAPHICS,
         )
         if page_chunks is False:
             document_output += parms.md_string
