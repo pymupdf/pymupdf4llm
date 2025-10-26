@@ -8,12 +8,18 @@ from pathlib import Path
 import pymupdf
 import tabulate
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
-from pymupdf4llm.helpers import utils
+from pymupdf4llm.helpers import utils, check_ocr
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+    print("Warning: opencv-python is not installed, disabled OCR.")
 
 pymupdf.TOOLS.unset_quad_corrections(True)
 
 GRAPHICS_TEXT = "\n![](%s)\n"
-CHECK_OCR = {"ignore-text"}
+CHECK_OCR_TEXT = {"ignore-text"}
 FLAGS = (
     0
     | pymupdf.TEXT_COLLECT_STYLES
@@ -659,8 +665,34 @@ def parse_document(
         )
     for pno in page_filter:
         page = mydoc.load_page(pno)
+
+        # check if this page should be OCR'd
+        if cv2 is not None:
+            decision = check_ocr.should_ocr_page(page, dpi=600)
+        else:
+            decision = {"should_ocr": False}
+        if decision["should_ocr"]:
+            print(f"Performing OCR on {page.number=}[{page.number+1}]...")
+            pix = decision["pixmap"]  # retrieve the Pixmap
+            pdf_data = pix.pdfocr_tobytes()  # OCR it
+            ocr_pdf = pymupdf.open("pdf", pdf_data)  # get the OCR'd PDF
+            ocrpage = ocr_pdf[0]  # this is its OCR'd page
+            # remove everything except the text
+            ocrpage.add_redact_annot(ocrpage.rect)
+            ocrpage.apply_redactions(
+                images=pymupdf.PDF_REDACT_IMAGE_REMOVE,
+                graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+                text=pymupdf.PDF_REDACT_TEXT_NONE,
+            )
+            # copy text over to original page
+            page.show_pdf_page(page.rect, ocr_pdf, 0)
+            ocr_pdf.close()  # discard temporary OCR PDF
+            del ocr_pdf
+
         bboxlog = page.get_bboxlog()
-        ocrpage = set([b[0] for b in bboxlog if b[0] == "ignore-text"]) == CHECK_OCR
+        ocrpage = (
+            set([b[0] for b in bboxlog if b[0] == "ignore-text"]) == CHECK_OCR_TEXT
+        )
         textpage = page.get_textpage(flags=FLAGS)
         blocks = textpage.extractDICT()["blocks"]
         page.get_layout()

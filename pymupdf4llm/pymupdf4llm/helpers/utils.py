@@ -269,7 +269,12 @@ def compute_reading_order(boxes, vertical_gap: float = 12):
     Returns:
         list: List of boxes in reading order.
     """
-    stripes = cluster_stripes(boxes, vertical_gap=vertical_gap)
+    # compute adequate vertical_gap based height of union of bboxes
+    temp = pymupdf.EMPTY_RECT()
+    for b in boxes:
+        temp |= pymupdf.Rect(b[:4])
+    this_vertical_gap = vertical_gap * temp.height / 800
+    stripes = cluster_stripes(boxes, vertical_gap=this_vertical_gap)
     ordered = []
     for stripe in stripes:
         columns = cluster_columns_in_stripe(stripe)
