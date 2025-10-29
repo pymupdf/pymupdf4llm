@@ -6,6 +6,8 @@ setup_py_cwd = os.path.dirname(__file__)
 with open(os.path.join(setup_py_cwd, "README.md"), encoding="utf-8") as f:
     readme = f.read()
 
+version = "0.1.5"
+
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -13,11 +15,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Utilities",
 ]
-requires = ["pymupdf4llm==0.1.3"]
+
+requires = [f"pymupdf4llm=={version}"]
 
 setuptools.setup(
     name="pdf4llm",
-    version="0.1.3",
+    version=version,
     author="Artifex",
     author_email="support@artifex.com",
     description="PyMuPDF Utilities for LLM/RAG",

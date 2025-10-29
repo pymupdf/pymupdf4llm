@@ -150,10 +150,11 @@ def add_image_orphans(page, blocks):
     """
     # all layout boxes
     all_bboxes = [pymupdf.Rect(b[:4]) for b in page.layout_information]
+    area_limit = abs(page.rect) * 0.9
     images = []
     for img in page.get_image_info():
-        r = page.rect &img["bbox"]
-        if r.is_empty or any(r.intersects(bb) for bb in all_bboxes):
+        r = page.rect & img["bbox"]
+        if r.is_empty or abs(r) >= area_limit:
             continue
         images.append(r)
 
@@ -161,8 +162,8 @@ def add_image_orphans(page, blocks):
     for b in blocks:
         if b["type"] != 3:
             continue
-        r = pymupdf.Rect(b["bbox"])
-        if not r in page.rect:
+        r = page.rect & b["bbox"]
+        if abs(r) >= area_limit:
             continue
         if r.width < 3 and r.height < 3:
             continue
@@ -249,7 +250,7 @@ def cluster_columns_in_stripe(stripe: list):
     for box in sorted_boxes[1:]:
         prev_right = max([b[2] for b in current_column])
         if box[0] - prev_right >= -1:
-            columns.append(sorted(current_column, key=lambda b: b[3])) 
+            columns.append(sorted(current_column, key=lambda b: b[3]))
             current_column = [box]
         else:
             current_column.append(box)

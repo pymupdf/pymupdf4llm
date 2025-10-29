@@ -20,6 +20,7 @@ pymupdf.TOOLS.unset_quad_corrections(True)
 
 GRAPHICS_TEXT = "\n![](%s)\n"
 CHECK_OCR_TEXT = {"ignore-text"}
+OCR_FONTNAME = "GlyphLessFont"  # if encountered do not use "code" style
 FLAGS = (
     0
     | pymupdf.TEXT_COLLECT_STYLES
@@ -109,7 +110,7 @@ def is_monospaced(textlines):
 
     for l in textlines:
         all_mono = all(
-            bool(s["flags"] & 8 or "Courier" in s["font"]) for s in l["spans"]
+            bool(s["flags"] & 8 and s["font"] != OCR_FONTNAME) for s in l["spans"]
         )
         if all_mono:
             mono += 1
@@ -263,7 +264,7 @@ def get_styled_text(spans):
         # decode font properties
         prefix = ""
         superscript = s["flags"] & 1
-        mono = s["flags"] & 8
+        mono = s["flags"] & 8 and s["font"] != OCR_FONTNAME
         bold = s["flags"] & 16 or s["char_flags"] & 8
         italic = s["flags"] & 2
         strikeout = s["char_flags"] & 1
@@ -509,7 +510,6 @@ class ParsedDocument:
 
             # make mapping: box number to list item level
             list_item_levels = create_list_item_levels(page.boxes)
-
             for i, box in enumerate(page.boxes):
                 clip = pymupdf.IRect(box.x0, box.y0, box.x1, box.y1)
                 btype = box.boxclass
@@ -557,7 +557,9 @@ class ParsedDocument:
                 elif not footer and btype == "page-footer":
                     continue
                 else:  # treat as normal MD text
-                    output += text_to_md(box.textlines, ignore_code=ignore_code)
+                    output += text_to_md(
+                        box.textlines, ignore_code=ignore_code or page.ocrpage
+                    )
 
         return output
 
@@ -620,7 +622,9 @@ class ParsedDocument:
                 if btype == "footnote":
                     output += footnote_to_text(box.textlines)
                     continue
-                output += text_to_text(box.textlines, ignore_code=ignore_code)
+                output += text_to_text(
+                    box.textlines, ignore_code=ignore_code or page.ocrpage
+                )
                 continue
         return output
 
@@ -690,7 +694,7 @@ def parse_document(
             del ocr_pdf
 
         bboxlog = page.get_bboxlog()
-        ocrpage = (
+        ocrpage = decision["should_ocr"] or (
             set([b[0] for b in bboxlog if b[0] == "ignore-text"]) == CHECK_OCR_TEXT
         )
         textpage = page.get_textpage(flags=FLAGS)
@@ -700,7 +704,7 @@ def parse_document(
         utils.add_image_orphans(page, blocks)
         utils.clean_tables(page, blocks)
         page.layout_information = utils.find_reading_order(page.layout_information)
-        tbf = page.find_tables()
+        tbf = page.find_tables(strategy="lines_strict")
         fulltext = [b for b in blocks if b["type"] == 0]
         words = [
             {
@@ -733,7 +737,7 @@ def parse_document(
 
             elif layoutbox.boxclass == "table":
                 # This is either a table detected by native TableFinder or by
-                # MuPDF's table structure recognition(which may fail).
+                # MuPDF's table structure recognition (which may fail).
                 # If the structure was not detected, we output an image.
                 # A table is represented as a dict with bbox, row_count,
                 # col_count, cells, extract (2D list of cell texts), and the
