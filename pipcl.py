@@ -2173,6 +2173,12 @@ def git_get(
             `git submodule update --init --recursive` before returning.
     '''
     log0(f'{remote=} {local=} {branch=} {tag=} {text=}')
+    if env_extra:
+        GIT_SSH_COMMAND = env_extra.get('GIT_SSH_COMMAND')
+        log0(f'env_extra: {GIT_SSH_COMMAND=}')
+    GIT_SSH_COMMAND = os.environ.get('GIT_SSH_COMMAND')
+    log0(f'os.environ: {GIT_SSH_COMMAND=}')
+    
     
     if text:
         if text.startswith('git:'):
