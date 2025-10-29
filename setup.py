@@ -49,7 +49,7 @@ if 1:
 # Use a fourth digit if making multiple releases of PyMuPDFPro that are to be
 # used with the same version of PyMuPDF, for example `1.24.9.1`.
 #
-g_version = '1.26.5'
+g_version = '1.26.6'
 
 # We build and run with PyMuPDF version equal to the first three numbers of our
 # version.
@@ -223,12 +223,11 @@ build_sdist = p.build_sdist
 
 def get_requires_for_build_wheel(config_settings=None):
     ret = list()
-    ret.append('swig')
     if SCE_SETUP_BUILD_PYMUPDF:
         log(f'Not requiring default pymupdf=={g_pymupdf_version} because {SCE_SETUP_BUILD_PYMUPDF=}.')
     else:
         ret.append(f'pymupdf=={g_pymupdf_version}')
-    ret.append(f'swig')
+    ret.append(f'swig==4.3.1')
     log(f'get_requires_for_build_wheel(): returning: {ret=}')
     return ret
 
