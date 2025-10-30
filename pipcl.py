@@ -1483,7 +1483,8 @@ class Package:
             if '\n' in self.description:
                 description_text = self.description.strip()
             else:
-                with open(self.description) as f:
+                log(f'Loading {os.path.abspath(self.description)=}.')
+                with open(self.description, encoding='utf8') as f:
                     description_text = f.read()
             ret += '\n' # Empty line separates headers from body.
             ret += description_text
