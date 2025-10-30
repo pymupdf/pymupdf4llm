@@ -2049,13 +2049,21 @@ def git_info( directory):
     '''
     sha, comment, diff, branch = None, None, None, None
     e, out = run(
-            f'cd {directory} && (PAGER= git show --pretty=oneline|head -n 1 && git diff)',
+            f'cd {directory} && git show --pretty=oneline',
+            capture=1,
+            check=0,
+            env_extra=dict(PAGER=''),
+            )
+    if not e:
+        out1, _ = out.split('\n', 1)
+        sha, comment = out1.split(' ', 1)
+    e, out = run(
+            f'cd {directory} && git diff',
             capture=1,
             check=0
             )
     if not e:
-        sha, _ = out.split(' ', 1)
-        comment, diff = _.split('\n', 1)
+        diff = out
     e, out = run(
             f'cd {directory} && git rev-parse --abbrev-ref HEAD',
             capture=1,
@@ -2257,7 +2265,8 @@ def git_get(
         run(f'cd {local} && git submodule update --init --recursive', env_extra=env_extra)
 
     # Show sha of checkout.
-    run( f'cd {local} && git show --pretty=oneline|head -n 1', check=False)
+    sha, comment, diff, branch = git_info(local)
+    log(f'git info: {sha=} {branch=} {comment=}')
     return os.path.abspath(local)
     
 
