@@ -5,7 +5,7 @@
 While other tools train machine learning models on rendered page images, PyMuPDF Layout trains Graph Neural Networks directly on PDF internals. This gives us accuracy at 10× the speed utilizing CPU-only resources.
 
 [![License PolyForm Noncommercial](https://img.shields.io/badge/license-Polyform_Noncommercial-purple)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
-[![Python version](https://img.shields.io/badge/python-3.10%20or%20above-blue)](https://pypi.org/project/pymupdf-layout/)
+[![Python version](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue)](https://pypi.org/project/pymupdf-layout/)
 
 ## Features
 
