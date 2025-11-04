@@ -44,9 +44,9 @@ jobs:
       - uses: actions/setup-python@v5
       - name: multiple
         env:
-          SCE_test_args: ${{inputs.args}}
+          PYMUPDF_LAYOUT_test_args: ${{inputs.args}}
         run:
-          python scripts/test.py ${{matrix.args}} wheel test -a SCE_test_args
+          python scripts/test.py ${{matrix.args}} wheel test -a PYMUPDF_LAYOUT_test_args
       
       # We don't attempt to use actions/upload-artifact because we generate
       # duplicate wheel names.

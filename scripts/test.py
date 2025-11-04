@@ -164,7 +164,7 @@ def main():
             build_type = next(args)
             assert build_type in ('release', 'debug', 'memento')
             env_extra['PYMUPDF_SETUP_MUPDF_BUILD_TYPE'] = build_type
-            env_extra['SCE_SETUP_BUILD_TYPE'] = build_type
+            env_extra['PYMUPDF_LAYOUT_SETUP_BUILD_TYPE'] = build_type
         
         elif arg == '-e':
             _nv = next(args)
@@ -276,7 +276,7 @@ def main():
                 # Tell our setup.py not to return pymupdf from
                 # sce/setup.py:get_requires_for_build_wheel(), or specify it as
                 # runtime requirement in <requires_dist>.
-                env_extra['SCE_SETUP_BUILD_PYMUPDF'] = '1'
+                env_extra['PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF'] = '1'
                 no_build_isolation = ' --no-build-isolation'
             
             pipcl.run(f'pip uninstall -y pymupdf_layout', check=0, env_extra=env_extra)

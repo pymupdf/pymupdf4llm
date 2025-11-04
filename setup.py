@@ -3,14 +3,17 @@
 '''
 Environment variables:
 
-    SCE_SETUP_BUILD_PYMUPDF
+    PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF
         If set to none-empty string, we expect PyMuPDF to be already installed
         and we don't return it from get_requires_for_build_wheel().
     
-    SCE_SETUP_BUILD_TYPE
+    PYMUPDF_LAYOUT_SETUP_SWIG
+        If set, we use this instead of `swig`.
+    
+    PYMUPDF_LAYOUT_SETUP_BUILD_TYPE
         We do a debug build if set to 'debug'.
     
-    SCE_SETUP_VSGRADE
+    PYMUPDF_LAYOUT_SETUP_VSGRADE
         Specific Visual Studio, must be one of 'Community', 'Professional',
         'Enterprise'.
 '''
@@ -60,37 +63,39 @@ g_version = '1.26.6'
 #
 g_pymupdf_version = '.'.join(g_version.split('.')[:3])
 
-SCE_SETUP_BUILD_PYMUPDF = os.environ.get('SCE_SETUP_BUILD_PYMUPDF')
-if SCE_SETUP_BUILD_PYMUPDF:
+PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF = os.environ.get('PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF')
+if PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF:
     # We are building with custom pymupdf, so don't list a pymupdf version as a
     # buildtime or runtime prerequisite.
-    log(f'Setting g_pymupdf_version=None because {SCE_SETUP_BUILD_PYMUPDF=}.')
+    log(f'Setting g_pymupdf_version=None because {PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF=}.')
     g_pymupdf_version = None
 
+PYMUPDF_LAYOUT_SETUP_SWIG = os.environ.get('PYMUPDF_LAYOUT_SETUP_SWIG')
 
 def build():
 
     root = os.path.normpath(f'{__file__}/..')
     root = pipcl.relpath(root, allow_up=0)
     
-    run(f'swig --version')
+    swig = PYMUPDF_LAYOUT_SETUP_SWIG or 'swig'
+    run(f'{swig} --version')
     
-    SCE_SETUP_BUILD_TYPE = os.environ.get('SCE_SETUP_BUILD_TYPE')
+    PYMUPDF_LAYOUT_SETUP_BUILD_TYPE = os.environ.get('PYMUPDF_LAYOUT_SETUP_BUILD_TYPE')
     
-    SCE_SETUP_VSGRADE = os.environ.get('SCE_SETUP_VSGRADE')
-    if SCE_SETUP_VSGRADE is not None:
-        assert SCE_SETUP_VSGRADE in ('Community', 'Professional', 'Enterprise'), \
-            f'{SCE_SETUP_VSGRADE=} should undefined or one of Community, Professional, Enterprise.'
+    PYMUPDF_LAYOUT_SETUP_VSGRADE = os.environ.get('PYMUPDF_LAYOUT_SETUP_VSGRADE')
+    if PYMUPDF_LAYOUT_SETUP_VSGRADE is not None:
+        assert PYMUPDF_LAYOUT_SETUP_VSGRADE in ('Community', 'Professional', 'Enterprise'), \
+            f'{PYMUPDF_LAYOUT_SETUP_VSGRADE=} should undefined or one of Community, Professional, Enterprise.'
     
-    if SCE_SETUP_VSGRADE is None:
+    if PYMUPDF_LAYOUT_SETUP_VSGRADE is None:
         GITHUB_ACTIONS = os.environ.get('GITHUB_ACTIONS')
         if GITHUB_ACTIONS=='true':  
             # We are running as a Github action, which has VS Enterprise.
-            SCE_SETUP_VSGRADE = 'Enterprise'
-            log(f'{GITHUB_ACTIONS=} so defaulting to {SCE_SETUP_VSGRADE=}.')
+            PYMUPDF_LAYOUT_SETUP_VSGRADE = 'Enterprise'
+            log(f'{GITHUB_ACTIONS=} so defaulting to {PYMUPDF_LAYOUT_SETUP_VSGRADE=}.')
         else:
-            SCE_SETUP_VSGRADE = 'Professional'
-            log(f'Defaulting to {SCE_SETUP_VSGRADE=}.')
+            PYMUPDF_LAYOUT_SETUP_VSGRADE = 'Professional'
+            log(f'Defaulting to {PYMUPDF_LAYOUT_SETUP_VSGRADE=}.')
     
     # We use the installed PyMuPDF's embedded MuPDF include and lib
     # directories.
@@ -117,10 +122,10 @@ def build():
             log(f'{i}:')
             log(f'{vs.description_ml("    ")}')
     
-        vs = pipcl.wdev.windows_vs_multiple(year=2022, grade=SCE_SETUP_VSGRADE)
+        vs = pipcl.wdev.windows_vs_multiple(year=2022, grade=PYMUPDF_LAYOUT_SETUP_VSGRADE)
         if not vs:
-            log(f'Warning, could not find Visual Studio 2022 matching {SCE_SETUP_VSGRADE=}.')
-            log(f'Consider setting SCE_SETUP_VSGRADE to a match in the above list.')
+            log(f'Warning, could not find Visual Studio 2022 matching {PYMUPDF_LAYOUT_SETUP_VSGRADE=}.')
+            log(f'Consider setting PYMUPDF_LAYOUT_SETUP_VSGRADE to a match in the above list.')
     
     # Build sce module.
     #
@@ -146,8 +151,9 @@ def build():
             libs=libs,
             linker_extra=linker_extra,
             py_limited_api=1,
-            debug=(SCE_SETUP_BUILD_TYPE == 'debug'),
-            optimise=(SCE_SETUP_BUILD_TYPE != 'debug'),
+            debug=(PYMUPDF_LAYOUT_SETUP_BUILD_TYPE == 'debug'),
+            optimise=(PYMUPDF_LAYOUT_SETUP_BUILD_TYPE != 'debug'),
+            swig=PYMUPDF_LAYOUT_SETUP_SWIG,
             )
     
     # Create text for _layout_build.py with build-time information.
@@ -223,11 +229,17 @@ build_sdist = p.build_sdist
 
 def get_requires_for_build_wheel(config_settings=None):
     ret = list()
-    if SCE_SETUP_BUILD_PYMUPDF:
-        log(f'Not requiring default pymupdf=={g_pymupdf_version} because {SCE_SETUP_BUILD_PYMUPDF=}.')
+    if PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF:
+        log(f'Not requiring default pymupdf=={g_pymupdf_version} because {PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF=}.')
     else:
         ret.append(f'pymupdf=={g_pymupdf_version}')
-    ret.append(f'swig==4.3.1')
+    if PYMUPDF_LAYOUT_SETUP_SWIG:
+        pass
+    elif pipcl.darwin():
+        # 2025-10-27: new swig-4.4.0 fails badly at runtime.
+        ret.append(f'swig==4.3.1')
+    else:
+        ret.append('swig')
     log(f'get_requires_for_build_wheel(): returning: {ret=}')
     return ret
 
