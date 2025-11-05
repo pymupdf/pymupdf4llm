@@ -217,7 +217,7 @@ p = pipcl.Package(
                 ],
         author = 'Artifex',
         author_email = 'support@artifex.com',
-        requires_python = '>=3.9',
+        requires_python = '>=3.10',
         fn_build = build,
         py_limited_api = True,
         )
