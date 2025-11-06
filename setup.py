@@ -195,15 +195,18 @@ p = pipcl.Package(
                 'onnxruntime',
                 'networkx',
                 ],
-        summary = 'Commercial extension for PyMuPDF',
+        summary = 'PyMuPDF Layout turns PDFs into structured data 10× faster than vision-based tools using AI trained on PDF internals, not images. CPU-only. No GPU required.',
         description = 'README.md',
         description_content_type = 'text/markdown',
-        license = 'Commercial license. See artifex.com for details.',
+        license = 'Dual Licensed - Polyform Noncommercial or Artifex Commercial License',
+        project_url = [
+                ('Documentation, https://pymupdf.readthedocs.io/en/latest/pymupdf-layout/')
+                ],
         classifier = [
                 'Development Status :: 5 - Production/Stable',
                 'Intended Audience :: Developers',
                 'Intended Audience :: Information Technology',
-                'License :: Other/Proprietary License',
+                'License :: Dual Licensed - Polyform Noncommercial or Artifex Commercial License',
                 'Operating System :: Microsoft :: Windows',
                 'Operating System :: MacOS',
                 'Operating System :: POSIX :: Linux',
