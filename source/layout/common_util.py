@@ -266,6 +266,118 @@ def get_edge_by_knn(bboxes: np.ndarray, k: int) -> np.ndarray:
     return edge_index
 
 
+def get_edge_transform_bbox2(bboxes: np.ndarray, edge_index: list):
+    """
+    Vectorized edge feature computation using NumPy,
+    Args:
+        bboxes (np.ndarray): (N, 4) NumPy array in [x_min, y_min, x_max, y_max] format.
+        edge_index (list): (E, 2) list of tuples, where each tuple (src_idx, dst_idx)
+    """
+    if len(edge_index) == 0:
+        return np.empty((0, 18), dtype=np.float32)
+
+    # Convert edge_index list of tuples to numpy array
+    # edge_index_np will be (E, 2)
+    edge_index_np = np.array(edge_index)
+
+    # Extract source (S) and object (O) bboxes using numpy indexing
+    # These will be (E, 4) numpy arrays: [x_min, y_min, x_max, y_max]
+    S = bboxes[edge_index_np[:, 0]]
+    O = bboxes[edge_index_np[:, 1]]
+
+    delta = 1e-10  # Prevent division by zero
+    # Calculate widths and heights for S and O
+    sw = S[:, 2] - S[:, 0]  # S_width
+    sh = S[:, 3] - S[:, 1]  # S_height
+    ow = O[:, 2] - O[:, 0]  # O_width
+    oh = O[:, 3] - O[:, 1]  # O_height
+
+    # Calculate enclosing bounding box (R)
+    # R: [out_x_min, out_y_min, out_x_max, out_y_max]
+    R_x1 = np.minimum(S[:, 0], O[:, 0])
+    R_y1 = np.minimum(S[:, 1], O[:, 1])
+    R_x2 = np.maximum(S[:, 2], O[:, 2])
+    R_y2 = np.maximum(S[:, 3], O[:, 3])
+    R = np.stack([R_x1, R_y1, R_x2, R_y2], axis=1)  # (E, 4)
+
+    rw = R[:, 2] - R[:, 0]  # R_width
+    rh = R[:, 3] - R[:, 1]  # R_height
+
+    # Construct the 18 features exactly as in get_relation_feature
+    features = []
+
+    # Features 1-6: Relative to S and O
+    features.append((S[:, 0] - O[:, 0]) / (sw + delta))  # 1. (x1_min - x2_min) / width1
+    features.append(
+        (S[:, 1] - O[:, 1]) / (sh + delta)
+    )  # 2. (y1_min - y2_min) / height1
+    features.append((O[:, 0] - S[:, 0]) / (ow + delta))  # 3. (x2_min - x1_min) / width2
+    features.append(
+        (O[:, 1] - S[:, 1]) / (oh + delta)
+    )  # 4. (y2_min - y1_min) / height2
+    features.append(np.log(sw / (ow + delta)))  # 5. log(width1 / width2)
+    features.append(np.log(sh / (oh + delta)))  # 6. log(height1 / height2)
+
+    # Features 7-12: Relative to S and R (out_box)
+    features.append(
+        (S[:, 0] - R[:, 0]) / (sw + delta)
+    )  # 7. (x1_min - out_x_min) / width1
+    features.append(
+        (S[:, 1] - R[:, 1]) / (sh + delta)
+    )  # 8. (y1_min - out_y_min) / height1
+    features.append(
+        (R[:, 0] - S[:, 0]) / (rw + delta)
+    )  # 9. (out_x_min - x1_min) / out_width
+    features.append(
+        (R[:, 1] - S[:, 1]) / (rh + delta)
+    )  # 10. (out_y_min - y1_min) / out_height
+    features.append(np.log(sw / (rw + delta)))  # 11. log(width1 / out_width)
+    features.append(np.log(sh / (rh + delta)))  # 12. log(height1 / out_height)
+
+    # Features 13-18: Relative to O and R (out_box)
+    features.append(
+        (O[:, 0] - R[:, 0]) / (ow + delta)
+    )  # 13. (x2_min - out_x_min) / width2
+    features.append(
+        (O[:, 1] - R[:, 1]) / (oh + delta)
+    )  # 14. (y2_min - out_y_min) / height2
+    features.append(
+        (R[:, 0] - O[:, 0]) / (rw + delta)
+    )  # 15. (out_x_min - x2_min) / out_width
+    features.append(
+        (R[:, 1] - O[:, 1]) / (rh + delta)
+    )  # 16. (out_y_min - y2_min) / out_height
+    features.append(np.log(ow / (rw + delta)))  # 17. log(width2 / out_width)
+    features.append(np.log(oh / (rh + delta)))  # 18. log(height2 / out_height)
+
+    # Alignment checks between S and O
+    # is_left_aligned: True (1) if left sides match else 0
+    # is_center_aligned: True (1) if horizontal centers match else 0
+    # is_right_aligned: True (1) if right sides match else 0
+    # is_top_aligned: True (1) if top sides match else 0
+    # is_middle_aligned: True (1) if vertical centers match else 0
+    # is_bottom_aligned: True (1) if bottom sides match else 0
+
+    is_left_aligned = (np.abs(S[:, 0] - O[:, 0]) <= 1e-5).astype(np.float32)
+    is_center_aligned = (np.abs((S[:, 0] + S[:, 2]) / 2 - (O[:, 0] + O[:, 2]) / 2) <= 1e-5).astype(np.float32)
+    is_right_aligned = (np.abs(S[:, 2] - O[:, 2]) <= 1e-5).astype(np.float32)
+    is_top_aligned = (np.abs(S[:, 1] - O[:, 1]) <= 1e-5).astype(np.float32)
+    is_middle_aligned = (np.abs((S[:, 1] + S[:, 3]) / 2 - (O[:, 1] + O[:, 3]) / 2) <= 1e-5).astype(np.float32)
+    is_bottom_aligned = (np.abs(S[:, 3] - O[:, 3]) <= 1e-5).astype(np.float32)
+
+    features.append(is_left_aligned)  # 19. is_left_aligned
+    features.append(is_center_aligned)  # 20. is_center_aligned
+    features.append(is_right_aligned)  # 21. is_right_aligned
+    features.append(is_top_aligned)  # 22. is_top_aligned
+    features.append(is_middle_aligned)  # 23. is_middle_aligned
+    features.append(is_bottom_aligned)  # 24. is_bottom_aligned
+
+    # Stack all features column-wise
+    edge_attr = np.stack(features, axis=1)  # (E, 18)
+    edge_attr = np.nan_to_num(edge_attr, nan=0.0, posinf=1e5, neginf=-1e5)
+    return edge_attr
+
+
 def get_edge_transform_bbox(bboxes: np.ndarray, edge_index: list):
     """
     Vectorized edge feature computation using NumPy,
