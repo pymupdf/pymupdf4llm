@@ -358,12 +358,16 @@ def get_edge_transform_bbox2(bboxes: np.ndarray, edge_index: list):
     # is_middle_aligned: True (1) if vertical centers match else 0
     # is_bottom_aligned: True (1) if bottom sides match else 0
 
-    is_left_aligned = np.abs(S[:, 0] - O[:, 0]) <= 1e-5).astype(np.float32)
-    is_center_aligned = np.abs((S[:, 0] + S[:, 2]) / 2 - (O[:, 0] + O[:, 2]) / 2) <= 1e-5).astype(np.float32)
-    is_right_aligned = np.abs(S[:, 2] - O[:, 2]) <= 1e-5).astype(np.float32)
-    is_top_aligned = np.abs(S[:, 1] - O[:, 1]) <= 1e-5).astype(np.float32)
-    is_middle_aligned = np.abs((S[:, 1] + S[:, 3]) / 2 - (O[:, 1] + O[:, 3]) / 2) <= 1e-5).astype(np.float32)
-    is_bottom_aligned = np.abs(S[:, 3] - O[:, 3]) <= 1e-5).astype(np.float32)
+    is_left_aligned = np.abs((S[:, 0] - O[:, 0]) <= 1e-5).astype(np.float32)
+    is_center_aligned = np.abs(
+        ((S[:, 0] + S[:, 2]) / 2 - (O[:, 0] + O[:, 2]) / 2) <= 1e-5
+    ).astype(np.float32)
+    is_right_aligned = np.abs((S[:, 2] - O[:, 2]) <= 1e-5).astype(np.float32)
+    is_top_aligned = np.abs((S[:, 1] - O[:, 1]) <= 1e-5).astype(np.float32)
+    is_middle_aligned = np.abs(
+        ((S[:, 1] + S[:, 3]) / 2 - (O[:, 1] + O[:, 3]) / 2) <= 1e-5
+    ).astype(np.float32)
+    is_bottom_aligned = np.abs((S[:, 3] - O[:, 3]) <= 1e-5).astype(np.float32)
 
     features.append(is_left_aligned)  # 19. is_left_aligned
     features.append(is_center_aligned)  # 20. is_center_aligned
