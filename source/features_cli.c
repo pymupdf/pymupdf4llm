@@ -131,6 +131,34 @@ int main
 	printf(",context_header_differs");
 	printf(",line_bullets");
 	printf(",non_line_bullets");
+	printf(",consecutive_right_alignment_count_up");
+	printf(",consecutive_centre_alignment_count_up");
+	printf(",consecutive_left_alignment_count_up");
+	printf(",consecutive_right_alignment_count_down");
+	printf(",consecutive_centre_alignment_count_down");
+	printf(",consecutive_left_alignment_count_down");
+	printf(",consecutive_top_alignment_count_left");
+	printf(",consecutive_middle_alignment_count_left");
+	printf(",consecutive_bottom_alignment_count_left");
+	printf(",consecutive_top_alignment_count_right");
+	printf(",consecutive_middle_alignment_count_right");
+	printf(",consecutive_bottom_alignment_count_right");
+	printf(",alignment_up_with_left");
+	printf(",alignment_up_with_centre");
+	printf(",alignment_up_with_right");
+	printf(",alignment_down_with_left");
+	printf(",alignment_down_with_centre");
+	printf(",alignment_down_with_right");
+	printf(",alignment_left_with_top");
+	printf(",alignment_left_with_middle");
+	printf(",alignment_left_with_bottom");
+	printf(",alignment_right_with_top");
+	printf(",alignment_right_with_middle");
+	printf(",alignment_right_with_bottom");
+	printf(",ray_line_distance_up");
+	printf(",ray_line_distance_down");
+	printf(",ray_line_distance_left");
+	printf(",ray_line_distance_right");
 	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
@@ -204,7 +232,7 @@ int main
 				stats = fz_features_for_region(ctx, features, region, atoi(line[6]));
 
 				/* Output the result */
-				printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d\n",
+				printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%g,%g,%g,%g\n",
 					stats->num_non_numerals,
 					stats->num_numerals,
 					stats->ratio,
@@ -239,7 +267,36 @@ int main
 					stats->context_below_bullet,
 					stats->context_header_differs,
 					stats->line_bullets,
-					stats->non_line_bullets);
+					stats->non_line_bullets,
+					stats->consecutive_right_alignment_count_up,
+					stats->consecutive_centre_alignment_count_up,
+					stats->consecutive_left_alignment_count_up,
+					stats->consecutive_right_alignment_count_down,
+					stats->consecutive_centre_alignment_count_down,
+					stats->consecutive_left_alignment_count_down,
+					stats->consecutive_top_alignment_count_left,
+					stats->consecutive_middle_alignment_count_left,
+					stats->consecutive_bottom_alignment_count_left,
+					stats->consecutive_top_alignment_count_right,
+					stats->consecutive_middle_alignment_count_right,
+					stats->consecutive_bottom_alignment_count_right,
+					stats->alignment_up_with_left,
+					stats->alignment_up_with_centre,
+					stats->alignment_up_with_right,
+					stats->alignment_down_with_left,
+					stats->alignment_down_with_centre,
+					stats->alignment_down_with_right,
+					stats->alignment_left_with_top,
+					stats->alignment_left_with_middle,
+					stats->alignment_left_with_bottom,
+					stats->alignment_right_with_top,
+					stats->alignment_right_with_middle,
+					stats->alignment_right_with_bottom,
+					stats->ray_line_distance_up,
+					stats->ray_line_distance_down,
+					stats->ray_line_distance_left,
+					stats->ray_line_distance_right
+);
 
 #if 0
 				fprintf(stderr, "1 0 0 setrgbcolor\n");

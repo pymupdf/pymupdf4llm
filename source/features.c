@@ -49,9 +49,15 @@ struct fz_features
 	float bottom_right_y;
 	float bottom_right_height;
 	float max_right_indent;
+	/* Calculated during the first pass, the distance to the nearest
+	 * non-aligned block. */
+	float nearest_nonaligned_up;
+	float nearest_nonaligned_down;
+	float nearest_nonaligned_left;
+	float nearest_nonaligned_right;
 };
 
-#if 0
+#if 1
 static int feq(float a, float b)
 {
 	a -= b;
@@ -373,6 +379,48 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 			int newline = 1;
 			fz_rect clipped_line = fz_intersect_rect(region, line->bbox);
 
+			/* In the first pass, we find the distance to the first line that
+			 * is not aligned in at least some way in each direction. */
+			if (line->bbox.x1 <= region.x0 || line->bbox.x0 >= region.x1)
+			{
+				/* Line does not overlap horizontally, so we can ignore it. */
+			}
+			else if (feq(line->bbox.x0, region.x0) ||
+				feq(line->bbox.x1, region.x1) ||
+				feq(line->bbox.x0+line->bbox.x1, region.x0+region.x1))
+			{
+				/* Aligned in at least some way. */
+			}
+			else
+			{
+				float d = region.y0 - line->bbox.y1;
+				if (d > 0 && d < features->nearest_nonaligned_up)
+					features->nearest_nonaligned_up = d;
+				d =  line->bbox.y0 - region.y1;
+				if (d > 0 && d < features->nearest_nonaligned_down)
+					features->nearest_nonaligned_down = d;
+			}
+
+			if (line->bbox.y1 <= region.y0 || line->bbox.y0 >= region.y1)
+			{
+				/* Line does not overlap horizontally, so we can ignore it. */
+			}
+			else if (feq(line->bbox.y0, region.y0) ||
+				feq(line->bbox.y1, region.y1) ||
+				feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
+			{
+				/* Aligned in at least some way. */
+			}
+			else
+			{
+				float d = region.x0 - line->bbox.x1;
+				if (d > 0 && d < features->nearest_nonaligned_left)
+					features->nearest_nonaligned_left = d;
+				d =  line->bbox.x0 - region.x1;
+				if (d > 0 && d < features->nearest_nonaligned_right)
+					features->nearest_nonaligned_right = d;
+			}
+
 			state->prev_line_gap = state->line_gap;
 			state->line_gap = block->bbox.x1 - clipped_line.x1;
 			for (ch = line->first_char; ch != NULL; ch = ch->next)
@@ -631,6 +679,135 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 }
 
 static void
+gather_region_stats2_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_features *features, gather_state *state)
+{
+	fz_feature_stats *stats = &features->stats;
+
+	for (; block != NULL; block = block->next)
+	{
+		fz_stext_line *line;
+
+		if (block->type == FZ_STEXT_BLOCK_STRUCT)
+		{
+			if (block->u.s.down != NULL)
+			{
+				gather_region_stats2_aux(ctx, block->u.s.down->first_block, region, features, state);
+			}
+			continue;
+		}
+		if (block->type == FZ_STEXT_BLOCK_VECTOR)
+		{
+			/* We are only interested in rectangles. */
+			float d;
+			if ((block->u.v.flags & FZ_STEXT_VECTOR_IS_RECTANGLE) == 0)
+				continue;
+
+			/* We're only interested in blocks that cover the centre of our bbox */
+			d = (region.y0 + region.y1)/2;
+			if (block->bbox.y0 <= d && block->bbox.y1 >= d)
+			{
+				/* 2 cases here. Firstly, does this rectangle cover us? */
+				if (block->bbox.x0 <= region.x0 && block->bbox.x1 >= region.x1)
+				{
+					/* Covered */
+					d = region.x0 - block->bbox.x0;
+					if (d >= 0 && d < features->stats.margin_l && features->stats.ray_line_distance_left > d)
+						features->stats.ray_line_distance_left = d;
+					d = block->bbox.x1 - region.x1;
+					if (d >= 0 && d < features->stats.margin_r && features->stats.ray_line_distance_right > d)
+						features->stats.ray_line_distance_right = d;
+				}
+				else
+				{
+					/* We're looking for a block off to one side of us. */
+					d = region.x0 - block->bbox.x1;
+					if (d >= 0 && d < features->stats.margin_l && features->stats.ray_line_distance_left > d)
+						features->stats.ray_line_distance_left = d;
+					d = block->bbox.x0 - region.x1;
+					if (d >= 0 && d < features->stats.margin_r && features->stats.ray_line_distance_right > d)
+						features->stats.ray_line_distance_right = d;
+				}
+			}
+			d = (region.x0 + region.x1)/2;
+			if (block->bbox.x0 <= d && block->bbox.x1 >= d)
+			{
+				/* 2 cases here. Firstly, does this rectangle cover us? */
+				if (block->bbox.y0 <= region.y0 && block->bbox.y1 >= region.y1)
+				{
+					/* Covered */
+					d = region.y0 - block->bbox.y0;
+					if (d >= 0 && d < features->stats.margin_t && features->stats.ray_line_distance_up > d)
+						features->stats.ray_line_distance_up = d;
+					d = block->bbox.y1 - region.y1;
+					if (d >= 0 && d < features->stats.margin_b && features->stats.ray_line_distance_down > d)
+						features->stats.ray_line_distance_down = d;
+				}
+				else
+				{
+					/* We're looking for a block off to one side of us. */
+					d = region.y0 - block->bbox.y1;
+					if (d >= 0 && d < features->stats.margin_t && features->stats.ray_line_distance_up > d)
+						features->stats.ray_line_distance_up = d;
+					d = block->bbox.y0 - region.y1;
+					if (d >= 0 && d < features->stats.margin_b && features->stats.ray_line_distance_down > d)
+						features->stats.ray_line_distance_down = d;
+				}
+			}
+			continue;
+		}
+		if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
+		for (line = block->u.t.first_line; line != NULL; line = line->next)
+		{
+			float d;
+
+			/* In the second pass, we can count the number of blocks that are aligned
+			 * in at least some way within the previously found limits */
+			d = region.y0 - line->bbox.y1;
+			if (d > 0 && d < features->nearest_nonaligned_up)
+			{
+				if (feq(line->bbox.x0, region.x0))
+					features->stats.consecutive_left_alignment_count_up++;
+				if (feq(line->bbox.x1, region.x1))
+					features->stats.consecutive_right_alignment_count_up++;
+				if (feq(line->bbox.x0+line->bbox.x1, region.x0+region.x1))
+					features->stats.consecutive_centre_alignment_count_up++;
+			}
+			d = line->bbox.y0 - region.y1;
+			if (d > 0 && d < features->nearest_nonaligned_down)
+			{
+				if (feq(line->bbox.x0, region.x0))
+					features->stats.consecutive_left_alignment_count_down++;
+				if (feq(line->bbox.x1, region.x1))
+					features->stats.consecutive_right_alignment_count_down++;
+				if (feq(line->bbox.x0+line->bbox.x1, region.x0+region.x1))
+					features->stats.consecutive_centre_alignment_count_down++;
+			}
+			d = region.x0 - line->bbox.x1;
+			if (d > 0 && d < features->nearest_nonaligned_left)
+			{
+				if (feq(line->bbox.y0, region.y0))
+					features->stats.consecutive_top_alignment_count_left++;
+				if (feq(line->bbox.y1, region.y1))
+					features->stats.consecutive_bottom_alignment_count_left++;
+				if (feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
+					features->stats.consecutive_middle_alignment_count_left++;
+			}
+			d = line->bbox.x0 - region.x1;
+			if (d > 0 && d < features->nearest_nonaligned_right)
+			{
+				if (feq(line->bbox.y0, region.y0))
+					features->stats.consecutive_top_alignment_count_right++;
+				if (feq(line->bbox.y1, region.y1))
+					features->stats.consecutive_bottom_alignment_count_right++;
+				if (feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
+					features->stats.consecutive_middle_alignment_count_right++;
+			}
+		}
+	}
+}
+
+static void
 gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_features *features)
 {
 	gather_state state = { 0 };
@@ -639,8 +816,22 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_f
 	state.first_char = 1;
 
 	gather_region_stats_aux(ctx, block, region, features, &state, 0);
+	gather_region_stats2_aux(ctx, block, region, features, &state);
 
 	features->stats.num_fonts_in_region = features->region_fonts.len;
+
+	features->stats.alignment_up_with_left = (features->stats.consecutive_left_alignment_count_up >= 1);
+	features->stats.alignment_up_with_centre = (features->stats.consecutive_centre_alignment_count_up >= 1);
+	features->stats.alignment_up_with_right = (features->stats.consecutive_right_alignment_count_up >= 1);
+	features->stats.alignment_down_with_left = (features->stats.consecutive_left_alignment_count_down >= 1);
+	features->stats.alignment_down_with_centre = (features->stats.consecutive_centre_alignment_count_down >= 1);
+	features->stats.alignment_down_with_right = (features->stats.consecutive_right_alignment_count_down >= 1);
+	features->stats.alignment_left_with_top = (features->stats.consecutive_top_alignment_count_left >= 1);
+	features->stats.alignment_left_with_middle = (features->stats.consecutive_middle_alignment_count_left >= 1);
+	features->stats.alignment_left_with_bottom = (features->stats.consecutive_bottom_alignment_count_left >= 1);
+	features->stats.alignment_right_with_top = (features->stats.consecutive_top_alignment_count_right >= 1);
+	features->stats.alignment_right_with_middle = (features->stats.consecutive_middle_alignment_count_right >= 1);
+	features->stats.alignment_right_with_bottom = (features->stats.consecutive_bottom_alignment_count_right >= 1);
 }
 
 typedef struct
@@ -919,9 +1110,9 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 	#endif
 	fz_try(ctx)
 	{
-	    /* Collect global stats */
-	    gather_global_stats(ctx, features->page->first_block, features);
-	    process_global_font_stats(ctx, features->page->mediabox, features);
+		/* Collect global stats */
+		gather_global_stats(ctx, features->page->first_block, features);
+		process_global_font_stats(ctx, features->page->mediabox, features);
 	}
 	fz_catch(ctx)
 	{
@@ -953,6 +1144,9 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 {
 	fz_feature_stats *stats = &features->stats;
 	fz_stext_page *page = features->page;
+	float max_h = page->mediabox.y1 - page->mediabox.y0;
+	float max_w = page->mediabox.x1 - page->mediabox.x0;
+	memset(stats, 0, sizeof(*stats));
 	stats->margin_l = MAX_MARGIN;
 	stats->margin_r = MAX_MARGIN;
 	stats->margin_t = MAX_MARGIN;
@@ -966,6 +1160,14 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 	stats->bottom_right_x = region.x0;
 	features->bottom_right_y = region.y0;
 	stats->is_header = -1;
+	stats->ray_line_distance_up = max_h;
+	stats->ray_line_distance_down = max_h;
+	stats->ray_line_distance_left = max_w;
+	stats->ray_line_distance_right = max_w;
+	features->nearest_nonaligned_up = max_h;
+	features->nearest_nonaligned_down = max_h;
+	features->nearest_nonaligned_left = max_w;
+	features->nearest_nonaligned_right = max_w;
 
 	/* Now collect for the region itself. */
 	gather_region_stats(ctx, page->first_block, region, features);

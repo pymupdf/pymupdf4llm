@@ -56,6 +56,38 @@ typedef struct
 	int context_header_differs;
 	int line_bullets;
 	int non_line_bullets;
+	/* How many regions have we found above us that match the alignment of this
+	 * block in each of 3 ways, before we mismatch alignment with a text line? */
+	int consecutive_left_alignment_count_up;
+	int consecutive_centre_alignment_count_up;
+	int consecutive_right_alignment_count_up;
+	int consecutive_centre_alignment_count_down;
+	int consecutive_left_alignment_count_down;
+	int consecutive_right_alignment_count_down;
+	int consecutive_top_alignment_count_left;
+	int consecutive_middle_alignment_count_left;
+	int consecutive_bottom_alignment_count_left;
+	int consecutive_top_alignment_count_right;
+	int consecutive_middle_alignment_count_right;
+	int consecutive_bottom_alignment_count_right;
+	/* Boolean versions of the above */
+	int alignment_up_with_left;
+	int alignment_up_with_centre;
+	int alignment_up_with_right;
+	int alignment_down_with_left;
+	int alignment_down_with_centre;
+	int alignment_down_with_right;
+	int alignment_left_with_top;
+	int alignment_left_with_middle;
+	int alignment_left_with_bottom;
+	int alignment_right_with_top;
+	int alignment_right_with_middle;
+	int alignment_right_with_bottom;
+	/* Distance to closest plausible bordering line. */
+	float ray_line_distance_up;
+	float ray_line_distance_down;
+	float ray_line_distance_left;
+	float ray_line_distance_right;
 } fz_feature_stats;
 
 typedef struct fz_features fz_features;
