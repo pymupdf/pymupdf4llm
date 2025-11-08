@@ -265,6 +265,49 @@ def get_edge_by_knn(bboxes: np.ndarray, k: int) -> np.ndarray:
 
     return edge_index
 
+def get_edge_by_alignment(bbox: np.ndarray, dist_threshold: float = 0.001, center_limit: float = 10000) -> list[tuple[int, int]]:
+    bbox_num = len(bbox)
+    edges = []
+
+    # Calculate box coordinates
+    lefts = bbox[:, 0]
+    tops = bbox[:, 1]
+    rights = bbox[:, 2]
+    bottoms = bbox[:, 3]
+
+    # Calculate center coordinates
+    centers_x = (lefts + rights) / 2
+    centers_y = (tops + bottoms) / 2
+
+    # Define alignment reference coordinates
+    horizontal_keys = [lefts, rights, centers_x]
+    vertical_keys = [tops, bottoms, centers_y]
+
+    for i in range(bbox_num):
+        for j in range(i + 1, bbox_num):
+            # Skip if center distance exceeds limit
+            center_dist = np.sqrt((centers_x[i] - centers_x[j]) ** 2 + (centers_y[i] - centers_y[j]) ** 2)
+            if center_dist > center_limit:
+                continue
+
+            # Check horizontal alignment using absolute threshold
+            hor_aligned = any(
+                abs(h[i] - h[j]) <= dist_threshold
+                for h in horizontal_keys
+            )
+
+            # Check vertical alignment using absolute threshold
+            ver_aligned = any(
+                abs(v[i] - v[j]) <= dist_threshold
+                for v in vertical_keys
+            )
+
+            # Add edge if either alignment condition is met
+            if hor_aligned or ver_aligned:
+                edges.append((i, j))
+
+    return edges
+
 
 def get_edge_transform_bbox2(bboxes: np.ndarray, edge_index: list):
     """

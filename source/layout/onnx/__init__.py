@@ -6,21 +6,67 @@ import onnxruntime as ort
 
 from pathlib import Path
 
-from ..common_util import (get_boxes_transform, get_edge_by_directional_nn, get_edge_transform_bbox,
-                                get_edge_by_knn,
-                                get_text_pattern, get_edge_matrix, group_node_by_edge_with_networkx_and_class_prior,
-                                extract_bbox_features, resize_image, to_gray)
+from ..common_util import (get_boxes_transform, get_edge_by_directional_nn, get_edge_by_alignment, get_edge_transform_bbox,
+                           get_edge_transform_bbox2, get_edge_by_knn,
+                           get_text_pattern, get_edge_matrix, group_node_by_edge_with_networkx_and_class_prior,
+                           extract_bbox_features, resize_image, to_gray)
+
+def get_rf_features(custom_feature, rf_names):
+    f = []
+    for f_name in rf_names:
+        if f_name == 'is_text':
+            if 'box_type' not in custom_feature or custom_feature['box_type'] == 'text':
+                f.append(1.0)
+            else:
+                f.append(0.0)
+        elif f_name == 'is_image':
+            if 'box_type' in custom_feature and custom_feature['box_type'] == 'image':
+                f.append(1.0)
+            else:
+                f.append(0.0)
+
+        elif f_name == 'is_vector':
+            if 'box_type' in custom_feature and custom_feature['box_type'] == 'vector':
+                f.append(1.0)
+            else:
+                f.append(0.0)
+
+        elif f_name == 'is_hline_vector':
+            if 'box_type' in custom_feature and custom_feature['box_type'] == 'h-line-vector':
+                f.append(1.0)
+            else:
+                f.append(0.0)
+
+        elif f_name == 'is_vline_vector':
+            if 'box_type' in custom_feature and custom_feature['box_type'] == 'v-line-vector':
+                f.append(1.0)
+            else:
+                f.append(0.0)
+        else:
+            if f_name not in custom_feature:
+                raise Exception(f"'{f_name}' does not exist in 'custom_features'")
+
+            try:
+                f.append(float(custom_feature[f_name]))
+            except Exception as ex:
+                print(f'{f_name} : {str(ex)}')
+                raise ex
+    return f
 
 
-def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=True,
+def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=False,
                                feature_extractor=None):
     original_bboxes = data_dict['bboxes']
     x = get_boxes_transform(original_bboxes)
 
     bboxes = np.array(original_bboxes, dtype=np.float32)
 
+    data_option = cfg['data']
+    model_option = cfg['model']
+    edge_dim = model_option['edge_input_dim']
+
     if return_nn_index:
-        nn_k = cfg['model']['sample_k']
+        nn_k = model_option['sample_k']
         nn_index = get_edge_by_knn(bboxes, k=nn_k)
         nn_attr = get_edge_transform_bbox(bboxes, nn_index)
         nn_index = np.array(nn_index).T
@@ -31,22 +77,28 @@ def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=True,
     # One input
     if len(bboxes) <= 1:
         edge_index = np.zeros(shape=[2, 1], dtype=np.int64)
-        edge_attr = np.zeros(shape=[1, 18], dtype=np.float32)
+        edge_attr = np.zeros(shape=[1, edge_dim], dtype=np.float32)
         nn_index  = np.zeros(shape=[2, 1], dtype=np.int64)
-        nn_attr = np.zeros(shape=[1, 18], dtype=np.float32)
+        nn_attr = np.zeros(shape=[1, edge_dim], dtype=np.float32)
     else:
-        edge_index, _ = get_edge_by_directional_nn(bboxes, 50000, vertical_gap=0.3)
-        edge_attr = get_edge_transform_bbox(bboxes, edge_index)
+        edge_index1, _ = get_edge_by_directional_nn(bboxes, 50000, vertical_gap=0.3)
+        edge_index2 = get_edge_by_alignment(bboxes, dist_threshold=0)
+
+        edge_index = list(set(edge_index1 + edge_index2))
+        edge_index = sorted(edge_index)
+
+        if 'edge_type' in model_option['option'] and model_option['option']['edge_type'] == 'SEO':
+            edge_attr = get_edge_transform_bbox2(bboxes, edge_index)
+        else:
+            edge_attr = get_edge_transform_bbox(bboxes, edge_index)
         edge_index = np.array(edge_index).T
 
-    rf_names = cfg['data']['rf_names']
+    assert edge_attr.shape[1] == edge_dim
+
+    rf_names = data_option['rf_names']
     rf_feature = []
     for row_idx, custom_feature in enumerate(data_dict['custom_features']):
-        f = []
-        for f_name in rf_names:
-            if f_name not in custom_feature:
-                raise Exception(f"'{f_name}' does not exist in 'custom_features'")
-            f.append(float(custom_feature[f_name]))
+        f = get_rf_features(custom_feature, rf_names)
         rf_feature.append(f)
     rf_feature = np.array(rf_feature, dtype=np.float32)
 
@@ -59,7 +111,7 @@ def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=True,
     if feature_extractor is not None:
         page_img = data_dict['image']
         page_h, page_w, _ = page_img.shape
-        img_resized = resize_image(page_img, (300, 300))
+        img_resized = resize_image(page_img, (500, 500))
         img_gray = to_gray(img_resized)
 
         img_gray = img_gray.astype(np.float32)
@@ -82,6 +134,23 @@ def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=True,
         image_features = extract_bbox_features(ort_outputs, original_bboxes, page_w, page_h,
                                                apply_softmax=apply_softmax, concat_mean_max=True,
                                                add_uncertainty=add_uncertainty)
+
+        edge_bboxes = []
+        row, col = edge_index
+        for node_idx_1, node_idx_2 in zip(row, col):
+            bbox1 = original_bboxes[node_idx_1]
+            bbox2 = original_bboxes[node_idx_2]
+
+            x1 = min(bbox1[0], bbox2[0])
+            y1 = min(bbox1[1], bbox2[1])
+            x2 = max(bbox1[2], bbox2[2])
+            y2 = max(bbox1[3], bbox2[3])
+            edge_bboxes.append([x1, y1, x2, y2])
+
+        edge_features = extract_bbox_features(ort_outputs, edge_bboxes, page_w, page_h,
+                                              apply_softmax=apply_softmax, concat_mean_max=True,
+                                              add_uncertainty=add_uncertainty)
+        edge_attr = np.concatenate([edge_attr, edge_features], axis=1)
     else:
         image_features = None
 
