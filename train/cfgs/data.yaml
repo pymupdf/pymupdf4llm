@@ -1,0 +1,30 @@
+task_name: save_json_dataset_to_lmdb
+
+save_json_dataset_to_lmdb:
+  data_names: train
+  num_workers: 1
+
+  create_from_pdf: true
+  remove_unlabelled_data: false
+  pdf_input_type: ['text']
+  cfg_path: train/tools/config.yaml
+  rf_executable:
+  nn_type: directional_nn
+  pkl_dirs:
+    -
+  pdf_dirs:
+    -
+  feature_extractor:
+  feature_input_size:
+  filter_class:
+  data_class_change_map:
+  feature_option: []
+  sample_k: 2
+  json_paths:
+    -
+  save_paths:
+    -
+
+data:
+  class_list: ['text', 'title', 'picture', 'table', 'list-item', 'page-header', 'page-footer', 'section-header', 'footnote','caption','formula']
+

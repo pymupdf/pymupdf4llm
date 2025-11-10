@@ -1,0 +1,123 @@
+data:
+  class_list:
+  - text
+  - title
+  - picture
+  - table
+  - list-item
+  - page-header
+  - page-footer
+  - section-header
+  - footnote
+  - caption
+  - formula
+  class_priority:
+  - 1
+  - 5
+  - 6
+  - 4
+  - 0
+  - 3
+  - 2
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  class_priority1:
+  - 0
+  - 7
+  - 4
+  - 10
+  - 9
+  - 3
+  - 5
+  - 6
+  - 8
+  - 2
+  - 1
+  rf_names:
+  - num_ratio
+  - is_line
+  - is_vector
+  - is_image
+  - num non-numeral chars in area
+  - num numeral chars
+  - ratio of chars to area
+  - avg char space
+  - avg line space
+  - avg font size
+  - num fonts in area
+  - left margin
+  - right margin
+  - top margin
+  - bottom margin
+  - left inner margin
+  - right inner margin
+  - top inner margin
+  - bottom inner margin
+  - font offset from most popular font
+  - linespace offset from most popular linespace
+  - num underlined chars
+  - top left indent
+  - bottom right indent
+  - num lines
+  - max non first left indent
+  - max non last right indent
+  - left scaled margin
+  - right scaled margin
+  - top scaled margin
+  - bottom scaled margin
+  - dodgy_paragraph_breaks
+  - is_header
+  - context_above_font_size
+  - context_above_is_header
+  - context_above_indent
+  - context_above_outdent
+  - context_below_font_size
+  - context_below_is_header
+  - context_below_indent
+  - context_below_outdent
+  - context_below_bullet
+  - context_header_differs
+  - line_bullets
+  - non_line_bullets
+  rf_names2:
+  - num_ratio
+  - is_line
+  - is_vector
+  - is_image
+model:
+  dgcn_aggr: softmax
+  dgcn_dim: 128
+  edge_input_dim: 18
+  hidden_dim: 512
+  imf_input_dim: 344
+  imf_output_dim: 256
+  name: BoxRFDGCNN
+  node_input_dim: 8
+  node_output_dim: 256
+  option:
+    conv_merge_type: null
+    conv_num: 2
+    conv_type: CustomDGC
+    feature_types:
+    - bbox
+    - rf
+    - image
+    - text_pattern
+    normalization:
+    - BBX
+    - BRF
+    - BTX
+    - BIM
+    - BFS
+    training_noise: 0.0
+    training_noise_prob: 0.0
+    drop_ngc: 0.01
+    drop_egc: 0.01
+  rf_output_dim: 48
+  sample_k: 20
+  txp_input_dim: 10
+  txp_output_dim: 10
+  type: DGCNN

@@ -1,0 +1,122 @@
+task_name: save_json_dataset_to_lmdb
+task_name2: make_lmdb_dataset_same_keys
+
+make_doclaynet_json:
+  prefix: doclaynet
+  do_empty_dir: false
+  task_type: MuPDF
+  task_option: []
+  start_index: 0
+  end_index: 0
+  show_result: false
+
+  doclaynet_pdf_dir: /media/win/Dataset/DocLayNet/PDF
+  doclaynet_img_dir: /media/win/Dataset/DocLayNet/images
+  doclaynet_json_dir: /media/win/Dataset/DocLayNet/JSON
+  doclaynet_pkl_dir: /media/win/Dataset/CTPN-MLT/DoclayNet/[DATA_NAME]_pkl
+
+  publaynet_pdf_dir: /media/win/Dataset/PubLayNet/PDF/train
+  publaynet_img_dir:
+  publaynet_json_dir:
+  publaynet_pkl_dir: /media/win/Dataset/PubLayNet/[DATA_NAME]_pkl_doclaynet
+
+  mupdf_xml_dir: /media/win/Dataset/DocLayNet/XML_MuPDF_250317_NAIV
+  textsense_json_dir: /media/win/PTMP/doclaynet_ts
+  pdf_json_save_dir: /media/win/Dataset/DocLayNet/JSON_mupdf_text
+
+
+make_graph_data:
+  data_names: ['train', 'val']
+  pkl_dir1: /media/win/Dataset/CTPN-MLT/DoclayNet/[DATA_NAME]_pkl
+  pdf_dir2: /media/win/Dataset/DocLayNet/PDF
+  pkl_dir: /media/win/Dataset/PubLayNet/[DATA_NAME]_pkl_rtdetr
+  pdf_dir: /media/win/Dataset/PubLayNet/PDF/[DATA_NAME]
+  st_idx: 250000
+  ed_idx: 300000
+  num_workers: 1
+  empty_save_dir: false
+  show_pre_gt: false
+  show_post_gt: false
+  json_dirs:
+    - /media/win/Dataset/PubLayNet/JSON_pymupdf_text
+  save_dirs:
+    - /media/win/Dataset/Layout2Graph/PubLayNet_rtdetr_pymupdf_text/[DATA_NAME]
+
+make_doclaynet_json_add_custom_feature:
+  features_executable_path: /home/youbit/bin/mupdf-master-250317/build/release/features-250911
+  max_workers: 0
+  src_dirs:
+    - /media/win/Dataset/Layout2Graph/PubLayNet_core_graph_labels_pymupdf_text
+  data_names: ['train']
+  pdf_dir1: /media/win/Dataset/DocLayNet/PDF
+  pkl_dir1: /media/win/Dataset/CTPN-MLT/DoclayNet/[DATA_NAME]_pkl
+  pkl_dir: /media/win/Dataset/PubLayNet/train_pkl_doclaynet
+  pdf_dir: /media/win/Dataset/PubLayNet/PDF/train
+  show_data: false
+
+make_mupdf_xml:
+  pdf_dir: /media/win/Dataset/DocLayNet/PDF
+  save_dir: /media/win/Dataset/DocLayNet/XML_mutool
+  pkl_dir:
+  mutool_path: home/youbit/bin/mupdf-master-250317/build/release/mutool
+
+data:
+  class_list: ['text', 'title', 'picture', 'table', 'list-item', 'page-header', 'page-footer', 'section-header', 'footnote','caption','formula', 'unlabelled']
+
+save_json_dataset_to_lmdb:
+  data_names: train
+  num_workers: 1
+
+  create_from_pdf: true
+  remove_unlabelled_data: false
+  pdf_input_type: ['text']
+  cfg_path: tools/config.yaml
+  rf_executable:
+
+  nn_type: directional_nn
+  pkl_dirs:
+    - /media/win/Dataset/CTPN-MLT/DoclayNet/train_pkl
+    - /media/win/Dataset/CTPN-MLT/DoclayNet/val_pkl
+    - /media/win/Dataset/PubLayNet/train_pkl_doclaynet
+  pdf_dirs:
+    - /media/win/Dataset/DocLayNet/PDF
+    - /media/win/Dataset/PubLayNet/PDF/[DATA_NAME]
+  feature_extractor: "/media/win/Dataset/DocumentlayoutGNN/directional_nn/imf_thin_seg-all/0.9218_all_172d.onnx"
+  feature_extractor2:
+  feature_input_size: [500, 500]
+  filter_class:
+  filter_class2: ['table']
+  data_class_change_map:
+    _table-cell:
+    _form: table
+    _checkbox-selected: text
+    _key-value-region: text
+    _checkbox-unselected: text
+    _code: text
+  feature_option: []
+  sample_k: 2
+  json_paths:
+    - /media/win/Dataset/Layout2Graph/DocLayNet_core_graph_labels_pymupdf_text/[DATA_NAME]/graph_labels
+    - # /media/win/Dataset/Layout2Graph/DocLayNet_core_graph_labels_ts/[DATA_NAME]/graph_labels
+    - # ["/media/win/Dataset/Layout2Graph/PubLayNet_core_graph_labels_pymupdf_text/[DATA_NAME]/graph_labels", 1]
+  save_paths:
+    - /media/win/Dataset/DocumentlayoutGNN/directional_nn/RF1+IMF/[DATA_NAME]/doclaynet_pymupdf_text
+    - /media/win/Dataset/DocumentlayoutGNN/directional_nn/imf_thin_seg-all/[DATA_NAME]/doclaynet_table_textsense_text
+    - /media/win/Dataset/DocumentlayoutGNN/directional_nn/imf_thin_seg-all/[DATA_NAME]/publaynet_table_pymupdf_text
+
+visualize_lmdb_dataset:
+  pdf_dir: /media/win/Dataset/DocLayNet/PDF
+  lmdb_path: /media/win/Dataset/DocumentlayoutGNN/val/pymupdf+text
+
+make_gt_dataset_by_docling:
+  pdf_dir: /media/win/PTMP/PDF/BOK-Board/book
+  save_dir: /media/win/PTMP/PDF/BOKDataset/book
+
+clean_docling_dataset:
+  pkl_dir: /media/win/PTMP/PDF/DartDataset/dart_정기공시_2401-2509/pkl
+  pdf_dir: /media/win/PTMP/PDF/DartDataset/dart_정기공시_2401-2509/PDF
+
+make_lmdb_dataset_same_keys:
+  lmdb_dirs:
+    - /media/win/Dataset/DocumentlayoutGNN/directional_nn/RF1+IMF/val/doclaynet_pymupdf_text
+    - /media/win/Dataset/DocumentlayoutGNN/directional_nn/RF1/val/doclaynet_pymupdf_text
