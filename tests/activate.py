@@ -26,5 +26,5 @@ doc = pymupdf.open(pdf_path)
 log(f'md = pymupdf4llm.to_markdown(doc)')
 md = pymupdf4llm.to_markdown(doc)
 log(f'writing md to {path_out=}.')
-with open(path_out, 'w') as f:
+with open(path_out, 'w', encoding='utf8') as f:
     f.write(md)

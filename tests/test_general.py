@@ -158,9 +158,9 @@ def _test_activate(call_activate, install_opencv):
         except Exception:
             pass
         subprocess.run(f'{sys.executable} {argv0} {call_activate} {md_path_out}', shell=1, check=1)
-        with open(md_path_out) as f:
+        with open(md_path_out, encoding='utf8') as f:
             md = f.read()
-        with open(md_path_expected) as f:
+        with open(md_path_expected, encoding='utf8') as f:
             md_expected = f.read()
         assert md == md_expected
     finally:
