@@ -3,6 +3,7 @@ import glob
 import os
 import sys
 import textwrap
+import subprocess
 import time
 
 sys.path.insert(0, os.path.abspath(f'{__file__}/../..'))
@@ -135,3 +136,46 @@ def test_competitor_examples():
                 with open(expected_path, 'w', errors='backslashreplace') as f:
                     f.write(md)
                 print(f'test_competitor_examples(): have written to {expected_path=}.')
+
+
+def _test_activate(call_activate, install_opencv):
+    '''
+    Check that things work in same way regardless of whether we call
+    pymupdf.layout.activate() or whether opencv-python is installed.
+    '''
+    print(f'### _test_activate(): {call_activate=} {install_opencv=}.', flush=1)
+    subprocess.run(f'pip uninstall opencv-python', shell=1, check=1)
+    subprocess.run(f'pip install pymupdf4llm', shell=1, check=1)
+    if install_opencv:
+        subprocess.run(f'pip install opencv-python', shell=1, check=1)
+    try:
+        # We run a separate python script so we can control imports etc.
+        argv0 = os.path.normpath(f'{__file__}/../../tests/activate.py')
+        md_path_expected = os.path.normpath(f'{__file__}/../../tests/test_activate_expected.md')
+        md_path_out = os.path.normpath(f'{__file__}/../../tests/test_activate_{call_activate}_out.md')
+        try:
+            os.remove(md_path_out)
+        except Exception:
+            pass
+        subprocess.run(f'{sys.executable} {argv0} {call_activate} {md_path_out}', shell=1, check=1)
+        with open(md_path_out) as f:
+            md = f.read()
+        with open(md_path_expected) as f:
+            md_expected = f.read()
+        assert md == md_expected
+    finally:
+        cp = subprocess.run(f'pip uninstall -y pymupdf4llm opencv-python', shell=1, check=1)
+
+
+def test_activate_no():
+    _test_activate(0, 0)
+
+def test_activate_yes():
+    _test_activate(1, 0)
+    
+
+def test_activate_no_opencv():
+    _test_activate(0, 1)
+
+def test_activate_yes_opencv():
+    _test_activate(1, 1)
