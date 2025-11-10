@@ -153,10 +153,8 @@ def _test_activate(call_activate, install_opencv):
         argv0 = os.path.normpath(f'{__file__}/../../tests/activate.py')
         md_path_expected = os.path.normpath(f'{__file__}/../../tests/test_activate_expected.md')
         md_path_out = os.path.normpath(f'{__file__}/../../tests/test_activate_{call_activate}_out.md')
-        try:
+        if os.path.isfile(md_path_out):
             os.remove(md_path_out)
-        except Exception:
-            pass
         subprocess.run(f'{sys.executable} {argv0} {call_activate} {md_path_out}', shell=1, check=1)
         with open(md_path_out, encoding='utf8') as f:
             md = f.read()
