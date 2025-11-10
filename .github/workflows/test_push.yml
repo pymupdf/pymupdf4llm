@@ -1,0 +1,44 @@
+name: test push
+
+on:
+  pull_request:
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      args:
+        default: ''
+        description: 'Arguments to be passed to scripts/test_push.py.'
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+                ubuntu-latest,
+                windows-2022,
+                macos-13,
+                macos-14,
+                ]
+
+      # Avoid cancelling of all runs after a single failure.
+      fail-fast: false
+
+    steps:
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
+
+      - name: test
+        shell: python
+        run: |
+          import pipcl
+          pipcl.run('pip install -v pytest')
+          pipcl.run('pip install -v pymupdf')
+          pipcl.run('pip install -v ./')
+          pipcl.run('python -m pytest -v tests')
