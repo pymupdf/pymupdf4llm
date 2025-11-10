@@ -35,10 +35,16 @@ jobs:
           python-version: 3.13
 
       - name: test
-        shell: python
         run: |
-          import pipcl
-          pipcl.run('pip install -v pytest')
-          pipcl.run('pip install -v pymupdf')
-          pipcl.run('pip install -v ./')
-          pipcl.run('python -m pytest -v tests')
+          pip install pytest
+
+          # Use current pymupdf release.
+          pip install -v pymupdf
+
+          # Use latest pymupdf and mupdf in git.
+          #git clone https://github.com/pymupdf/PyMuPDF.git
+          #'PYMUPDF_SETUP_MUPDF_BUILD=git:--branch master' pip install -v ./PyMuPDF
+
+          # Build, install and test local pymupdf_layout.
+          pip install -v ./
+          python -m pytest -v tests
