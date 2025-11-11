@@ -67,7 +67,7 @@ process_region(fz_context *ctx, fz_stext_page *page, fz_features *features, fz_r
 	stats = fz_features_for_region(ctx, features, region, 0);
 
 	/* Output the result */
-	printf(",%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%g,%g,%g,%g\n",
+	printf(",%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g\n",
 		stats->num_non_numerals,
 		stats->num_numerals,
 		stats->ratio,
@@ -130,7 +130,12 @@ process_region(fz_context *ctx, fz_stext_page *page, fz_features *features, fz_r
 		stats->ray_line_distance_up,
 		stats->ray_line_distance_down,
 		stats->ray_line_distance_left,
-		stats->ray_line_distance_right);
+		stats->ray_line_distance_right,
+		stats->raft_num,
+		stats->raft_edge_up,
+		stats->raft_edge_down,
+		stats->raft_edge_left,
+		stats->raft_edge_right);
 }
 
 static void
@@ -310,6 +315,11 @@ int main
 	printf(",ray_line_distance_down");
 	printf(",ray_line_distance_left");
 	printf(",ray_line_distance_right");
+	printf(",raft_number");
+	printf(",raft_edge_up");
+	printf(",raft_edge_down");
+	printf(",raft_edge_left");
+	printf(",raft_edge_right");
 	printf("\n");
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);

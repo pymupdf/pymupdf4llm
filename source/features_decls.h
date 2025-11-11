@@ -88,6 +88,11 @@ typedef struct
 	float ray_line_distance_down;
 	float ray_line_distance_left;
 	float ray_line_distance_right;
+	int raft_num;
+	float raft_edge_up;
+	float raft_edge_down;
+	float raft_edge_left;
+	float raft_edge_right;
 } fz_feature_stats;
 
 typedef struct fz_features fz_features;

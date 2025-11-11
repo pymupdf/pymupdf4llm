@@ -30,6 +30,19 @@ typedef struct
 	font_freq_t *list;
 } font_freq_list;
 
+/* A bunch of rafts makes a flotilla. */
+typedef struct
+{
+	fz_rect area;
+} raft_t;
+
+typedef struct
+{
+	int len;
+	int max;
+	raft_t *rafts;
+} flotilla_t;
+
 struct fz_features
 {
 	fz_feature_stats stats;
@@ -55,6 +68,8 @@ struct fz_features
 	float nearest_nonaligned_down;
 	float nearest_nonaligned_left;
 	float nearest_nonaligned_right;
+	flotilla_t *vector_flotilla;
+	flotilla_t *image_flotilla;
 };
 
 #if 1
@@ -215,6 +230,135 @@ font_freq_drop(fz_context *ctx, font_freq_list *list)
 	list->max = list->len = 0;
 }
 
+/*
+	Raft handling
+
+	We call any 2-dimensional area that's covered by (some type of) content
+	a raft. i.e. it's made up of several distinct objects lashed together
+	into something that covers a large flat area.
+
+	For instance, the borders and/or backgrounds from a table would form a
+	raft behind the text content. And the boundaries of that raft might
+	help us distinguish that table from an adjacent table on a different
+	raft.
+
+	While we could theorectically make rafts from anything, images and
+	vectors seem like the best bet. We could make rafts from mixed images
+	and vectors, but to start with, I think we'll get best results from
+	images and vectors separately.
+*/
+static flotilla_t *
+new_flotilla(fz_context *ctx)
+{
+	return fz_malloc_struct(ctx, flotilla_t);
+}
+
+static void
+drop_flotilla(fz_context *ctx, flotilla_t *f)
+{
+	if (!f)
+		return;
+	fz_free(ctx, f->rafts);
+	fz_free(ctx, f);
+}
+
+static void
+add_raft_to_flotilla(fz_context *ctx, flotilla_t *f, raft_t r)
+{
+	if (f->len == f->max)
+	{
+		int newmax = f->max * 2;
+		if (newmax == 0)
+			newmax = 8;
+		f->rafts = (raft_t *) fz_realloc(ctx, f->rafts, sizeof(f->rafts[0]) * newmax);
+		f->max = newmax;
+	}
+
+	f->rafts[f->len++] = r;
+}
+
+static void
+add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
+{
+	int i, j;
+	int overlaps = -1;
+
+	/* Does the plank extend any of the existing rafts? */
+	for (i = 0; i < f->len; i++)
+	{
+		if (fz_is_valid_rect(fz_intersect_rect(rect, f->rafts[i].area)))
+		{
+			/* We overlap. */
+			fz_rect r = fz_union_rect(f->rafts[i].area, rect);
+			if (r.x0 == f->rafts[i].area.x0 &&
+				r.y0 == f->rafts[i].area.y0 &&
+				r.x1 == f->rafts[i].area.x1 &&
+				r.y1 == f->rafts[i].area.y1)
+			{
+				/* We were entirely contained. Nothing more to do. */
+				return;
+			}
+			f->rafts[i].area = r;
+			break;
+		}
+	}
+
+	if (i < f->len)
+	{
+		/* We've extended raft[i]. We now need to check if any other raft overlaps
+		 * with the extended one. */
+		for (j = 0; j < i; j++)
+		{
+			if (fz_is_valid_rect(fz_intersect_rect(f->rafts[j].area, f->rafts[i].area)))
+			{
+				/* Update raft j to be the union of the two. */
+				f->rafts[j].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
+				/* Shorten the list by moving the end one down to be the ith one. */
+				f->len--;
+				if (i != f->len)
+					f->rafts[i] = f->rafts[f->len];
+				/* And make i = j, to a) stop the loop, and b) reflect that the one we
+				 * want to merge to has moved. */
+				i = j;
+			}
+		}
+		for (j = i+1; j < f->len; j++)
+		{
+			if (fz_is_valid_rect(fz_intersect_rect(f->rafts[j].area, f->rafts[i].area)))
+			{
+				/* Update raft i to be the union of the two. */
+				f->rafts[i].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
+				/* Shorten the list by moving the end one down to be the jth one. */
+				if (j != f->len)
+				{
+					f->len--;
+					f->rafts[j] = f->rafts[f->len];
+					j--;
+				}
+			}
+		}
+	}
+	else
+	{
+		/* This didn't overlap anything else. Make a new raft. */
+		raft_t raft = { rect };
+		add_raft_to_flotilla(ctx, f, raft);
+	}
+}
+
+static int
+find_raft(flotilla_t *flotilla, fz_rect region)
+{
+	int i;
+
+	for (i = 0; i < flotilla->len; i++)
+	{
+		if (fz_contains_rect(flotilla->rafts[i].area, region))
+			return i;
+	}
+	return -1;
+}
+
 static void
 gather_global_stats(fz_context *ctx, fz_stext_block *block, fz_features *features)
 {
@@ -231,7 +375,11 @@ gather_global_stats(fz_context *ctx, fz_stext_block *block, fz_features *feature
 				gather_global_stats(ctx, block->u.s.down->first_block, features);
 			continue;
 		}
-		else if (block->type != FZ_STEXT_BLOCK_TEXT)
+		if (block->type == FZ_STEXT_BLOCK_VECTOR)
+		{
+			add_plank_to_flotilla(ctx, features->vector_flotilla, block->bbox);
+		}
+		if (block->type != FZ_STEXT_BLOCK_TEXT)
 			continue;
 		for (line = block->u.t.first_line; line != NULL; line = line->next)
 		{
@@ -1091,6 +1239,30 @@ process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 	font_freq_common(ctx, &features->region_fonts, 100000);
 }
 
+static void
+process_raft_features(fz_context *ctx, fz_rect region, fz_features *features)
+{
+	int raft = find_raft(features->vector_flotilla, region);
+
+	features->stats.raft_num = raft+1;
+	if (raft == -1)
+	{
+		features->stats.raft_edge_up = 0;
+		features->stats.raft_edge_down = 0;
+		features->stats.raft_edge_left = 0;
+		features->stats.raft_edge_right = 0;
+	}
+	else
+	{
+		fz_rect a = features->vector_flotilla->rafts[raft].area;
+		features->stats.raft_edge_up = region.y0 - a.y0;
+		features->stats.raft_edge_down = a.y1 - region.y1;
+		features->stats.raft_edge_left = region.x0 - a.x0;
+		features->stats.raft_edge_right = a.x1 - region.x1;
+	}
+}
+
+
 #if FZ_VERSION_MAJOR > 1 || (FZ_VERSION_MAJOR == 1 && FZ_VERSION_MINOR >= 27)
     #define STEXT_PAGE_IS_REFERENCE_COUNTED
 #endif
@@ -1110,6 +1282,8 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 	#endif
 	fz_try(ctx)
 	{
+		features->vector_flotilla = new_flotilla(ctx);
+		features->image_flotilla = new_flotilla(ctx);
 		/* Collect global stats */
 		gather_global_stats(ctx, features->page->first_block, features);
 		process_global_font_stats(ctx, features->page->mediabox, features);
@@ -1135,6 +1309,8 @@ fz_drop_page_features(fz_context *ctx, fz_features *features)
 	#ifdef STEXT_PAGE_IS_REFERENCE_COUNTED
 		fz_drop_stext_page(ctx, features->page);
 	#endif
+	drop_flotilla(ctx, features->vector_flotilla);
+	drop_flotilla(ctx, features->image_flotilla);
 
 	fz_free(ctx, features);
 }
@@ -1172,6 +1348,7 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 	/* Now collect for the region itself. */
 	gather_region_stats(ctx, page->first_block, region, features);
 	process_region_font_stats(ctx, region, features);
+	process_raft_features(ctx, region, features);
 
 	/* Now we scan again, to try to make contextual features. */
 	contextual_features_above(ctx, page->first_block, region, &features->stats);
