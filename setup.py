@@ -78,7 +78,7 @@ def build():
     root = pipcl.relpath(root, allow_up=0)
     
     swig = PYMUPDF_LAYOUT_SETUP_SWIG or 'swig'
-    run(f'{swig} --version')
+    run(f'{swig} -version')
     
     PYMUPDF_LAYOUT_SETUP_BUILD_TYPE = os.environ.get('PYMUPDF_LAYOUT_SETUP_BUILD_TYPE')
     
