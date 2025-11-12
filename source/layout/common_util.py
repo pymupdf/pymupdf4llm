@@ -494,27 +494,27 @@ def get_edge_transform_bbox(bboxes: np.ndarray, edge_index: list):
     edge_attr = np.nan_to_num(edge_attr, nan=0.0, posinf=1e5, neginf=-1e5)
     return edge_attr
 
-
 def get_text_pattern(text, text_pattern=None, return_vector=True):
+    max_len = 40
+    symbols = ['•', '-', '*', '+', '<', '>', '(', ')', '→', '✓', '#', '□', '■', '‣', '◦', '▪', '.', ':', '※', '']
     if text_pattern is None:
-        text_pattern = ''
+        pattern = ''
         for c in text:
-            # Number
-            if c.isdigit():
-                text_pattern += 'N'
-            # Symbol
-            elif c in [':', '-', '=', '+', '-', ',', '.', '!', '?', '@', '*', '(', ')', '&']:
-                text_pattern += 'S'
-            # Space
-            elif c in [' ', '\t']:
-                text_pattern += 'W'
-            # Character
+            if c in symbols:
+                pattern += c
+            elif c.isspace():
+                pattern += 'W'
+            elif c.isdigit():
+                pattern += 'D'
+            elif not c.isalnum():
+                pattern += 'S'
             else:
-                text_pattern += 'C'
+                pattern += 'C'
+
         compressed_pattern = ''
         prev_c = ''
         prev_repeat = 1
-        for c_idx, c in enumerate(text_pattern):
+        for c_idx, c in enumerate(pattern):
             if c_idx == 0:
                 compressed_pattern += c
             else:
@@ -531,23 +531,34 @@ def get_text_pattern(text, text_pattern=None, return_vector=True):
         text_pattern = compressed_pattern
 
     if return_vector:
-        f_text = [0.0] * 10
-        for c_idx, c in enumerate(text_pattern):
-            if c_idx >= len(f_text):
-                break
-            if c == 'C':
-                f_text[c_idx] = 1 / 13
+        vector = []
+        for c in text_pattern:
+            if c.isdigit():
+                vector.append(int(c))
+            elif c == 'C':
+                vector.append(10)
+            elif c == 'D':
+                vector.append(11)
             elif c == 'S':
-                f_text[c_idx] = 2 / 13
-            elif c == 'N':
-                f_text[c_idx] = 3 / 13
+                vector.append(12)
             elif c == 'W':
-                f_text[c_idx] = 4 / 13
-            elif c.isdigit():
-                f_text[c_idx] = (int(c) + 4) / 13
+                vector.append(13)
+            elif c in symbols:
+                vector.append(14 + symbols.index(c))
             else:
-                raise Exception('Invalid text_pattern = %s' % text_pattern)
-        return f_text
+                raise Exception(f'Invalid pattern character: {c}')
+        encoded = [format(v, '02o') for v in vector]
+        encoded_vector = [0.0] * max_len
+        cur_idx = 0
+        for code in encoded:
+            for c in code:
+                encoded_vector[cur_idx] = int(c) / 8
+                cur_idx += 1
+                if cur_idx >= len(encoded_vector):
+                    break
+            if cur_idx >= len(encoded_vector):
+                break
+        return encoded_vector
     else:
         return text_pattern
 

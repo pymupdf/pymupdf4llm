@@ -10,18 +10,24 @@ save_json_dataset_to_lmdb:
   cfg_path: train/tools/config.yaml
   rf_executable:
   nn_type: directional_nn
+  # Path to the directory containing your pkl files
   pkl_dirs:
     -
+  # ex) [DocLayNetDir]/PDF
   pdf_dirs:
     -
+  # If you want to use image features, uncomment below
+  # feature_extractor: train/resources/0.9218_all_172d.onnx
   feature_extractor:
-  feature_input_size:
+  feature_input_size: [500, 500]
   filter_class:
   data_class_change_map:
   feature_option: []
   sample_k: 2
+  # Path to the directory containing your pkl files
   json_paths:
     -
+  # Directory path to save the new LMDB file
   save_paths:
     -
 

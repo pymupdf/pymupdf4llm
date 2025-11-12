@@ -162,21 +162,25 @@ class BoxRFDGNN:
         script_dir = Path(__file__).resolve().parent.parent
 
         self.feature_set_name = feature_set_name
-        if self.feature_set_name not in ['imf', 'imf+rf']:
-            raise "feature_set_name must be one of 'imf', 'imf+rf'"
+        if self.feature_set_name not in ['imf', 'imf+rf', 'rf']:
+            raise "feature_set_name must be one of 'imf', 'imf+rf', 'rf"
 
         if config_path is None or model_path is None or imf_model_path is None:
             if self.feature_set_name == 'imf':
                 config_path = f'{script_dir}/resources/onnx/layout_imf.yaml'
                 model_path = f'{script_dir}/resources/onnx/layout_imf.onnx'
+                imf_model_path = f'{script_dir}/resources/onnx/feature_imf.onnx'
             elif self.feature_set_name == 'imf+rf':
                 config_path = f'{script_dir}/resources/onnx/layout_imf+rf.yaml'
                 model_path = f'{script_dir}/resources/onnx/layout_imf+rf.onnx'
-            imf_model_path = f'{script_dir}/resources/onnx/feature_imf.onnx'
+                imf_model_path = f'{script_dir}/resources/onnx/feature_imf.onnx'
+            elif self.feature_set_name == 'rf':
+                config_path = f'{script_dir}/resources/onnx/layout_rf.yaml'
+                model_path = f'{script_dir}/resources/onnx/layout_rf.onnx'
+                imf_model_path = None
 
         self.config_path = config_path
-        with open(self.config_path, "rb"
-                  ) as f:
+        with open(self.config_path, "rb") as f:
             self.cfg = yaml.safe_load(f)
 
         self.data_class_names = self.cfg['data']['class_list']
@@ -189,7 +193,7 @@ class BoxRFDGNN:
         self.session = None
         self.load_onnx_model(self.model_path)
 
-        if os.path.exists(imf_model_path):
+        if imf_model_path is not None and os.path.exists(imf_model_path):
             self.feature_extractor = ort.InferenceSession(imf_model_path, providers=['CPUExecutionProvider'])
         else:
             self.feature_extractor = None
