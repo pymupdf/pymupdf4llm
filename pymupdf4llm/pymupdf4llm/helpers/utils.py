@@ -404,6 +404,16 @@ def find_reading_order(page_rect, blocks, boxes, vertical_gap: float = 12) -> li
         else:
             body_boxes.append(box)
 
+    # Handle edge case: pages with no body content (only headers/footers or empty)
+    # This can occur with scanned images, blank pages, or pages with only headers/footers
+    if not body_boxes:
+        # Return only headers and footers sorted by position
+        final = (
+            sorted(page_headers, key=lambda r: (r[1], r[0]))
+            + sorted(page_footers, key=lambda r: (r[1], r[0]))
+        )
+        return final
+
     # compute joined boxes of body
     joined_boxes = pymupdf.Rect(
         min(b[0] for b in body_boxes),
