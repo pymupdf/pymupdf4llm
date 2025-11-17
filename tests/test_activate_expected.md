@@ -38,6 +38,29 @@ The SEC requires natural gas and oil companies, in filings made with the SEC, to
 
 **==> picture [149 x 235] intentionally omitted <==**
 
+**----- Start of picture text -----**<br>
+|||||
+|---|---|---|---|
+|2011|High|Low|Last|
+|First Quarter|$ 35.95|$ 25.93|$ 33.52|
+|2010|High|Low|Last|
+|Fourth Quarter  $ 26.43|$ 20.97|$ 25.91|
+|Third Quarter|23.00|19.68|22.65|
+|Second Quarter|25.55|19.62|20.95|
+|First Quarter|29.22|22.10|23.64|
+|2009|High|Low|Last|
+|Fourth Quarter  $ 30.00|$ 22.06|$ 25.88|
+|Third Quarter|29.49|16.92|28.40|
+|Second Quarter|24.66|16.43|19.83|
+|First Quarter|20.13|13.27|17.06|
+|2008|High|Low|Last|
+|Fourth Quarter  $ 35.46|$ 9.84|$ 16.17|
+|Third Quarter|74.00|31.15|35.86|
+|Second Quarter|68.10|45.25|65.96|
+|First Quarter|49.87|34.42|46.15|
+**----- End of picture text -----**<br>
+
+
 **==> picture [37 x 38] intentionally omitted <==**
 
 WWW.CHK.COM 
