@@ -100,3 +100,65 @@ export2onnx:
   save_path:  /workspace/checkpoints/model.onnx
   verification_threshold: 0.001
 
+train_segmentation:
+  task: train
+  device: 'cuda:0'
+  model:
+    name: 'UNet-thin'
+    target_type: 'segmentation'
+    in_ch: 1
+    out_ch: 12
+    use_sep: false
+    image_size:
+      type: Fix
+      size: [500, 500]
+    mask_size:
+      type: Original
+      size:
+    output_name: ''
+    num_filters: 32
+  loss_type:
+    - type: 'CE'
+      weight: 1.0
+  class_list: ['text', 'title', 'picture', 'table', 'list-item', 'page-header', 'page-footer', 'section-header', 'footnote', 'caption', 'formula']
+  data_class_change_map:
+    table-cell:
+    form: table
+    key-value-region: text
+    checkbox-selected: text
+    checkbox-unselected: text
+    code: text
+  class_weight:
+  train_style: 'SEG'
+  batch_size: 36
+  learning_rate: 1e-4
+  scheduler:
+    base_lr: 1e-4
+    max_lr: 1e-4
+    step_size: 10000
+  augmentation:
+    crop_prob: 0.25
+    crop_ratio: [0.8, 1.0]
+    noise_prob: 0.1
+    noise_ratio: 0.01
+  num_workers: 2
+  train_pkl_prob:
+  train_pkl_dir:
+    - /workspace/pkl_data/train
+  train_pdf_dir:
+    - /datasets/DocLayNet/PDF
+  train_cache_size: 1000
+  train_cache_rate: 0.5
+  val_pkl_dir:
+    - /workspace/pkl_data/val
+  val_pdf_dir:
+    - /datasets/DocLayNet/PDF
+  num_epochs: 10000
+  log_interval: 10
+  show_interval: 10
+  eval_interval: 1000
+  sleep_time: 0.0
+  load_from:
+  onnx_save:
+  save_dir: /checkpoints/segmentation
+  pdf_dir:
