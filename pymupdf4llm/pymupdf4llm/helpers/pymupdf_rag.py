@@ -1042,10 +1042,22 @@ def to_markdown(
         tab_rects = {}
         for i, t in enumerate(parms.tabs):
             tab_rects[i] = pymupdf.Rect(t.bbox) | pymupdf.Rect(t.header.bbox)
+            # Extract matrix (list of lists) from table
+            try:
+                matrix = t.extract()
+            except Exception:
+                matrix = []
+            # Extract markdown representation
+            try:
+                markdown = t.to_markdown(clean=False)
+            except Exception:
+                markdown = ""
             tab_dict = {
                 "bbox": tuple(tab_rects[i]),
                 "rows": t.row_count,
                 "columns": t.col_count,
+                "matrix": matrix,
+                "markdown": markdown,
             }
             parms.tables.append(tab_dict)
         parms.tab_rects = tab_rects

@@ -1,6 +1,11 @@
 import pytest
 from pathlib import Path
 import sys
+import os
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # adiciona o caminho até o segundo nível do pacote
 sys.path.insert(0, "/home/blp/Área de trabalho/Projeto Lucredi/pymupdf4llm/pymupdf4llm")
@@ -14,9 +19,11 @@ import fitz  # PyMuPDF
 def pdf_teste(tmp_path):
     """
     Define o caminho do PDF de teste.
-    Substitua pelo seu PDF real que contém a tabela esperada.
+    O caminho é lido da variável de ambiente PDF_PATH no arquivo .env.
     """
-    pdf_path = Path("Jubilant.pdf")  
+    pdf_path_str = os.getenv("PDF_PATH")
+    assert pdf_path_str, "Variável de ambiente PDF_PATH não encontrada no arquivo .env"
+    pdf_path = Path(pdf_path_str)
     assert pdf_path.exists(), f"PDF de teste não encontrado em {pdf_path}"
     return pdf_path
 
