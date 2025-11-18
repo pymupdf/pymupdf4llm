@@ -217,12 +217,12 @@ def eval_det_model(cfg, load_from=None, verbose=True):
     with open(model_cfg, "rb") as f:
         model_cfg = anyconfig.load(f)
 
-    data_class_names = cfg['data']['class_list']
+    data_class_names = model_cfg['data']['class_list']
     data_class_map = {}
     for i in range(len(data_class_names)):
         data_class_map[data_class_names[i]] = i
-    class_priority_list = cfg['data']['class_priority']
-    data_rf_names = cfg['data']['rf_names']
+    class_priority_list = model_cfg['data']['class_priority']
+    data_rf_names = model_cfg['data']['rf_names']
 
     result_map = {
         'total-T': 0,
@@ -568,7 +568,9 @@ def export2onnx(cfg):
     if model_type in ['GAT', 'NNConv']:
         onnx_input_names = ["x", "edge_index", "edge_attr", "rf_features", "text_patterns"]
     elif model_type in ['CustomDGC']:
-        onnx_input_names = ["x", "edge_index", "edge_attr", "rf_features", "text_patterns", "image_features", 'k', 'batch']
+        onnx_input_names = ["x", "edge_index", "edge_attr", "text_patterns", "image_features", 'k', 'batch']
+        if 'rf' in model_cfg['model']['option']['feature_types']:
+            onnx_input_names.append('rf_features')
     else:
         raise Exception(f'Not supported model_type = {model_type}!')
 
@@ -636,7 +638,7 @@ def export2onnx(cfg):
         }
 
         if 'image' in feature_types:
-            input_data_dict['image_features'] = data_batch.img_features,
+            input_data_dict['image_features'] = data_batch.img_features
 
         # Prepare input dictionary for ONNX runtime
         # Convert PyTorch tensors to NumPy arrays
@@ -648,7 +650,9 @@ def export2onnx(cfg):
                 onnx_inputs['k'] = np.array(k)
             else:
                 if input_name in input_data_dict:
-                    onnx_inputs[input_name] = input_data_dict[input_name].detach().cpu().numpy()
+                    value = input_data_dict[input_name]
+                    value = value.detach().cpu().numpy()
+                    onnx_inputs[input_name] = value
 
         # Run the ONNX model
         with torch.no_grad():
@@ -1019,11 +1023,11 @@ def eval_det_model_with_pdf(cfg, load_from=None, verbose=True):
     with open(config_path, "rb") as f:
         model_cfg = anyconfig.load(f)
 
-    data_class_names = cfg['data']['class_list']
+    data_class_names = model_cfg['data']['class_list']
     data_class_map = {}
     for i in range(len(data_class_names)):
         data_class_map[data_class_names[i]] = i
-    class_priority_list = cfg['data']['class_priority']
+    class_priority_list = model_cfg['data']['class_priority']
 
     model = get_model(model_cfg, data_class_names)
     model = model.to(device)
@@ -1100,7 +1104,7 @@ def eval_det_model_with_pdf(cfg, load_from=None, verbose=True):
         bboxes = np.array(data_dict['bboxes'], dtype=np.float32)
         if len(bboxes) > 0:
             if nn_input is None:
-                x, edge_index, edge_attr, nn_index, nn_attr, rf_feature, text_feature, image_features = \
+                x, edge_index, edge_attr, nn_index, nn_attr, rf_feature, text_feature, image_features, image_data = \
                     get_nn_input_from_datadict(data_dict, model_cfg, feature_extractor=feature_extractor)
                 if os.path.exists(cache_dir):
                     with open(cache_file, 'wb') as f:
@@ -1171,21 +1175,21 @@ def eval_det_model_with_pdf(cfg, load_from=None, verbose=True):
         matched_gt = set()
         matched_pred = set()
 
-        if '' == 'D':
-            for bbox in gt_boxes:
-                x1 = bbox[0]
-                y1 = bbox[1]
-                x2 = bbox[2]
-                y2 = bbox[3]
-                cv2.putText(page_img, bbox[-1], (int(x1), int(y1)), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 0, 0), 1)
-                cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 1)
-
-            for bbox in data_dict['bboxes']:
-                x1 = bbox[0]
-                y1 = bbox[1]
-                x2 = bbox[2]
-                y2 = bbox[3]
-                cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (200, 200, 200), 1)
+        if 'D' == 'D':
+            # for bbox in gt_boxes:
+            #     x1 = bbox[0]
+            #     y1 = bbox[1]
+            #     x2 = bbox[2]
+            #     y2 = bbox[3]
+            #     cv2.putText(page_img, bbox[-1], (int(x1), int(y1)), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 0, 0), 1)
+            #     cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 1)
+            #
+            # for bbox in data_dict['bboxes']:
+            #     x1 = bbox[0]
+            #     y1 = bbox[1]
+            #     x2 = bbox[2]
+            #     y2 = bbox[3]
+            #     cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (200, 200, 200), 1)
 
             for bbox in pred_boxes:
                 x1 = bbox[0]

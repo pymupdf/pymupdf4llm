@@ -1,11 +1,10 @@
 import os
 import math
 import numpy as np
-import pickle
 
 import networkx as nx
 
-from collections import Counter
+from collections import Counter, deque
 from typing import Optional, List, Dict, Tuple
 
 def get_boxes_transform(bboxes_list):
@@ -224,46 +223,6 @@ def get_edge_by_directional_nn(bbox: np.ndarray, dist_threshold: int, vertical_g
     return final_edge_list, direction_edges
 
 
-def get_edge_by_knn(bboxes: np.ndarray, k: int) -> np.ndarray:
-    """
-    Computes a k-nearest neighbor graph based on the center points of bounding boxes,
-    returning the result as a numpy array.
-
-    Args:
-        bboxes (np.ndarray): A numpy array of shape (N, 4) where each row is a bounding box
-                             in the format [x1, y1, x2, y2].
-        k (int): The number of nearest neighbors for each node.
-
-    Returns:
-        np.ndarray: A numpy array of shape (E, 2) representing the directed edge_index.
-    """
-    if bboxes.shape[0] < 2:
-        return np.empty((0, 2), dtype=np.int64)
-
-    # Calculate center points of each bounding box
-    center_points = np.zeros((bboxes.shape[0], 2))
-    center_points[:, 0] = (bboxes[:, 0] + bboxes[:, 2]) / 2
-    center_points[:, 1] = (bboxes[:, 1] + bboxes[:, 3]) / 2
-
-    # Initialize edge list
-    edges = []
-
-    # Compute distances and find k-nearest neighbors for each point
-    for i in range(len(center_points)):
-        # Calculate Euclidean distances from point i to all points
-        distances = np.sqrt(np.sum((center_points - center_points[i]) ** 2, axis=1))
-        # Set distance to self as infinity to exclude it
-        distances[i] = np.inf
-        # Get indices of k nearest neighbors
-        nearest_indices = np.argsort(distances)[:k]
-        # Add directed edges (i -> j)
-        for j in nearest_indices:
-            edges.append([i, j])
-
-    # Convert edges to numpy array
-    edge_index = np.array(edges, dtype=np.int64)
-
-    return edge_index
 
 def get_edge_by_alignment(bbox: np.ndarray, dist_threshold: float = 0.001, center_limit: float = 10000) -> list[tuple[int, int]]:
     bbox_num = len(bbox)
@@ -308,6 +267,125 @@ def get_edge_by_alignment(bbox: np.ndarray, dist_threshold: float = 0.001, cente
 
     return edges
 
+
+def get_edge_by_knn(bboxes: np.ndarray, k: int) -> np.ndarray:
+    """
+    Computes a k-nearest neighbor graph based on the center points of bounding boxes,
+    returning the result as a numpy array.
+
+    Args:
+        bboxes (np.ndarray): A numpy array of shape (N, 4) where each row is a bounding box
+                             in the format [x1, y1, x2, y2].
+        k (int): The number of nearest neighbors for each node.
+
+    Returns:
+        np.ndarray: A numpy array of shape (E, 2) representing the directed edge_index.
+    """
+    if bboxes.shape[0] < 2:
+        return np.empty((0, 2), dtype=np.int64)
+
+    # Calculate center points of each bounding box
+    center_points = np.zeros((bboxes.shape[0], 2))
+    center_points[:, 0] = (bboxes[:, 0] + bboxes[:, 2]) / 2
+    center_points[:, 1] = (bboxes[:, 1] + bboxes[:, 3]) / 2
+
+    # Initialize edge list
+    edges = []
+
+    # Compute distances and find k-nearest neighbors for each point
+    for i in range(len(center_points)):
+        # Calculate Euclidean distances from point i to all points
+        distances = np.sqrt(np.sum((center_points - center_points[i]) ** 2, axis=1))
+        # Set distance to self as infinity to exclude it
+        distances[i] = np.inf
+        # Get indices of k nearest neighbors
+        nearest_indices = np.argsort(distances)[:k]
+        # Add directed edges (i -> j)
+        for j in nearest_indices:
+            edges.append([i, j])
+
+    # Convert edges to numpy array
+    edge_index = np.array(edges, dtype=np.int64)
+
+    return edge_index
+
+def get_edge_transform_bbox(bboxes: np.ndarray, edge_index: list):
+    """
+    Vectorized edge feature computation using NumPy.
+
+    Args:
+        bboxes (np.ndarray): (N, 4) array in [x_min, y_min, x_max, y_max] format.
+        edge_index (list): (E, 2) list of (src_idx, dst_idx) tuples representing edges.
+
+    Returns:
+        np.ndarray: (E, 18) array of edge features.
+    """
+    if len(edge_index) == 0:
+        return np.empty((0, 18), dtype=np.float32)
+
+    # Convert edge list to NumPy array
+    edge_index_np = np.array(edge_index)
+
+    # Extract source and target bounding boxes
+    S = bboxes[edge_index_np[:, 0]]
+    O = bboxes[edge_index_np[:, 1]]
+
+    epsilon = 1e-6  # Minimum safe value to avoid division by zero or log(0)
+
+    # Compute width and height of source and target boxes
+    sw = S[:, 2] - S[:, 0]
+    sh = S[:, 3] - S[:, 1]
+    ow = O[:, 2] - O[:, 0]
+    oh = O[:, 3] - O[:, 1]
+
+    # Compute enclosing box coordinates
+    R_x1 = np.minimum(S[:, 0], O[:, 0])
+    R_y1 = np.minimum(S[:, 1], O[:, 1])
+    R_x2 = np.maximum(S[:, 2], O[:, 2])
+    R_y2 = np.maximum(S[:, 3], O[:, 3])
+    R = np.stack([R_x1, R_y1, R_x2, R_y2], axis=1)
+
+    rw = R[:, 2] - R[:, 0]
+    rh = R[:, 3] - R[:, 1]
+
+    # Replace invalid values with epsilon to ensure safe division and log
+    safe_sw = np.where(sw <= 0, epsilon, sw)
+    safe_sh = np.where(sh <= 0, epsilon, sh)
+    safe_ow = np.where(ow <= 0, epsilon, ow)
+    safe_oh = np.where(oh <= 0, epsilon, oh)
+    safe_rw = np.where(rw <= 0, epsilon, rw)
+    safe_rh = np.where(rh <= 0, epsilon, rh)
+
+    features = []
+
+    # Features 1?6: relative positions and scale between S and O
+    features.append((S[:, 0] - O[:, 0]) / safe_sw)
+    features.append((S[:, 1] - O[:, 1]) / safe_sh)
+    features.append((O[:, 0] - S[:, 0]) / safe_ow)
+    features.append((O[:, 1] - S[:, 1]) / safe_oh)
+    features.append(np.log(safe_sw / safe_ow))
+    features.append(np.log(safe_sh / safe_oh))
+
+    # Features 7?12: relative to enclosing box R from S
+    features.append((S[:, 0] - R[:, 0]) / safe_sw)
+    features.append((S[:, 1] - R[:, 1]) / safe_sh)
+    features.append((R[:, 0] - S[:, 0]) / safe_rw)
+    features.append((R[:, 1] - S[:, 1]) / safe_rh)
+    features.append(np.log(safe_sw / safe_rw))
+    features.append(np.log(safe_sh / safe_rh))
+
+    # Features 13?18: relative to enclosing box R from O
+    features.append((O[:, 0] - R[:, 0]) / safe_ow)
+    features.append((O[:, 1] - R[:, 1]) / safe_oh)
+    features.append((R[:, 0] - O[:, 0]) / safe_rw)
+    features.append((R[:, 1] - O[:, 1]) / safe_rh)
+    features.append(np.log(safe_ow / safe_rw))
+    features.append(np.log(safe_oh / safe_rh))
+
+    # Stack features and sanitize invalid values
+    edge_attr = np.stack(features, axis=1)
+    edge_attr = np.nan_to_num(edge_attr, nan=0.0, posinf=1e5, neginf=-1e5)
+    return edge_attr
 
 def get_edge_transform_bbox2(bboxes: np.ndarray, edge_index: list):
     """
@@ -417,80 +495,6 @@ def get_edge_transform_bbox2(bboxes: np.ndarray, edge_index: list):
 
     # Stack all features column-wise
     edge_attr = np.stack(features, axis=1)  # (E, 18)
-    edge_attr = np.nan_to_num(edge_attr, nan=0.0, posinf=1e5, neginf=-1e5)
-    return edge_attr
-
-
-def get_edge_transform_bbox(bboxes: np.ndarray, edge_index: list):
-    """
-    Vectorized edge feature computation using NumPy,
-    Args:
-        bboxes (np.ndarray): (N, 4) NumPy array in [x_min, y_min, x_max, y_max] format.
-        edge_index (list): (E, 2) list of tuples, where each tuple (src_idx, dst_idx)
-                           represents an edge between bounding boxes.
-    Returns:
-        np.ndarray: (E, 18) NumPy array representing the edge features.
-    """
-    if len(edge_index) == 0:
-        return np.empty((0, 18), dtype=np.float32)
-
-    # Convert edge_index list of tuples to numpy array
-    # edge_index_np will be (E, 2)
-    edge_index_np = np.array(edge_index)
-
-    # Extract source (S) and object (O) bboxes using numpy indexing
-    # These will be (E, 4) numpy arrays: [x_min, y_min, x_max, y_max]
-    S = bboxes[edge_index_np[:, 0]]
-    O = bboxes[edge_index_np[:, 1]]
-
-    delta = 1e-10 # Prevent division by zero
-
-    # Calculate widths and heights for S and O
-    sw = S[:, 2] - S[:, 0] # S_width
-    sh = S[:, 3] - S[:, 1] # S_height
-    ow = O[:, 2] - O[:, 0] # O_width
-    oh = O[:, 3] - O[:, 1] # O_height
-
-    # Calculate enclosing bounding box (R)
-    # R: [out_x_min, out_y_min, out_x_max, out_y_max]
-    R_x1 = np.minimum(S[:, 0], O[:, 0])
-    R_y1 = np.minimum(S[:, 1], O[:, 1])
-    R_x2 = np.maximum(S[:, 2], O[:, 2])
-    R_y2 = np.maximum(S[:, 3], O[:, 3])
-    R = np.stack([R_x1, R_y1, R_x2, R_y2], axis=1) # (E, 4)
-
-    rw = R[:, 2] - R[:, 0] # R_width
-    rh = R[:, 3] - R[:, 1] # R_height
-
-    # Construct the 18 features exactly as in get_relation_feature
-    features = []
-
-    # Features 1-6: Relative to S and O
-    features.append((S[:, 0] - O[:, 0]) / (sw + delta)) # 1. (x1_min - x2_min) / width1
-    features.append((S[:, 1] - O[:, 1]) / (sh + delta)) # 2. (y1_min - y2_min) / height1
-    features.append((O[:, 0] - S[:, 0]) / (ow + delta)) # 3. (x2_min - x1_min) / width2
-    features.append((O[:, 1] - S[:, 1]) / (oh + delta)) # 4. (y2_min - y1_min) / height2
-    features.append(np.log(sw / (ow + delta)))          # 5. log(width1 / width2)
-    features.append(np.log(sh / (oh + delta)))          # 6. log(height1 / height2)
-
-    # Features 7-12: Relative to S and R (out_box)
-    features.append((S[:, 0] - R[:, 0]) / (sw + delta)) # 7. (x1_min - out_x_min) / width1
-    features.append((S[:, 1] - R[:, 1]) / (sh + delta)) # 8. (y1_min - out_y_min) / height1
-    features.append((R[:, 0] - S[:, 0]) / (rw + delta)) # 9. (out_x_min - x1_min) / out_width
-    features.append((R[:, 1] - S[:, 1]) / (rh + delta)) # 10. (out_y_min - y1_min) / out_height
-    features.append(np.log(sw / (rw + delta)))          # 11. log(width1 / out_width)
-    features.append(np.log(sh / (rh + delta)))          # 12. log(height1 / out_height)
-
-    # Features 13-18: Relative to O and R (out_box)
-    features.append((O[:, 0] - R[:, 0]) / (ow + delta)) # 13. (x2_min - out_x_min) / width2
-    features.append((O[:, 1] - R[:, 1]) / (oh + delta)) # 14. (y2_min - out_y_min) / height2
-    features.append((R[:, 0] - O[:, 0]) / (rw + delta)) # 15. (out_x_min - x2_min) / out_width
-    features.append((R[:, 1] - O[:, 1]) / (rh + delta)) # 16. (out_y_min - y2_min) / out_height
-    features.append(np.log(ow / (rw + delta)))          # 17. log(width2 / out_width)
-    features.append(np.log(oh / (rh + delta)))          # 18. log(height2 / out_height)
-
-    # Stack all features column-wise
-    edge_attr = np.stack(features, axis=1) # (E, 18)
     edge_attr = np.nan_to_num(edge_attr, nan=0.0, posinf=1e5, neginf=-1e5)
     return edge_attr
 
@@ -923,3 +927,290 @@ def to_gray(image: np.ndarray) -> np.ndarray:
 
     # Clip to valid range and convert back to uint8
     return np.clip(gray, 0, 255).astype(np.uint8)
+
+
+def compute_iou(box1, box2):
+    # box: [x1, y1, x2, y2]
+    xi1 = max(box1[0], box2[0])
+    yi1 = max(box1[1], box2[1])
+    xi2 = min(box1[2], box2[2])
+    yi2 = min(box1[3], box2[3])
+    inter_width = max(0, xi2 - xi1)
+    inter_height = max(0, yi2 - yi1)
+    inter_area = inter_width * inter_height
+
+    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union_area = box1_area + box2_area - inter_area
+
+    return inter_area / union_area if union_area > 0 else 0
+
+def _connected_components(binary_mask, connectivity=8):
+    """
+    Finds connected components in a binary mask using NumPy (BFS based).
+    This function replicates the functionality of skimage.measure.label.
+
+    Args:
+        binary_mask (np.ndarray): A 2D numpy array with 0s (background) and 1s (foreground).
+        connectivity (int): 4 for 4-connectivity (cardinal directions), 8 for 8-connectivity (including diagonals).
+
+    Returns:
+        np.ndarray: A 2D numpy array where each connected component is assigned a unique positive integer label.
+                    Background pixels remain 0.
+    """
+    rows, cols = binary_mask.shape
+    labeled_image = np.zeros_like(binary_mask, dtype=int)
+    current_label = 0
+
+    # Define neighborhood offsets based on connectivity
+    if connectivity == 4:
+        # 4-connectivity: up, down, left, right
+        dr = [-1, 1, 0, 0]
+        dc = [0, 0, -1, 1]
+    elif connectivity == 8:
+        # 8-connectivity: all 8 directions
+        dr = [-1, -1, -1, 0, 0, 1, 1, 1]
+        dc = [-1, 0, 1, -1, 1, -1, 0, 1]
+    else:
+        raise ValueError("Connectivity must be 4 or 8.")
+
+    for r in range(rows):
+        for c in range(cols):
+            # If it's a foreground pixel and not yet labeled
+            if binary_mask[r, c] == 1 and labeled_image[r, c] == 0:
+                current_label += 1
+                q = deque([(r, c)])
+                labeled_image[r, c] = current_label  # Label the starting pixel
+
+                while q:
+                    curr_r, curr_c = q.popleft()
+
+                    for i in range(len(dr)):
+                        nr, nc = curr_r + dr[i], curr_c + dc[i]
+
+                        # Check boundaries
+                        if 0 <= nr < rows and 0 <= nc < cols:
+                            # If neighbor is foreground and not yet labeled
+                            if binary_mask[nr, nc] == 1 and labeled_image[nr, nc] == 0:
+                                labeled_image[nr, nc] = current_label
+                                q.append((nr, nc))
+    return labeled_image
+
+
+def _get_bboxes_from_labeled_image(labeled_image, min_area_threshold=10):
+    """
+    Extracts bounding box properties from a labeled image.
+    This function replicates a subset of skimage.measure.regionprops.
+
+    Args:
+        labeled_image (np.ndarray): A 2D numpy array with unique positive integer labels for connected components.
+                                   Background pixels are 0.
+        min_area_threshold (int): Minimum pixel area for a region to be considered valid.
+
+    Returns:
+        list: A list of dictionaries, each containing 'label', 'bbox' (min_row, min_col, max_row, max_col), and 'area'.
+    """
+    regions = []
+    # Get unique labels, excluding the background (0)
+    unique_labels = np.unique(labeled_image)
+    unique_labels = unique_labels[unique_labels != 0]
+
+    for label_id in unique_labels:
+        # Find all coordinates belonging to this label
+        coords = np.argwhere(labeled_image == label_id)
+
+        if len(coords) == 0:
+            continue  # Should not happen if label_id is from unique_labels
+
+        area = len(coords)
+        if area < min_area_threshold:
+            continue
+
+        min_row = np.min(coords[:, 0])
+        max_row = np.max(coords[:, 0]) + 1  # +1 for exclusive upper bound
+        min_col = np.min(coords[:, 1])
+        max_col = np.max(coords[:, 1]) + 1  # +1 for exclusive upper bound
+
+        regions.append({
+            'label': label_id,
+            'bbox': (min_row, min_col, max_row, max_col),
+            'area': area
+        })
+    return regions
+
+
+def _binary_erosion_numpy(binary_image, kernel_size):
+    """
+    Performs binary erosion on a 2D binary image using a square kernel of ones.
+    Implemented using NumPy only.
+
+    Args:
+        binary_image (np.ndarray): A 2D numpy array (H, W) with 0s and 1s.
+        kernel_size (int): Side length of the square kernel. Must be an odd number.
+
+    Returns:
+        np.ndarray: The eroded binary image.
+    """
+    if kernel_size <= 1:
+        return binary_image
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size for morphological operations must be an odd number.")
+
+    h, w = binary_image.shape
+    pad_width = kernel_size // 2
+
+    # Pad with zeros for erosion (background pixels will remain 0 and not contribute to foreground)
+    padded_image = np.pad(binary_image, pad_width, mode='constant', constant_values=0)
+
+    # Create sliding windows and check if all pixels in the window are 1s
+    # Sum of 1s in a window of all 1s is kernel_size * kernel_size
+    windows = np.lib.stride_tricks.sliding_window_view(padded_image, (kernel_size, kernel_size))
+    eroded_image = (windows.sum(axis=(-2, -1)) == kernel_size * kernel_size).astype(binary_image.dtype)
+
+    return eroded_image
+
+
+def _binary_dilation_numpy(binary_image, kernel_size):
+    """
+    Performs binary dilation on a 2D binary image using a square kernel of ones.
+    Implemented using NumPy only.
+
+    Args:
+        binary_image (np.ndarray): A 2D numpy array (H, W) with 0s and 1s.
+        kernel_size (int): Side length of the square kernel. Must be an odd number.
+
+    Returns:
+        np.ndarray: The dilated binary image.
+    """
+    if kernel_size <= 1:
+        return binary_image
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size for morphological operations must be an odd number.")
+
+    h, w = binary_image.shape
+    pad_width = kernel_size // 2
+
+    # Pad with zeros for dilation
+    padded_image = np.pad(binary_image, pad_width, mode='constant', constant_values=0)
+
+    # Create sliding windows and check if any pixel in the window is 1
+    windows = np.lib.stride_tricks.sliding_window_view(padded_image, (kernel_size, kernel_size))
+    dilated_image = (windows.max(axis=(-2, -1)) == 1).astype(binary_image.dtype)  # If any is 1, max will be 1
+
+    return dilated_image
+
+
+def _binary_opening_numpy(binary_image, kernel_size):
+    """
+    Performs binary opening (erosion followed by dilation) on a 2D binary image.
+    Implemented using NumPy only.
+
+    Args:
+        binary_image (np.ndarray): A 2D numpy array (H, W) with 0s and 1s.
+        kernel_size (int): Side length of the square kernel. Must be an odd number.
+
+    Returns:
+        np.ndarray: The opened binary image.
+    """
+    if kernel_size <= 1:
+        return binary_image
+
+    eroded = _binary_erosion_numpy(binary_image, kernel_size)
+    opened = _binary_dilation_numpy(eroded, kernel_size)
+    return opened
+
+
+def extract_bboxes_from_segmentation(ort_outputs, class_names, min_component_area=10,
+                                     morphology_kernel_size=0):
+    """
+    Extracts segmentation maps from neural network output (ort_outputs) and
+    generates bounding box coordinates for objects of each class using only NumPy.
+    Assumes the segmentation channels represent softmax probability values.
+    Includes an optional morphological opening operation on the binary masks before CCL.
+
+    Args:
+        ort_outputs (np.ndarray): Neural network output. Expected shape is (Batch, Channel, Height, Width),
+                                  with the Batch dimension assumed to be 1.
+        class_names (list): A list of strings, where each string is the name corresponding to a segmentation channel.
+        min_component_area (int): Minimum pixel area for a connected component to be considered a valid object.
+        morphology_kernel_size (int): Side length of the square kernel for morphological opening.
+                                   Must be an odd number. Set to 0 or 1 to skip opening.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary contains:
+              {'bbox': [x1, y1, x2, y2], 'class': class_name, 'score': confidence}
+              Bounding box coordinates are relative to the top-left corner (0,0) of the image,
+              with (x1, y1) being the top-left and (x2, y2) the bottom-right.
+              The score represents the proportion of pixels within the bounding box belonging to its predicted class.
+    """
+    num_segmentation_channels = len(class_names)
+
+    # ort_outputs[0] is of shape (C, H, W). The last `num_segmentation_channels` are pixel-wise class probability maps.
+    segmentation_softmax_maps = ort_outputs[0, -num_segmentation_channels:, :, :]
+
+    # For each pixel, find the index of the class with the highest probability.
+    # The result is a 2D class map of shape (Height, Width).
+    # Each value in this map represents a class_id from 0 to num_segmentation_channels-1.
+    class_map = np.argmax(segmentation_softmax_maps, axis=0)
+
+    result_bboxes = []
+
+    # Iterate through each class ID to find bounding boxes.
+    # Create a binary mask for pixels belonging to the current class_id and perform CCL.
+    for class_id in range(num_segmentation_channels):
+        # Skip background (assuming class_id 0 is background)
+        if class_id == 0:
+            continue
+
+        # Create a binary mask where pixels belonging to the current `class_id` are 1, and others are 0.
+        binary_mask_for_current_class = (class_map == class_id).astype(np.uint8)
+
+        # Apply morphological opening to smooth the mask and remove small artifacts
+        if morphology_kernel_size > 1:
+            binary_mask_for_current_class = _binary_opening_numpy(binary_mask_for_current_class, morphology_kernel_size)
+
+        # Perform connected components labeling on the binary mask.
+        labeled_image = _connected_components(binary_mask_for_current_class, connectivity=8)
+
+        # Note: If after opening, some regions become too small, they might be filtered by min_component_area
+        regions = _get_bboxes_from_labeled_image(labeled_image, min_area_threshold=min_component_area)
+
+        # Get the class name for the current class_id.
+        current_class_name = class_names[class_id] if class_id < len(class_names) else f"unknown_class_{class_id}"
+
+        for region in regions:
+            # The _get_bboxes_from_labeled_image returns bbox as (min_row, min_col, max_row, max_col)
+            min_row, min_col, max_row, max_col = region['bbox']
+
+            # Calculate confidence score: proportion of the current class pixels within the bbox.
+            # Extract the relevant section of the class_map for this bounding box.
+            bbox_class_map_slice = class_map[min_row:max_row, min_col:max_col]
+
+            # Count pixels within the bbox that belong to the current class_id.
+            pixels_of_current_class = np.sum(bbox_class_map_slice == class_id)
+
+            # Calculate total pixels in the bounding box.
+            bbox_height = max_row - min_row
+            bbox_width = max_col - min_col
+            total_bbox_pixels = bbox_height * bbox_width
+
+            score = 0.0
+            if total_bbox_pixels > 0:
+                score = pixels_of_current_class / total_bbox_pixels
+
+            # Store the bounding box in [x1, y1, x2, y2] format.
+            # (min_col, min_row) is (x1, y1), (max_col, max_row) is (x2, y2)
+            bbox_formatted = [min_col, min_row, max_col, max_row]
+
+            # Append the result in the desired dictionary format.
+            result_bboxes.append({
+                'bbox': bbox_formatted,
+                'class': current_class_name,
+                'score': float(score)
+            })
+
+    return result_bboxes
+
+
+if __name__ == "__main__":
+    print(get_text_pattern('(A) This is... A', return_vector=True))

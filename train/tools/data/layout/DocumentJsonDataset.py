@@ -14,7 +14,7 @@ import lmdb
 import torch
 import numpy as np
 import pymupdf
-
+import yaml
 
 from torch_geometric.data import Dataset, Data
 import matplotlib.cm as cm
@@ -26,82 +26,6 @@ from train.core.common.model_util import get_boxes_transform_page, get_edge_by_c
 
 from train.infer.common_util import extract_bbox_features, resize_image, to_gray
 from train.tools.layout2graph_func import _get_nearest_pair_custom, get_relation_feature, post_process
-
-
-# --- 데이터 준비 함수 ---
-def generate_graph_data(bboxes, page_width, page_height, file_name='', nn_type='directional_nn', nn_k=20,
-                        node_cls=None, node_labels=None):
-    """
-    bboxes: List of (x1, y1, x2, y2)
-    node_labels: Optional list/tensor of node classes (required for training with label-guided k-NN)
-    """
-    box_features = get_boxes_transform(bboxes)
-    box_features = torch.tensor(box_features, dtype=torch.float32)
-
-    page_box_features = get_boxes_transform_page(bboxes, page_width, page_height)
-
-    if not isinstance(node_cls, torch.Tensor):
-        node_cls = torch.tensor(node_cls, dtype=torch.long)
-
-    bboxes = np.array(bboxes, dtype=np.float32)
-    if nn_type == 'directional_nn':
-        edge_index, direction_nn = get_edge_by_directional_nn(bboxes, 50000, vertical_gap=0.3)
-    elif nn_type == '4d_knn':
-        edge_index = get_edge_by_corner_knn(bboxes, nn_k)
-    elif nn_type == 'knn':
-        edge_index, _ = get_edge_by_knn(bboxes, nn_k)
-    else:
-        raise Exception(f'Invalid nn_type = {nn_type}')
-
-    if len(bboxes) == 1:
-        edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 4), dtype=torch.float)
-        edge_labels = torch.empty((0,), dtype=torch.long)
-    else:
-        # nn_features = get_neighbor_features(bboxes, nearest_indices)
-        # if file_name == 'df882c8bf171a5b4b7cfb9b56fac828e71baec6cae52012fca255cc69425ef80.json':
-        #     print('bboxes ---')
-        #     print(bboxes)
-        #     print('edge_index ---')
-        #     print(edge_index)
-
-        # 엣지 특징 계산
-        edge_attr = get_edge_transform_bbox(bboxes, edge_index)
-        edge_attr = torch.tensor(edge_attr, dtype=torch.float)
-
-        edge_index = np.array(edge_index).T
-        edge_index = torch.tensor(edge_index, dtype=torch.long)
-
-        edge_labels = []
-        row, col = edge_index
-        num_edges = len(row)
-        edge_1 = 0
-        edge_0 = 0
-        for i in range(num_edges):
-            node_i = row[i]
-            node_j = col[i]
-            label_i = node_labels[node_i]
-            label_j = node_labels[node_j]
-            if label_i == label_j:
-                edge_labels.append(1)
-                edge_1 += 1
-            else:
-                edge_labels.append(0)
-                edge_0 += 1
-
-    assert len(edge_labels) == edge_index.shape[1]
-
-    edge_labels = torch.tensor(edge_labels, dtype=torch.long)
-    data = Data(x=box_features, edge_index=edge_index, edge_attr=edge_attr, y=node_cls, edge_label=edge_labels)
-
-    data.raw_data = {
-        'bboxes': bboxes,
-        'page_bboxes': page_box_features,
-        'file_name': file_name,
-        # 'nn_features': nn_features,
-    }
-    return data
-
 
 def visualize_bbox_similarity_heatmap(img_w: int, img_h: int, bboxes: list, image_features: np.ndarray,
                                       colormap_name: str = 'viridis'):
@@ -174,10 +98,11 @@ def visualize_bbox_similarity_heatmap(img_w: int, img_h: int, bboxes: list, imag
 class DocumentJsonDataset(Dataset):
     def __init__(self, data_path, class_map, nn_type='directional_nn',
                  nn_k=3,
-                 cfg_path = None, rf_names = None, rf_executable = None, pkl_dirs=None,
+                 cfg_path=None, rf_names = None, rf_executable = None, pkl_dirs=None,
                  is_train=False, lmdb_save_path=None,
                  feature_extractor_path =None, feature_input_size = None, feature_option=None,
-                 pdf_dir=None, filter_class=None, create_from_pdf=False, pdf_input_type=None, remove_unlabelled_data=False,
+                 pdf_dir=None, filter_class=None, create_from_pdf=False, pdf_input_type=None, opt_save_type=None,
+                 remove_unlabelled_data=False,
                  cache_size=0, cache_rate=0.0, show_data=False):
 
         super().__init__()
@@ -193,11 +118,10 @@ class DocumentJsonDataset(Dataset):
 
         self.create_from_pdf = create_from_pdf
         self.pdf_input_type = pdf_input_type
+        self.opt_save_type = opt_save_type
         self.remove_unlabelled_data = remove_unlabelled_data
-        self.cfg = None
-        if cfg_path is not None:
-            with open('train/cfgs/config.yaml', "rb") as f:
-                self.cfg = anyconfig.load(f)
+        with open(cfg_path, 'r') as f:
+            self.cfg = yaml.safe_load(f)
 
         self.rf_names = rf_names
         self.rf_executable = rf_executable
@@ -325,17 +249,13 @@ class DocumentJsonDataset(Dataset):
             # Normal json file
             if json_path.endswith('.json'):
                 file_name = self.filename_list[idx][:-5]
-                # file_name = "5d636ce0084b873bd60627481dc9dea22b3caf42afef4912e567db7e60876c39"
-                pdf_path = f'{self.pdf_dir}/{file_name}.pdf'
-                # json_path = '/media/win/Dataset/Layout2Graph/DocLayNet_core_graph_labels_mupdf_250317_NAPV2_exclude_not/train/graph_labels//b7c3bf51ede714d8e5936f19ccade958bf31026f39698dea768e2f0265a49949.json'
                 try:
                     with open(json_path, 'r') as f:
                         json_data = json.load(f)
                 except Exception as ex:
                     # self.file_list[idx] = None
-                    print('%s - %s' % (json_path, str(ex)))
                     if self.on_error == 'None':
-                        return None
+                        return '%s - %s' % (json_path, str(ex))
                     else:
                         idx = np.random.randint(0, len(self.filepath_list))
                     continue
@@ -353,14 +273,24 @@ class DocumentJsonDataset(Dataset):
             # No json file, only PDF file
             else:
                 file_name = self.filename_list[idx][:-4]
-                pdf_path = f'{self.pdf_dir}/{file_name}.pdf'
+
+            pdf_path = None
+            for pdf_dir in self.pdf_dir:
+                pdf_path_temp = f'{pdf_dir}/{file_name}.pdf'
+                if os.path.exists(pdf_path_temp):
+                    pdf_path = pdf_path_temp
+                    break
+            if pdf_path is None:
+                if self.on_error == 'None':
+                    return f'The PDF file for {file_name} was not found...'
+                else:
+                    raise FileNotFoundError(f'The PDF file for {file_name} was not found...')
 
             # Check duplicated data if transaction is given
             if self.txn_keys is not None:
                 key = hashlib.sha256(file_name.encode('utf-8')).digest()
                 if key in self.txn_keys:
-                    print(f'Skip - already exist - {file_name}')
-                    return None
+                    return f'Skip - already exist - {file_name}'
             else:
                 if self.lmdb_save_path is not None and self.read_txn is None:
                     self.lmdb_env = lmdb.open(self.lmdb_save_path, map_size=1024 ** 4, readonly=True, lock=False)
@@ -369,15 +299,8 @@ class DocumentJsonDataset(Dataset):
                 if self.read_txn is not None:
                     key = hashlib.sha256(file_name.encode('utf-8')).digest()
                     if self.read_txn.get(key) is not None:
-                        print(f'Skip - already exist - {file_name}')
-                        return None
+                        return f'Skip - already exist - {file_name}'
 
-            bboxes = []
-            node_cls = []
-            node_labels = []
-
-            custom_features = []
-            text_patterns = []
             filter_hit_count = 0
 
             if self.create_from_pdf:
@@ -392,7 +315,7 @@ class DocumentJsonDataset(Dataset):
                             pkl_path = pkl_path_temp
                             break
                     if pkl_path is None:
-                        raise FileNotFoundError(f'The PDF file for {file_name} was not found...')
+                        raise FileNotFoundError(f'The PKL file for {file_name} was not found...')
 
                     # Load and pkl_path ground truth data
                     with open(pkl_path, 'rb') as f:
@@ -418,18 +341,16 @@ class DocumentJsonDataset(Dataset):
                             if ant[-1] in self.filter_class:
                                 filter_hit_count += 1
                         if filter_hit_count == 0:
-                            return None
+                            return 'No target class in pkl_data'
 
                     try:
                         data_dict = create_input_data_by_pymupdf(pdf_path, input_type=self.pdf_input_type, features_path=self.rf_executable)
                     except Exception as ex:
-                        print(f'{pdf_path} - {str(ex)}')
-                        return None
+                        return f'{pdf_path} - {str(ex)}'
 
                     bboxes = data_dict['bboxes']
                     if len(bboxes) > 5000:
-                        print(f'Too many bboxes ({len(bboxes)})')
-                        return None
+                        return f'Too many bboxes ({len(bboxes)})'
 
                     valid_indicies, node_cls, node_labels = self.get_node_class_and_label(bboxes, pdf_path, pkl_data,
                                                                                           remove_unlabelled_data=self.remove_unlabelled_data)
@@ -453,15 +374,16 @@ class DocumentJsonDataset(Dataset):
                     node_cls = torch.tensor(node_cls, dtype=torch.long)
 
                     if len(data_dict['bboxes']) == 0:
-                        return None
+                        return 'Empty bboxes'
 
-                    x, edge_index, edge_attr, nn_index, nn_attr, rf_feature, text_patterns, image_feature = \
+                    x, edge_index, edge_attr, nn_index, nn_attr, rf_feature, text_patterns, image_feature, image_data = \
                         get_nn_input_from_datadict(data_dict, self.cfg, feature_extractor=self.feature_extractor)
 
                     assert not np.any(np.isnan(x))
                     assert not np.any(np.isnan(edge_index))
                     assert not np.any(np.isnan(rf_feature))
                     assert not np.any(np.isnan(text_patterns))
+
                     if image_feature is not None:
                         assert not np.any(np.isnan(image_feature))
                         image_feature = np.array(image_feature)
@@ -498,100 +420,19 @@ class DocumentJsonDataset(Dataset):
                         'image_features': image_feature,
                         'custom_features': data_dict['custom_features']
                     }
+
+                    if self.opt_save_type is not None and 'image' in self.opt_save_type:
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 95]
+                        enc_ret, encimg = cv2.imencode('.jpg', image_data, encode_param)
+                        data.raw_data['image_data'] = encimg
+
                 except Exception as ex:
                     print(file_name)
                     traceback.print_exc()
                     raise ex
             else:
-                for data_idx, data in enumerate(json_data['img_data_list']):
-                    x1, y1, x2, y2 = data['text_coor']
-                    x1 = max(0, x1)
-                    y1 = max(0, y1)
-                    x2 = min(page_width, x2)
-                    y2 = min(page_height, y2)
+                raise Exception('From jsons - Unimplemented yet!')
 
-                    if x2 - x1 <= 0 or y2 - y1 <= 0:
-                        continue
-
-                    txt_content = data['content'].strip()
-                    if data['custom_features']['is_line'] == 1 and txt_content == '':
-                        continue
-
-                    txt_pattern = get_text_pattern(text=txt_content, return_vector=True)
-                    text_patterns.append(txt_pattern)
-
-                    bboxes.append([x1, y1, x2, y2])
-                    txt_label = data['label']
-                    # group_label = int(txt_label.split('_')[-1])
-                    group_label = txt_label
-                    node_labels.append(group_label)
-                    cls_name = '_'.join(txt_label.split('_')[:-1])
-
-                    if self.filter_class is not None and cls_name in self.filter_class:
-                        filter_hit_count += 1
-
-                    if cls_name in self.class_map:
-                        node_cls.append(self.class_map[cls_name])
-                    else:
-                        # if there is an unlablled data, assign 'text' class
-                        node_cls.append(0)
-                    custom_features.append(data['custom_features'])
-
-                if self.filter_class is not None and filter_hit_count == 0:
-                    return None
-
-                try:
-                    data = generate_graph_data(bboxes, page_width, page_height, self.filename_list[idx],
-                                               self.nn_type, self.nn_k, node_cls, node_labels)
-                except Exception as ex:
-                    print('%s - %s' % (json_path, str(ex)))
-                    return None
-
-                data.raw_data['json_data'] = json_data
-                data.raw_data['custom_features'] = custom_features
-                data.raw_data['text_patterns'] = text_patterns
-
-                data.text_patterns = torch.tensor(data.raw_data['text_patterns'], dtype=torch.float)
-
-                # Image-based feature extractor
-                if self.do_img_feature_extraction and self.feature_extractor is not None:
-                    doc = pymupdf.open(pdf_path)
-                    page = doc[0]
-                    pix = page.get_pixmap()
-                    bytes = np.frombuffer(pix.samples, dtype=np.uint8)
-                    page_img = bytes.reshape(pix.height, pix.width, pix.n)
-                    img_h, img_w, _ = page_img.shape
-                    doc.close()
-                    data_dict = { 'image': page_img }
-
-                    img_resized = resize_image(page_img, self.feature_input_size)
-                    img_gray = to_gray(img_resized)
-
-                    img_gray = img_gray.astype(np.float32)
-                    min_val, max_val = img_gray.min(), img_gray.max()
-                    if max_val > min_val:  # avoid division by zero
-                        img_gray = (img_gray - min_val) / (max_val - min_val)
-                    else:
-                        img_gray = np.zeros_like(img_gray, dtype=np.float32)
-
-                    nn_input = img_gray
-                    nn_input = np.expand_dims(nn_input, axis=0)
-                    nn_input = np.expand_dims(nn_input, axis=0)
-
-                    ort_inputs = {self.feature_extractor.get_inputs()[0].name: nn_input}
-                    ort_outputs = self.feature_extractor.run(None, ort_inputs)[0]
-
-                    apply_softmax = False
-                    add_uncertainty = False
-
-                    if self.feature_option is not None and 'softmax' in self.feature_option:
-                        apply_softmax = True
-                        add_uncertainty = True
-
-                    image_features = extract_bbox_features(ort_outputs, bboxes, img_w, img_h,
-                                                           apply_softmax=apply_softmax, concat_mean_max=True,
-                                                           add_uncertainty=add_uncertainty)
-                    data.raw_data['image_features'] = image_features
 
             # The visualization code will only run in the main process
             if self.show_data and is_main_process and idx % 100 == 0:

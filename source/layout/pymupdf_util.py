@@ -8,8 +8,9 @@ import subprocess
 import pymupdf
 import pymupdf.features as rf_features
 
-def robins_features_extraction(feature_path, pdf_dir, filename, rect_list):
+from .common_util import compute_iou, get_text_pattern
 
+def robins_features_extraction(feature_path, pdf_dir, filename, rect_list):
     fd, path = tempfile.mkstemp()
     try:
         with os.fdopen(fd, 'w') as tmp:
@@ -214,7 +215,28 @@ def merge_lines(lines, orientation='h', tolerance=3):
     return merged
 
 
-def create_input_data_from_page(page, input_type=('text', 'image', 'vec_line'), max_image_num=500, max_vec_line_num=200,
+def merge_boxes(boxes, iou_threshold=0.5):
+    merged = []
+    while boxes:
+        base = boxes.pop(0)
+        has_merged = False
+        for i, other in enumerate(boxes):
+            iou = compute_iou(base, other)
+            if iou > iou_threshold:
+                new_box = [
+                    min(base[0], other[0]),
+                    min(base[1], other[1]),
+                    max(base[2], other[2]),
+                    max(base[3], other[3])
+                ]
+                boxes[i] = new_box
+                has_merged = True
+                break
+        if not has_merged:
+            merged.append(base)
+    return merged
+
+def create_input_data_from_page(page, input_type=('text',), max_image_num=500, max_vec_line_num=200,
                                 pdf_path=None, features_path=None):
     data_dict = {
         'bboxes': [],
@@ -241,8 +263,11 @@ def create_input_data_from_page(page, input_type=('text', 'image', 'vec_line'), 
     data_dict['image'] = page_img
 
     if 'image' in input_type:
-        rects = [itm["bbox"] for itm in page.get_image_info()]
-        for rect in rects:
+        img_bboxes = [itm["bbox"] for itm in page.get_image_info()]
+        img_bboxes = merge_boxes(img_bboxes, iou_threshold=0.5)
+        img_bboxes.sort(key=lambda box: (box[2] - box[0]) * (box[3] - box[1]), reverse=True)
+        img_bboxes = img_bboxes[:max_image_num]
+        for rect in img_bboxes:
             x1 = max(0, rect[0])
             y1 = max(0, rect[1])
             x2 = max(0, rect[2])
@@ -416,7 +441,7 @@ def create_input_data_from_page(page, input_type=('text', 'image', 'vec_line'), 
 
 
 def create_input_data_by_pymupdf(pdf_path=None, document=None, page_no=0,
-                                 input_type=('text', 'image', 'vec_line'), features_path=None):
+                                 input_type=('text',), features_path=None):
     if document is None:
         if not os.path.exists(pdf_path):
             raise Exception(f'{pdf_path} is not exist!')

@@ -1,0 +1,19 @@
+{
+    "filename": "f674c15785d323de2d6aeccd37e584e3ea8bd10b42dcdeaf769c951c955cbd7c.pdf",
+    "bboxes": [
+        [
+            48,
+            53,
+            538,
+            555,
+            "picture"
+        ],
+        [
+            63,
+            566,
+            503,
+            571,
+            "footnote"
+        ]
+    ]
+}

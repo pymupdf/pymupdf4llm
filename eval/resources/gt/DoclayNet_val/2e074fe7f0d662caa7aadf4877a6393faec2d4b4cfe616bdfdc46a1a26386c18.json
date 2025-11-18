@@ -1,0 +1,19 @@
+{
+    "filename": "2e074fe7f0d662caa7aadf4877a6393faec2d4b4cfe616bdfdc46a1a26386c18.pdf",
+    "bboxes": [
+        [
+            70,
+            81,
+            524,
+            378,
+            "text"
+        ],
+        [
+            70,
+            411,
+            523,
+            752,
+            "text"
+        ]
+    ]
+}

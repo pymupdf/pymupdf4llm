@@ -2,6 +2,7 @@ from train.core.model.GCNN import GCNN
 from train.core.model.BoxDGCNN import BoxDGCNN
 from train.core.model.BoxNNDGCNN import BoxNNDGCNN
 from train.core.model.BoxRFDGNN import BoxRFDGCNN
+from train.core.model.BoxIMFDGCNN import BoxIMFDGCNN
 
 def get_model(cfg, data_class_names):
     num_node_classes = len(data_class_names)  # 텍스트, 제목, 이미지, 표 등
@@ -56,6 +57,29 @@ def get_model(cfg, data_class_names):
                                num_node_classes=num_node_classes, num_edge_classes=num_edge_classes,
                                hidden_dim=model_hidden_dim, dgcn_dim=dgcn_dim, k=sample_k, aggr=dgcn_aggr,
                                option=option)
+
+        elif cfg['model']['name'] == 'BoxIMFDGCNN':
+            rf_names = cfg['data']['rf_names']
+            node_input_dim = cfg['model']['node_input_dim']
+            node_output_dim = cfg['model']['node_output_dim']
+            edge_input_dim = cfg['model']['edge_input_dim']
+            rf_output_dim = cfg['model']['rf_output_dim']
+            txp_input_dim = cfg['model']['txp_input_dim']
+            txp_output_dim = cfg['model']['txp_output_dim']
+            imf_input_dim = cfg['model']['imf_input_dim']
+            imf_output_dim = cfg['model']['imf_output_dim']
+            option = cfg['model']['option']
+
+            if option is None:
+                option = []
+            model = BoxIMFDGCNN(node_input_dim=node_input_dim, node_output_dim=node_output_dim,
+                                edge_input_dim=edge_input_dim,
+                                rf_input_dim=len(rf_names), rf_output_dim=rf_output_dim,
+                                txp_input_dim=txp_input_dim, txp_output_dim=txp_output_dim,
+                                imf_input_dim=imf_input_dim, imf_output_dim=imf_output_dim,
+                                num_node_classes=num_node_classes, num_edge_classes=num_edge_classes,
+                                hidden_dim=model_hidden_dim, dgcn_dim=dgcn_dim, k=sample_k, aggr=dgcn_aggr,
+                                option=option)
         else:
             raise Exception(f'Not supported model - %s' % cfg['model']['type'])
     else:

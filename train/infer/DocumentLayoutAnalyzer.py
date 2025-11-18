@@ -1,6 +1,6 @@
-from .onnx import BoxRFDGNN
+from .onnx.BoxRFDGNN import BoxRFDGNN
 
-def get_model(model_name='BoxRFDGNN', feature_set_name='imf',
+def get_model(model_name='BoxRFDGNN', feature_set_name='imf+rf',
               config_path=None, model_path=None, imf_model_path=None):
 
     if model_name == 'BoxRFDGNN':

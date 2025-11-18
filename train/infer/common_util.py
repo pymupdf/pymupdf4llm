@@ -1,11 +1,10 @@
 import os
 import math
 import numpy as np
-import pickle
 
 import networkx as nx
 
-from collections import Counter
+from collections import Counter, deque
 from typing import Optional, List, Dict, Tuple
 
 def get_boxes_transform(bboxes_list):
@@ -939,6 +938,271 @@ def compute_iou(box1, box2):
 
     return inter_area / union_area if union_area > 0 else 0
 
+def _connected_components(binary_mask, connectivity=8):
+    """
+    Finds connected components in a binary mask using NumPy (BFS based).
+    This function replicates the functionality of skimage.measure.label.
+
+    Args:
+        binary_mask (np.ndarray): A 2D numpy array with 0s (background) and 1s (foreground).
+        connectivity (int): 4 for 4-connectivity (cardinal directions), 8 for 8-connectivity (including diagonals).
+
+    Returns:
+        np.ndarray: A 2D numpy array where each connected component is assigned a unique positive integer label.
+                    Background pixels remain 0.
+    """
+    rows, cols = binary_mask.shape
+    labeled_image = np.zeros_like(binary_mask, dtype=int)
+    current_label = 0
+
+    # Define neighborhood offsets based on connectivity
+    if connectivity == 4:
+        # 4-connectivity: up, down, left, right
+        dr = [-1, 1, 0, 0]
+        dc = [0, 0, -1, 1]
+    elif connectivity == 8:
+        # 8-connectivity: all 8 directions
+        dr = [-1, -1, -1, 0, 0, 1, 1, 1]
+        dc = [-1, 0, 1, -1, 1, -1, 0, 1]
+    else:
+        raise ValueError("Connectivity must be 4 or 8.")
+
+    for r in range(rows):
+        for c in range(cols):
+            # If it's a foreground pixel and not yet labeled
+            if binary_mask[r, c] == 1 and labeled_image[r, c] == 0:
+                current_label += 1
+                q = deque([(r, c)])
+                labeled_image[r, c] = current_label  # Label the starting pixel
+
+                while q:
+                    curr_r, curr_c = q.popleft()
+
+                    for i in range(len(dr)):
+                        nr, nc = curr_r + dr[i], curr_c + dc[i]
+
+                        # Check boundaries
+                        if 0 <= nr < rows and 0 <= nc < cols:
+                            # If neighbor is foreground and not yet labeled
+                            if binary_mask[nr, nc] == 1 and labeled_image[nr, nc] == 0:
+                                labeled_image[nr, nc] = current_label
+                                q.append((nr, nc))
+    return labeled_image
+
+
+def _get_bboxes_from_labeled_image(labeled_image, min_area_threshold=10):
+    """
+    Extracts bounding box properties from a labeled image.
+    This function replicates a subset of skimage.measure.regionprops.
+
+    Args:
+        labeled_image (np.ndarray): A 2D numpy array with unique positive integer labels for connected components.
+                                   Background pixels are 0.
+        min_area_threshold (int): Minimum pixel area for a region to be considered valid.
+
+    Returns:
+        list: A list of dictionaries, each containing 'label', 'bbox' (min_row, min_col, max_row, max_col), and 'area'.
+    """
+    regions = []
+    # Get unique labels, excluding the background (0)
+    unique_labels = np.unique(labeled_image)
+    unique_labels = unique_labels[unique_labels != 0]
+
+    for label_id in unique_labels:
+        # Find all coordinates belonging to this label
+        coords = np.argwhere(labeled_image == label_id)
+
+        if len(coords) == 0:
+            continue  # Should not happen if label_id is from unique_labels
+
+        area = len(coords)
+        if area < min_area_threshold:
+            continue
+
+        min_row = np.min(coords[:, 0])
+        max_row = np.max(coords[:, 0]) + 1  # +1 for exclusive upper bound
+        min_col = np.min(coords[:, 1])
+        max_col = np.max(coords[:, 1]) + 1  # +1 for exclusive upper bound
+
+        regions.append({
+            'label': label_id,
+            'bbox': (min_row, min_col, max_row, max_col),
+            'area': area
+        })
+    return regions
+
+
+def _binary_erosion_numpy(binary_image, kernel_size):
+    """
+    Performs binary erosion on a 2D binary image using a square kernel of ones.
+    Implemented using NumPy only.
+
+    Args:
+        binary_image (np.ndarray): A 2D numpy array (H, W) with 0s and 1s.
+        kernel_size (int): Side length of the square kernel. Must be an odd number.
+
+    Returns:
+        np.ndarray: The eroded binary image.
+    """
+    if kernel_size <= 1:
+        return binary_image
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size for morphological operations must be an odd number.")
+
+    h, w = binary_image.shape
+    pad_width = kernel_size // 2
+
+    # Pad with zeros for erosion (background pixels will remain 0 and not contribute to foreground)
+    padded_image = np.pad(binary_image, pad_width, mode='constant', constant_values=0)
+
+    # Create sliding windows and check if all pixels in the window are 1s
+    # Sum of 1s in a window of all 1s is kernel_size * kernel_size
+    windows = np.lib.stride_tricks.sliding_window_view(padded_image, (kernel_size, kernel_size))
+    eroded_image = (windows.sum(axis=(-2, -1)) == kernel_size * kernel_size).astype(binary_image.dtype)
+
+    return eroded_image
+
+
+def _binary_dilation_numpy(binary_image, kernel_size):
+    """
+    Performs binary dilation on a 2D binary image using a square kernel of ones.
+    Implemented using NumPy only.
+
+    Args:
+        binary_image (np.ndarray): A 2D numpy array (H, W) with 0s and 1s.
+        kernel_size (int): Side length of the square kernel. Must be an odd number.
+
+    Returns:
+        np.ndarray: The dilated binary image.
+    """
+    if kernel_size <= 1:
+        return binary_image
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size for morphological operations must be an odd number.")
+
+    h, w = binary_image.shape
+    pad_width = kernel_size // 2
+
+    # Pad with zeros for dilation
+    padded_image = np.pad(binary_image, pad_width, mode='constant', constant_values=0)
+
+    # Create sliding windows and check if any pixel in the window is 1
+    windows = np.lib.stride_tricks.sliding_window_view(padded_image, (kernel_size, kernel_size))
+    dilated_image = (windows.max(axis=(-2, -1)) == 1).astype(binary_image.dtype)  # If any is 1, max will be 1
+
+    return dilated_image
+
+
+def _binary_opening_numpy(binary_image, kernel_size):
+    """
+    Performs binary opening (erosion followed by dilation) on a 2D binary image.
+    Implemented using NumPy only.
+
+    Args:
+        binary_image (np.ndarray): A 2D numpy array (H, W) with 0s and 1s.
+        kernel_size (int): Side length of the square kernel. Must be an odd number.
+
+    Returns:
+        np.ndarray: The opened binary image.
+    """
+    if kernel_size <= 1:
+        return binary_image
+
+    eroded = _binary_erosion_numpy(binary_image, kernel_size)
+    opened = _binary_dilation_numpy(eroded, kernel_size)
+    return opened
+
+
+def extract_bboxes_from_segmentation(ort_outputs, class_names, min_component_area=10,
+                                     morphology_kernel_size=0):
+    """
+    Extracts segmentation maps from neural network output (ort_outputs) and
+    generates bounding box coordinates for objects of each class using only NumPy.
+    Assumes the segmentation channels represent softmax probability values.
+    Includes an optional morphological opening operation on the binary masks before CCL.
+
+    Args:
+        ort_outputs (np.ndarray): Neural network output. Expected shape is (Batch, Channel, Height, Width),
+                                  with the Batch dimension assumed to be 1.
+        class_names (list): A list of strings, where each string is the name corresponding to a segmentation channel.
+        min_component_area (int): Minimum pixel area for a connected component to be considered a valid object.
+        morphology_kernel_size (int): Side length of the square kernel for morphological opening.
+                                   Must be an odd number. Set to 0 or 1 to skip opening.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary contains:
+              {'bbox': [x1, y1, x2, y2], 'class': class_name, 'score': confidence}
+              Bounding box coordinates are relative to the top-left corner (0,0) of the image,
+              with (x1, y1) being the top-left and (x2, y2) the bottom-right.
+              The score represents the proportion of pixels within the bounding box belonging to its predicted class.
+    """
+    num_segmentation_channels = len(class_names)
+
+    # ort_outputs[0] is of shape (C, H, W). The last `num_segmentation_channels` are pixel-wise class probability maps.
+    segmentation_softmax_maps = ort_outputs[0, -num_segmentation_channels:, :, :]
+
+    # For each pixel, find the index of the class with the highest probability.
+    # The result is a 2D class map of shape (Height, Width).
+    # Each value in this map represents a class_id from 0 to num_segmentation_channels-1.
+    class_map = np.argmax(segmentation_softmax_maps, axis=0)
+
+    result_bboxes = []
+
+    # Iterate through each class ID to find bounding boxes.
+    # Create a binary mask for pixels belonging to the current class_id and perform CCL.
+    for class_id in range(num_segmentation_channels):
+        # Skip background (assuming class_id 0 is background)
+        if class_id == 0:
+            continue
+
+        # Create a binary mask where pixels belonging to the current `class_id` are 1, and others are 0.
+        binary_mask_for_current_class = (class_map == class_id).astype(np.uint8)
+
+        # Apply morphological opening to smooth the mask and remove small artifacts
+        if morphology_kernel_size > 1:
+            binary_mask_for_current_class = _binary_opening_numpy(binary_mask_for_current_class, morphology_kernel_size)
+
+        # Perform connected components labeling on the binary mask.
+        labeled_image = _connected_components(binary_mask_for_current_class, connectivity=8)
+
+        # Note: If after opening, some regions become too small, they might be filtered by min_component_area
+        regions = _get_bboxes_from_labeled_image(labeled_image, min_area_threshold=min_component_area)
+
+        # Get the class name for the current class_id.
+        current_class_name = class_names[class_id] if class_id < len(class_names) else f"unknown_class_{class_id}"
+
+        for region in regions:
+            # The _get_bboxes_from_labeled_image returns bbox as (min_row, min_col, max_row, max_col)
+            min_row, min_col, max_row, max_col = region['bbox']
+
+            # Calculate confidence score: proportion of the current class pixels within the bbox.
+            # Extract the relevant section of the class_map for this bounding box.
+            bbox_class_map_slice = class_map[min_row:max_row, min_col:max_col]
+
+            # Count pixels within the bbox that belong to the current class_id.
+            pixels_of_current_class = np.sum(bbox_class_map_slice == class_id)
+
+            # Calculate total pixels in the bounding box.
+            bbox_height = max_row - min_row
+            bbox_width = max_col - min_col
+            total_bbox_pixels = bbox_height * bbox_width
+
+            score = 0.0
+            if total_bbox_pixels > 0:
+                score = pixels_of_current_class / total_bbox_pixels
+
+            # Store the bounding box in [x1, y1, x2, y2] format.
+            # (min_col, min_row) is (x1, y1), (max_col, max_row) is (x2, y2)
+            bbox_formatted = [min_col, min_row, max_col, max_row]
+
+            # Append the result in the desired dictionary format.
+            result_bboxes.append({
+                'bbox': bbox_formatted,
+                'class': current_class_name,
+                'score': float(score)
+            })
+
+    return result_bboxes
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 import time
 
@@ -27,17 +28,18 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 
 from train.core.common.util import print_network
-from train.core.losses import DiceLoss
-from train.core.losses import IoULoss
+from train.core.losses.DiceLoss import DiceLoss
+from train.core.losses.IoULoss import IoULoss
 from train.tools.data.segmentation.DocumentJsonDataset import (DocumentJsonDataset, _tensor_to_bgr_uint8, _make_colormap,
                                                                _mask_to_color)
 
 from train.tools.schedulers.CustomCyclicLR import CustomCyclicLR
 
-from train.core import SimpleDiscriminator, UNetThin, UNetThin2
-from train.core.losses import FocalLoss
+from train.core.model.ImageFeatrueExtractors import SimpleDiscriminator, UNetThin, UNetThin2
+from train.core.model.BoxIMFDGCNN import BoxIMFDGCNN
+from train.core.losses.FocalLoss import FocalLoss
 
-from train.core import load_model_and_optimizer
+from train.core.common.model_util import load_model_and_optimizer
 
 
 def evaluate_segmentation(model, data_loader, device,
@@ -303,6 +305,13 @@ def train_model(cfg):
             model = UNetThin(cfg['train_segmentation']['model']).to(device)
         elif cfg['train_segmentation']['model']['name'] == 'UNet-thin2':
             model = UNetThin2(cfg['train_segmentation']['model']).to(device)
+        elif cfg['train_segmentation']['model']['name'] == 'BoxIMFDGCNN':
+            model_0 = BoxIMFDGCNN(
+                node_input_dim=1, node_output_dim=1, edge_input_dim=1,
+                rf_input_dim=1, rf_output_dim=1, txp_input_dim=1, txp_output_dim=1, imf_input_dim=1, imf_output_dim=1,
+                num_node_classes=cfg['train_segmentation']['model']['out_ch'], num_edge_classes=1,
+            )
+            model = model_0.cnn_backbone.to(device)
         print("\nModel Architecture (Generator/SimpleUNet):")
     else:
         raise ValueError("Invalid train_style. Choose 'SEG', 'VAE', or 'GAN'.")  # Update error message
@@ -864,7 +873,12 @@ def make_segmentation_cache(cfg, batch_size=8):
 
 
 if __name__ == "__main__":
-    with open('tools/config.yaml', "rb") as f:
+    if len(sys.argv) < 2:
+        print("Usage: python train_image_feature_encoder.py <config_path>")
+        sys.exit(1)
+
+    config_path = sys.argv[1]
+    with open(config_path, "rb") as f:
         cfg = anyconfig.load(f)
 
     task = cfg['train_segmentation']['task']

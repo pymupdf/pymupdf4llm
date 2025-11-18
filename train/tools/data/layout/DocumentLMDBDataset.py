@@ -6,12 +6,15 @@ import blosc
 import lmdb
 import pickle
 
+import cv2
+
 import torch
 from torch_geometric.data import Dataset
 import numpy as np
 
 from queue import Queue
 from train.infer.onnx.BoxRFDGNN import get_rf_features
+from train.infer.common_util import resize_image, to_gray
 
 seed = int(time.time())
 
@@ -75,7 +78,7 @@ class DocumentLMDBDataset(Dataset):
             env = lmdb.open(lmdb_path, readonly=True, lock=False, readahead=True, meminit=False)
             txn = env.begin(write=False)
             start_idx = np.random.randint(0, lmdb_length)
-            refill_size = int(self.cache_size * 0.25)
+            refill_size = max(100, int(self.cache_size * 0.25))
             for i in range(refill_size):
                 data_idx = (start_idx + i) % lmdb_length
                 key = self.lmdb_key_list[db_idx][data_idx]
@@ -120,6 +123,25 @@ class DocumentLMDBDataset(Dataset):
             data.img_features = torch.tensor(img_features, dtype=torch.float)
         else:
             data.img_features = torch.tensor([], dtype=torch.float)
+
+        if 'image_data' in raw_data:
+            img_gray = cv2.imdecode(raw_data['image_data'], cv2.IMREAD_GRAYSCALE)
+            img_gray = img_gray.astype(np.float32)
+            # img_resized = resize_image(img, (500, 500))
+            # img_gray = to_gray(img_resized)
+
+            img_min, img_max = img_gray.min(), img_gray.max()
+            if img_max > img_min:
+                img_norm = (img_gray - img_min) / (img_max - img_min)
+            else:
+                img_norm = np.zeros_like(img_gray)
+
+            img_norm = np.expand_dims(img_norm, axis=-1)
+            img_chw = np.transpose(img_norm, (2, 0, 1))
+            img_bchw = np.expand_dims(img_chw, axis=0)
+            data.image_data = torch.from_numpy(img_bchw).float()
+        else:
+            data.image_data = torch.tensor([], dtype=torch.float)
 
         if not self.keep_raw_data:
             del data.raw_data

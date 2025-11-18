@@ -32,7 +32,7 @@ class DSConvBlock(nn.Module):
             self.conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1)
             self.conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1)
             self.bn = nn.BatchNorm2d(out_ch)
-            self.activation = nn.ReLU()
+            self.activation = nn.PReLU()
 
     def forward(self, x):
         x = self.conv1(x)

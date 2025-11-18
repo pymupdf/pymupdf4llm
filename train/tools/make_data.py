@@ -1,5 +1,7 @@
 import pickle
+
 import os
+import sys
 import json
 import time
 import random
@@ -636,29 +638,52 @@ def onnx_worker_init_fn(worker_id):
                 dataset.feature_extractor_path, providers=['CPUExecutionProvider']
             )
 
+
+import os
+import pickle
+import hashlib
+import torch
+import lmdb
+import blosc
+import pymongo  # Requires: pip install pymongo
+import gridfs  # Part of pymongo
+
+
 def save_json_dataset_to_lmdb(cfg):
     """
-    Saves a JSON dataset to an LMDB database using multi-processing with DataLoader.
+    Saves a JSON dataset to an LMDB database or MongoDB (GridFS) using multi-processing with DataLoader.
 
     Args:
         cfg (dict): Configuration dictionary containing all necessary parameters.
     """
+    # Load configurations
     json_paths = cfg['save_json_dataset_to_lmdb']['json_paths']
     save_paths = cfg['save_json_dataset_to_lmdb']['save_paths']
     nn_type = cfg['save_json_dataset_to_lmdb']['nn_type']
     sample_k = cfg['save_json_dataset_to_lmdb']['sample_k']
+    opt_save_type = cfg['save_json_dataset_to_lmdb']['opt_save_type']
     filter_class = cfg['save_json_dataset_to_lmdb']['filter_class']
+
+    # 1. Add save_type configuration (Default: LMDB)
+    # Options: 'LMDB', 'MongoDB'
+    save_type = cfg['save_json_dataset_to_lmdb'].get('save_type', 'LMDB')
+
+    # MongoDB Configuration (Used only if save_type == 'MongoDB')
+    mongo_uri = cfg['save_json_dataset_to_lmdb'].get('mongo_uri', 'mongodb://localhost:27017/')
+    mongo_db_name = cfg['save_json_dataset_to_lmdb'].get('mongo_db_name', 'dl_dataset_db')
 
     create_from_pdf = cfg['save_json_dataset_to_lmdb']['create_from_pdf']
     pdf_input_type = cfg['save_json_dataset_to_lmdb']['pdf_input_type']
-    cfg_path  = cfg['save_json_dataset_to_lmdb']['cfg_path']
+    cfg_path = cfg['save_json_dataset_to_lmdb']['cfg_path']
     pkl_dirs = cfg['save_json_dataset_to_lmdb']['pkl_dirs']
     rf_executable = cfg['save_json_dataset_to_lmdb']['rf_executable']
     remove_unlabelled_data = cfg['save_json_dataset_to_lmdb']['remove_unlabelled_data']
+    lmdb_size = cfg['save_json_dataset_to_lmdb']['lmdb_size']
 
     data_class_names = cfg['data']['class_list']
     data_class_map = {name: i for i, name in enumerate(data_class_names)}
     data_class_change_map = cfg['save_json_dataset_to_lmdb']['data_class_change_map']
+
     if data_class_change_map is not None:
         for key in data_class_change_map.keys():
             val = data_class_change_map[key]
@@ -671,13 +696,11 @@ def save_json_dataset_to_lmdb(cfg):
     feature_option = cfg['save_json_dataset_to_lmdb']['feature_option']
 
     pdf_dirs = cfg['save_json_dataset_to_lmdb']['pdf_dirs']
-
     data_names = [name.strip() for name in cfg['save_json_dataset_to_lmdb']['data_names'].split(',')]
 
     # Number of workers for DataLoader. Use all available CPU cores.
-    # num_workers = int(os.cpu_count() * 0.9) or 1
     num_workers = cfg['save_json_dataset_to_lmdb']['num_workers']
-    print(f"Using {num_workers} workers for data loading.")
+    print(f"Using {num_workers} workers for data loading. Save Type: {save_type}")
 
     for path_idx in range(len(json_paths)):
         if json_paths[path_idx] is None:
@@ -688,15 +711,15 @@ def save_json_dataset_to_lmdb(cfg):
             save_path = save_paths[path_idx].replace('[DATA_NAME]', data_name)
 
             if type(json_path) is list:
-                pdf_dir = pdf_dirs[json_path[1]]
                 json_path = json_path[0]
-            else:
-                pdf_dir = pdf_dirs[path_idx]
+
+            pdf_dirs_temp = []
+            for pdf_dir in pdf_dirs:
+                pdf_dirs_temp.append(pdf_dir.replace('[DATA_NAME]', data_name))
 
             json_path = json_path.replace('[DATA_NAME]', data_name)
-            pdf_dir = pdf_dir.replace('[DATA_NAME]', data_name)
 
-            # Initialize the dataset. The feature_extractor_path is passed here.
+            # Initialize the dataset.
             if data_name in ['train', 'val']:
                 dataset = DocumentJsonDataset(
                     data_path=json_path,
@@ -708,7 +731,7 @@ def save_json_dataset_to_lmdb(cfg):
                     feature_input_size=feature_input_size,
                     feature_option=feature_option,
                     lmdb_save_path=save_path,
-                    pdf_dir=pdf_dir,
+                    pdf_dir=pdf_dirs_temp,
                     create_from_pdf=create_from_pdf,
                     pdf_input_type=pdf_input_type,
                     cfg_path=cfg_path,
@@ -716,69 +739,162 @@ def save_json_dataset_to_lmdb(cfg):
                     rf_executable=rf_executable,
                     remove_unlabelled_data=remove_unlabelled_data,
                     filter_class=filter_class,
+                    opt_save_type=opt_save_type,
                     show_data=True
                 )
             else:
                 raise Exception(f'Invalid data_name = {data_name}')
 
-            os.makedirs(save_path, exist_ok=True)
-            env = lmdb.open(save_path, map_size=1024 ** 3)  # 1GB map size
+            # Common DataLoader setup
+            dataset.txn_keys = []
 
-            print(f'Saving data to {save_path} with {num_workers} workers.')
-
-            read_txn = env.begin(write=False)
-            keys = read_txn.get(b'__keys__')
-            if keys is not None:
-                keys = pickle.loads(keys)
-            else:
-                keys = []
-
-            dataset.txn_keys = keys
-
-            # Create DataLoader to enable multiprocessing
             dataloader = torch.utils.data.DataLoader(
                 dataset,
                 batch_size=1,  # Process one sample at a time
                 shuffle=False,
                 num_workers=num_workers,
                 collate_fn=custom_collate_fn,
-                # The collate function is required to handle a batch size of 1 correctly
                 worker_init_fn=onnx_worker_init_fn,
             )
 
-            txn = env.begin(write=True)
-            for idx, data in enumerate(dataloader):
-                file_name = 'None'
-                if data is not None:
-                    file_name = data.raw_data['file_name']
-                print(f'[{idx}/{len(dataloader)}] {file_name} ...')
-                # Skip if data is None or invalid
-                if data is None or data.edge_index.shape[1] <= 0 or data.x.shape[0] >= 5000:
-                    continue
-                file_name = os.path.splitext(data.raw_data['file_name'])[0]
-                key = hashlib.sha256(file_name.encode('utf-8')).digest()
+            os.makedirs(save_path, exist_ok=True)
+
+            # ==========================================
+            # Case 1: Save to LMDB
+            # ==========================================
+            if save_type == 'LMDB':
+                env = lmdb.open(save_path, map_size=lmdb_size * 1024 ** 3)
+                print(f'Saving data to {save_path} (LMDB) with {num_workers} workers.')
+
+                # Load existing keys if appending
+                read_txn = env.begin(write=False)
+                keys = read_txn.get(b'__keys__')
+                if keys is not None:
+                    keys = pickle.loads(keys)
+                else:
+                    keys = []
+                read_txn.abort()
+
+                dataset.txn_keys = keys
+
+                txn = env.begin(write=True)
+
+                for idx, data in enumerate(dataloader):
+                    file_name = 'None'
+                    if type(data) == str:
+                        print(f'[{idx}/{len(dataloader)}] {data} ...')
+                        continue
+
+                    if data is not None:
+                        file_name = data.raw_data['file_name']
+
+                    if '' == 'D':
+                        with open(f'temp/{file_name}', 'wb') as f:
+                            pickle.dump(data, f)
+
+                    print(f'[{idx}/{len(dataloader)}] {file_name} ...')
+
+                    # Skip invalid data
+                    if data is None or data.edge_index.shape[1] <= 0 or data.x.shape[0] >= 5000:
+                        continue
+
+                    file_name_base = os.path.splitext(data.raw_data['file_name'])[0]
+                    key = hashlib.sha256(file_name_base.encode('utf-8')).digest()
+
+                    try:
+                        value = pickle.dumps(data)
+                        compressed_value = blosc.compress(value, typesize=8, clevel=5, cname='zstd')
+                        txn.put(key, compressed_value)
+                        keys.append(key)
+                    except Exception as ex:
+                        print(ex)
+                        continue
+
+                    if len(keys) % 2000 == 0:
+                        print('Committing transaction...')
+                        txn.put(b'__keys__', pickle.dumps(keys))
+                        txn.commit()
+                        txn = env.begin(write=True)
+
+                txn.put(b'__keys__', pickle.dumps(keys))
+                txn.commit()
+                env.sync()
+                env.close()
+                print(f"LMDB dataset saved successfully ({len(keys)} samples).")
+
+            # ==========================================
+            # Case 2: Save to MongoDB (GridFS)
+            # ==========================================
+            elif save_type == 'MongoDB':
+                print(f'Connecting to MongoDB: {mongo_uri}, DB: {mongo_db_name}')
                 try:
-                    value = pickle.dumps(data)
-                    compressed_value = blosc.compress(value, typesize=8, clevel=5, cname='zstd')
-                    txn.put(key, compressed_value)
-                except Exception as ex:
-                    print(ex)
-                    continue
-                keys.append(key)
+                    client = pymongo.MongoClient(mongo_uri)
+                    db = client[mongo_db_name]
+                    # Use GridFS for large object storage (replaces LMDB blobs)
+                    fs = gridfs.GridFS(db, collection=data_name)
+                except Exception as e:
+                    print(f"Failed to connect to MongoDB: {e}")
+                    return
 
-                # Commit periodically to manage memory usage
-                if len(keys) % 2000 == 0:
-                    print('Committing transaction...')
-                    txn.put(b'__keys__', pickle.dumps(keys))
-                    txn.commit()
-                    txn = env.begin(write=True)
+                print(f'Saving data to MongoDB (GridFS: {data_name}) with {num_workers} workers.')
 
-            # Final commit and save index list
-            txn.put(b'__keys__', pickle.dumps(keys))
-            txn.commit()
-            env.sync()
-            env.close()
-            print(f"LMDB dataset saved successfully ({len(keys)} samples).)")
+                valid_count = 0
+                for idx, data in enumerate(dataloader):
+                    file_name = 'None'
+
+                    if type(data) == str:
+                        print(f'[{idx}/{len(dataloader)}] {data} ...')
+                        continue
+
+                    if data is not None:
+                        file_name = data.raw_data['file_name']
+
+                    if '' == 'D':
+                        with open(f'temp/{file_name}', 'wb') as f:
+                            pickle.dump(data, f)
+
+                    print(f'[{idx}/{len(dataloader)}] {file_name} ...')
+
+                    # Skip invalid data
+                    if data is None or data.edge_index.shape[1] <= 0 or data.x.shape[0] >= 5000:
+                        continue
+
+                    try:
+                        # 1. Prepare Key (Filename based)
+                        key_str = os.path.splitext(file_name)[0]
+                        safe_key = key_str.replace('/', '_').replace('\\', '_')
+
+                        # 2. Serialize & Compress (Optional but recommended for network transfer)
+                        value = pickle.dumps(data)
+                        compressed_value = blosc.compress(value, typesize=8, clevel=5, cname='zstd')
+
+                        # 3. Check if file exists and delete (Simulate Upsert for GridFS)
+                        # GridFS stores versions, but usually in datasets we want the latest unique file.
+                        existing_file = fs.find_one({"filename": safe_key})
+                        if existing_file:
+                            fs.delete(existing_file._id)
+
+                        # 4. Save to GridFS
+                        # We store the compressed blob.
+                        # Metadata can be added to 'metadata' field easily.
+                        fs.put(
+                            compressed_value,
+                            filename=safe_key,
+                            metadata={
+                                "original_filename": file_name,
+                                "compression": "blosc-zstd"
+                            }
+                        )
+                        valid_count += 1
+
+                    except Exception as ex:
+                        print(f"Error saving to MongoDB: {ex}")
+                        continue
+
+                print(f"MongoDB dataset saved successfully ({valid_count} samples in GridFS collection '{data_name}').")
+
+            else:
+                raise ValueError(f"Unsupported save_type: {save_type}. Use 'LMDB' or 'MongoDB'.")
 
 
 # A lock to manage console output to prevent interleaved print statements
@@ -2023,7 +2139,12 @@ if __name__ == '__main__':
     import torch.multiprocessing
     torch.multiprocessing.set_start_method('spawn', force=True)
 
-    with open('train/cfgs/data.yaml', "rb") as f:
+    if len(sys.argv) < 2:
+        print("Usage: python make_data.py <config_path>")
+        sys.exit(1)
+
+    config_path = sys.argv[1]
+    with open(config_path, "rb") as f:
         cfg = anyconfig.load(f)
 
     task_names = cfg['task_name'].split(',')

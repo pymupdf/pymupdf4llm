@@ -148,7 +148,7 @@ train_segmentation:
   task3: save_class_pkl
   device: 'cuda:1'
   model:
-    name: 'UNet-thin2'
+    name: 'UNet-thin'
     target_type: 'segmentation'
     in_ch: 1
     out_ch: 12

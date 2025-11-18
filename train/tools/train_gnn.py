@@ -399,6 +399,9 @@ def train(cfg):
                       f'Loss: {total_loss:.4f}, Node Loss: {node_loss:.4f}, Edge Loss: {edge_loss:.4f}')
                 # print(f'[Timing] Data Load: {data_load_time:.4f}s | Forward: {forward_time:.4f}s | Backward: {backward_time:.4f}s')
                 writer.add_scalar("train/lr", current_lr, num_step)
+                writer.add_scalar("train/total_loss", total_loss, num_step)
+                writer.add_scalar("train/node_loss", node_loss, num_step)
+                writer.add_scalar("train/edge_loss", edge_loss, num_step)
 
             if num_step > 0 and num_step % eval_step == 0:
                 copy_ema_to_model(model, ema_model)
@@ -535,7 +538,7 @@ def calculate_class_balance():
 def safe_train(cfg, max_retries=1000, wait_sec=5):
     for attempt in range(1, max_retries + 1):
         print(f"[INFO] Attempt {attempt} to run training...")
-        proc = mp.Process(target=train, args=cfg)
+        proc = mp.Process(target=train, args=(cfg,))
         proc.start()
         proc.join()
 

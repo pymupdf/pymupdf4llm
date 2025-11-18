@@ -8,7 +8,7 @@ import subprocess
 import pymupdf
 import pymupdf.features as rf_features
 
-from .common_util import compute_iou
+from .common_util import compute_iou, get_text_pattern
 
 def robins_features_extraction(feature_path, pdf_dir, filename, rect_list):
     fd, path = tempfile.mkstemp()
@@ -236,7 +236,7 @@ def merge_boxes(boxes, iou_threshold=0.5):
             merged.append(base)
     return merged
 
-def create_input_data_from_page(page, input_type=('text', 'image', 'vec_line'), max_image_num=500, max_vec_line_num=200,
+def create_input_data_from_page(page, input_type=('text',), max_image_num=500, max_vec_line_num=200,
                                 pdf_path=None, features_path=None):
     data_dict = {
         'bboxes': [],
@@ -441,7 +441,7 @@ def create_input_data_from_page(page, input_type=('text', 'image', 'vec_line'), 
 
 
 def create_input_data_by_pymupdf(pdf_path=None, document=None, page_no=0,
-                                 input_type=('text', 'image', 'vec_line'), features_path=None):
+                                 input_type=('text',), features_path=None):
     if document is None:
         if not os.path.exists(pdf_path):
             raise Exception(f'{pdf_path} is not exist!')

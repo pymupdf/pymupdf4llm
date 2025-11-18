@@ -1,5 +1,6 @@
 
 import os
+import sys
 import json
 import shutil
 import pickle
@@ -19,6 +20,7 @@ from train.core.common.util import get_iou
 import pymupdf
 import train.infer.DocumentLayoutAnalyzer as DocumentLayoutAnalyzer
 from train.infer.pymupdf_util import create_input_data_from_page
+from train.infer.onnx.BoxRFDGNN import get_nn_input_from_datadict
 
 def dump_json_data(cfg):
     json_dir = cfg['test_onnx']['json_dir']
@@ -196,7 +198,6 @@ def eval_det_performance(cfg):
         bytes = np.frombuffer(pix.samples, dtype=np.uint8)
         page_img = bytes.reshape(pix.height, pix.width, pix.n)
         page_img = cv2.cvtColor(page_img, cv2.COLOR_BGR2RGB)
-        doc.close()
 
         for ant in gt_labels:
             ant[0] *= page_img.shape[1] / cv_img.shape[1]
@@ -206,7 +207,8 @@ def eval_det_performance(cfg):
 
         st_time = time.time()
         fe_time = time.time()
-        data_dict = create_input_data_by_pymupdf(pdf_file, features_path=features_path)
+        prior_results = model.get_prior_result(page)
+        data_dict = create_input_data_from_page(page, features_path=features_path)
         fe_time = time.time() - fe_time
 
         infer_time = time.time()
@@ -217,6 +219,7 @@ def eval_det_performance(cfg):
         fe_elapsed_time.append(fe_time)
         if_elapsed_time.append(infer_time)
         total_elapsed_time.append(total_time)
+        doc.close()
 
         print(f'[{file_idx}/{len(file_list)}] {file_name[:-4]} ({len(data_dict["bboxes"])} bboxes, '
               f'Total: {total_time:.2f} sec / FE: {fe_time:.2f}, IF: {infer_time:.2f})...')
@@ -229,6 +232,17 @@ def eval_det_performance(cfg):
         matched_pred = set()
 
         if show_data:
+            # for info in prior_results:
+            #     bbox = info['bbox']
+            #     score = info['score']
+            #     cls = info['class']
+            #     x1 = bbox[0]
+            #     y1 = bbox[1]
+            #     x2 = bbox[2]
+            #     y2 = bbox[3]
+            #     cv2.putText(page_img, f'{cls} ({score:.4f})', (int(x1), int(y1)), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 255), 1)
+            #     cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 1)
+
             for bbox in gt_boxes:
                 x1 = bbox[0]
                 y1 = bbox[1]
@@ -315,7 +329,6 @@ def compare_input_data(cfg):
     import onnxruntime as ort
 
     from train.tools.data.layout.DocumentLMDBDataset import DocumentLMDBDataset
-    from train.infer.onnx.BoxRFDGNN import get_nn_input_from_datadict
     from train.infer.pymupdf_util import create_input_data_by_pymupdf
 
     pdf_dir = cfg['test']['pdf_dir']
@@ -344,17 +357,25 @@ def compare_input_data(cfg):
 
         print(f"\n--- Comparing data_idx: {data_idx} ---")
 
-        # Data from LMDB (torch.tensor)
-        bboxes, edge_index, edge_attr, rf_feature, text_patterns, image_feature = \
-            (data.x, data.edge_index, data.edge_attr, data.rf_features, data.text_patterns,
-             data.img_features)
-        raw_data = data.raw_data
-        file_name = raw_data['file_name'][:-5]  # Adjusted slicing for '.pdf'
+        if '' == 'D':
+            pkl_file = 'temp/64533f3b221bfe4018b29dc2efde05e20a6d6c93ac337a16479932df1e8f2001.pkl'
+            with open(pkl_file, 'rb') as f:
+                data = pickle.load(f)
+            file_name = os.path.splitext(data.raw_data['file_name'])[0]
+            img_features = data.raw_data['image_features']
+        else:
+            # Data from LMDB (torch.tensor)
+            bboxes, edge_index, edge_attr, rf_feature, text_patterns, image_feature = \
+                (data.x, data.edge_index, data.edge_attr, data.rf_features, data.text_patterns,
+                 data.img_features)
+            raw_data = data.raw_data
+            file_name = os.path.splitext(raw_data['file_name'])[0]
 
         # Data from create_pdf_input_data() and get_nn_input_from_datadict() (numpy.ndarray)
+
         pdf_path = f'{pdf_dir}/{file_name}.pdf'
         data_dict = create_input_data_by_pymupdf(pdf_path, features_path=None)
-        bboxes_2, edge_index_2, edge_attr_2, _, _, rf_feature_2, text_patterns_2, image_feature_2 = \
+        bboxes_2, edge_index_2, edge_attr_2, _, _, rf_feature_2, text_patterns_2, image_feature_2, image_data_2 = \
             get_nn_input_from_datadict(data_dict, cfg, feature_extractor=feature_extractor)
 
         # Convert torch.tensor to numpy.ndarray for comparison
@@ -433,11 +454,15 @@ if __name__ == '__main__':
     import torch.multiprocessing as mp
     mp.set_start_method('spawn', force=True)
 
-    with open('tools/config.yaml', "rb") as f:
+    if len(sys.argv) < 2:
+        print("Usage: python test_onnx.py <config_path>")
+        sys.exit(1)
+
+    config_path = sys.argv[1]
+    with open(config_path, "rb") as f:
         cfg = anyconfig.load(f)
 
-    test_onnx_gpu_infer()
-
+    # test_onnx_gpu_infer()
     task = cfg['test_onnx']['task']
     if task == 'dump_json_data':
         dump_json_data(cfg)

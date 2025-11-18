@@ -11,6 +11,7 @@ data:
   - footnote
   - caption
   - formula
+  - unlabelled
   class_priority:
   - 1
   - 5
@@ -38,69 +39,111 @@ data:
   - 1
   rf_names:
   - num_ratio
-  - is_line
+  - is_text
   - is_vector
   - is_image
-  - num non-numeral chars in area
-  - num numeral chars
-  - ratio of chars to area
-  - avg char space
-  - avg line space
-  - avg font size
-  - num fonts in area
-  - left margin
-  - right margin
-  - top margin
-  - bottom margin
-  - left inner margin
-  - right inner margin
-  - top inner margin
-  - bottom inner margin
-  - font offset from most popular font
-  - linespace offset from most popular linespace
-  - num underlined chars
-  - top left indent
-  - bottom right indent
-  - num lines
-  - max non first left indent
-  - max non last right indent
-  - left scaled margin
-  - right scaled margin
-  - top scaled margin
-  - bottom scaled margin
-  - dodgy_paragraph_breaks
-  - is_header
+  - is_hline_vector
+  - is_vline_vector
+  - alignment_down_with_centre
+  - alignment_down_with_left
+  - alignment_down_with_right
+  - alignment_left_with_bottom
+  - alignment_left_with_middle
+  - alignment_left_with_top
+  - alignment_right_with_bottom
+  - alignment_right_with_middle
+  - alignment_right_with_top
+  - alignment_up_with_centre
+  - alignment_up_with_left
+  - alignment_up_with_right
+  - bottom_right_x
+  - char_space
+  - char_space_n
+  - consecutive_bottom_alignment_count_left
+  - consecutive_bottom_alignment_count_right
+  - consecutive_centre_alignment_count_down
+  - consecutive_centre_alignment_count_up
+  - consecutive_left_alignment_count_down
+  - consecutive_left_alignment_count_up
+  - consecutive_middle_alignment_count_left
+  - consecutive_middle_alignment_count_right
+  - consecutive_right_alignment_count_down
+  - consecutive_right_alignment_count_up
+  - consecutive_top_alignment_count_left
+  - consecutive_top_alignment_count_right
   - context_above_font_size
-  - context_above_is_header
   - context_above_indent
+  - context_above_is_header
   - context_above_outdent
-  - context_below_font_size
-  - context_below_is_header
-  - context_below_indent
-  - context_below_outdent
   - context_below_bullet
+  - context_below_font_size
+  - context_below_indent
+  - context_below_is_header
+  - context_below_outdent
   - context_header_differs
+  - dodgy_paragraph_breaks
+  - font_size
+  - fonts_offset
+  - imargin_b
+  - imargin_l
+  - imargin_r
+  - imargin_t
+  - is_header
   - line_bullets
+  - line_space
+  - linespaces_offset
+  - margin_b
+  - margin_l
+  - margin_r
+  - margin_t
+  - max_non_first_left_indent
+  - max_non_last_right_indent
   - non_line_bullets
-  rf_names2:
+  - num_fonts_in_region
+  - num_lines
+  - num_non_numerals
+  - num_numerals
+  - num_underlines
+  - raft_num
+  - raft_edge_down
+  - raft_edge_left
+  - raft_edge_right
+  - raft_edge_up
+  - ratio
+  - ray_line_distance_down
+  - ray_line_distance_left
+  - ray_line_distance_right
+  - ray_line_distance_up
+  - smargin_b
+  - smargin_l
+  - smargin_r
+  - smargin_t
+  - top_left_x
+  rf_names1:
   - num_ratio
-  - is_line
+  - is_text
   - is_vector
   - is_image
+  - is_hline_vector
+  - is_vline_vector
 model:
   dgcn_aggr: softmax
   dgcn_dim: 128
-  edge_input_dim: 18
+  edge_input_dim: 368
+  edge_input_dim1: 24
   hidden_dim: 512
   imf_input_dim: 344
-  imf_output_dim: 256
+  imf_output_dim: 128
   name: BoxRFDGCNN
   node_input_dim: 8
-  node_output_dim: 256
+  node_output_dim: 16
   option:
     conv_merge_type: null
     conv_num: 2
     conv_type: CustomDGC
+    drop_egc: 0.0
+    drop_ngc: 0.0
+    edge_type: SEO
     feature_types:
     - bbox
     - rf
@@ -112,12 +155,10 @@ model:
     - BTX
     - BIM
     - BFS
-    training_noise: 0.0
+    training_noise: 0.05
     training_noise_prob: 0.0
-    drop_ngc: 0.01
-    drop_egc: 0.01
   rf_output_dim: 48
   sample_k: 20
-  txp_input_dim: 10
-  txp_output_dim: 10
+  txp_input_dim: 40
+  txp_output_dim: 20
   type: DGCNN

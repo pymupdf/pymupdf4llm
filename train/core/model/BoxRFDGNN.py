@@ -368,10 +368,10 @@ class BoxRFDGCNN(torch.nn.Module):
         fusion_feat = self.fusion_layer(torch.cat(fusion_features, dim=1))
 
         if self.training and self.training_noise > 0 and self.training_noise_prob > random.random():
-            sigma = np.random.uniform(0, self.training_noise)
-            noise = torch.randn_like(fusion_feat)
-            scaled_noise = noise * sigma
-            fusion_feat = fusion_feat + scaled_noise
+            scale = torch.rand(1, device=fusion_feat.device) * self.training_noise
+            sigma = fusion_feat.std() * scale
+            noise = torch.randn_like(fusion_feat) * sigma
+            fusion_feat = fusion_feat + noise
 
         # GNN 레이어 통과
         if batch is None:

@@ -1,0 +1,40 @@
+{
+    "filename": "dad191723b0440d8e979c4eefe099115aeaf5ccadbd76a87c23d817ae4eb3e27.pdf",
+    "bboxes": [
+        [
+            247,
+            44,
+            318,
+            52,
+            "page-header"
+        ],
+        [
+            106,
+            82,
+            303,
+            121,
+            "section-header"
+        ],
+        [
+            106,
+            169,
+            523,
+            190,
+            "text"
+        ],
+        [
+            103,
+            195,
+            577,
+            797,
+            "table"
+        ],
+        [
+            48,
+            838,
+            62,
+            846,
+            "page-footer"
+        ]
+    ]
+}

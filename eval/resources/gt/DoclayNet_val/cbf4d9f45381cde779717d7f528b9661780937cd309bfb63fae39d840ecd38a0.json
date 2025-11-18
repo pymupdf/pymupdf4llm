@@ -1,0 +1,40 @@
+{
+    "filename": "cbf4d9f45381cde779717d7f528b9661780937cd309bfb63fae39d840ecd38a0.pdf",
+    "bboxes": [
+        [
+            253,
+            99,
+            346,
+            112,
+            "section-header"
+        ],
+        [
+            99,
+            122,
+            498,
+            135,
+            "section-header"
+        ],
+        [
+            464,
+            102,
+            509,
+            111,
+            "section-header"
+        ],
+        [
+            82,
+            139,
+            512,
+            761,
+            "table"
+        ],
+        [
+            292,
+            796,
+            302,
+            805,
+            "page-footer"
+        ]
+    ]
+}
