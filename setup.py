@@ -62,6 +62,10 @@ g_version = '1.26.6'
 # use PyMuPDF-1.24.8.
 #
 g_pymupdf_version = '.'.join(g_version.split('.')[:3])
+PYMUPDF_SETUP_VERSION = os.environ.get('PYMUPDF_SETUP_VERSION')
+if PYMUPDF_SETUP_VERSION:
+    log(f'Overriding g_pymupdf_version from {g_pymupdf_version=} to {PYMUPDF_SETUP_VERSION=}.')
+    g_pymupdf_version = PYMUPDF_SETUP_VERSION
 
 PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF = os.environ.get('PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF')
 if PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF:
