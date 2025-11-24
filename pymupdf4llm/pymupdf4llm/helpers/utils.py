@@ -23,13 +23,25 @@ WHITE_CHARS = set(
 
 BULLETS = set(
     [
+        chr(0x2D),
+        chr(0x6F),
         chr(0xB6),
         chr(0xB7),
+        chr(0x2010),
+        chr(0x2011),
+        chr(0x2012),
+        chr(0x2013),
+        chr(0x2014),
+        chr(0x2015),
+        chr(0x2020),
         chr(0x2020),
         chr(0x2021),
         chr(0x2022),
+        chr(0x2212),
+        chr(0x2219),
         chr(0xF0A7),
         chr(0xF0B7),
+        chr(0xFFFD),
     ]
     + list(map(chr, range(0x25A0, 0x2600)))
 )
@@ -632,7 +644,7 @@ def complete_table_structure(page):
     return all_lines, all_boxes
 
 
-def extract_cells(textpage, cell, markdown=False):
+def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
     """Extract text from a rect-like 'cell' as plain or MD styled text.
 
     This function should ultimately be used to extract text from a table cell.
@@ -640,10 +652,13 @@ def extract_cells(textpage, cell, markdown=False):
     TEXT_COLLECT_STYLES is set.
 
     Args:
-        textpage: A PyMuPDF TextPage object. Must have been created with
-            TEXTFLAGS_TEXT | TEXT_COLLECT_STYLES.
+        table_blocks: A list of PyMuPDF TextPage text blocks (type = 0). Must
+            have been created with TEXT_COLLECT_STYLE for correct markdown.
+            Format is either "dict" or "rawdict" depending on ocrpage.
         cell: A tuple (x0, y0, x1, y1) defining the cell's bbox.
         markdown: If True, return text formatted for Markdown.
+        ocrpage: If True, text is written with GlyphLessFont. In this case,
+            table_blocks is in format "dict".
 
     Returns:
         A string with the text extracted from the cell.
@@ -659,32 +674,34 @@ def extract_cells(textpage, cell, markdown=False):
         )
 
     text = ""
-    for block in textpage.extractRAWDICT()["blocks"]:
-        if block["type"] != 0:
-            continue
+    for block in table_blocks:
         if outside_cell(block["bbox"], cell):
             continue
         for line in block["lines"]:
             if outside_cell(line["bbox"], cell):
                 continue
-            if text:  # must be a new line in the cell
+            if text:  # this line is new in the cell
                 text += "<br>" if markdown else "\n"
 
-            # strikeout detection only works with horizontal text
+            # strikeout detection only works with axis-parallel text
             horizontal = line["dir"] == (0, 1) or line["dir"] == (1, 0)
 
             for span in line["spans"]:
                 if outside_cell(span["bbox"], cell):
                     continue
-                # only include chars with more than 50% bbox overlap
-                span_text = ""
-                for char in span["chars"]:
-                    this_char = char["c"]
-                    bbox = pymupdf.Rect(char["bbox"])
-                    if abs(bbox & cell) > 0.5 * abs(bbox):
-                        span_text += this_char
-                    elif this_char in WHITE_CHARS:
-                        span_text += " "
+                if ocrpage:
+                    span_text = span["text"]
+                else:
+                    # compose span text from chars
+                    # only include chars with more than 50% bbox overlap
+                    span_text = ""
+                    for char in span["chars"]:
+                        this_char = char["c"]
+                        bbox = pymupdf.Rect(char["bbox"])
+                        if abs(bbox & cell) > 0.5 * abs(bbox):
+                            span_text += this_char
+                        elif this_char in WHITE_CHARS:
+                            span_text += " "
 
                 if not span_text:
                     continue  # skip empty span
@@ -704,11 +721,11 @@ def extract_cells(textpage, cell, markdown=False):
                 if span["flags"] & pymupdf.TEXT_FONT_ITALIC:
                     prefix += "_"
                     suffix = "_" + suffix
-                if span["flags"] & pymupdf.TEXT_FONT_MONOSPACED:
+                if not ocrpage and span["flags"] & pymupdf.TEXT_FONT_MONOSPACED:
                     prefix += "`"
                     suffix = "`" + suffix
 
-                if len(span["chars"]) > 2:
+                if len(span_text) > 2:
                     span_text = span_text.rstrip()
 
                 # if span continues previous styling: extend cell text
@@ -719,11 +736,16 @@ def extract_cells(textpage, cell, markdown=False):
                         text += " "
                     else:
                         text += prefix + span_text + suffix
-    text = text.replace("$<br>", "$ ").replace(" $ <br>", "$ ")
+    text = (
+        text.replace("$<br>", "$ ")
+        .replace(" $ <br>", "$ ")
+        .replace("$\n", "$ ")
+        .replace(" $ \n", "$ ")
+    )
     return text.strip()
 
 
-def table_to_markdown(textpage, table_item, markdown=True):
+def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
     output = ""
     table = table_item.table
     row_count = table["row_count"]
@@ -749,7 +771,7 @@ def table_to_markdown(textpage, table_item, markdown=True):
         for j, cell in enumerate(row):
             if cell is not None:
                 cells[i][j] = extract_cells(
-                    textpage, cell_boxes[i][j], markdown=markdown
+                    table_blocks, cell_boxes[i][j], markdown=markdown, ocrpage=ocrpage
                 )
     for i, name in enumerate(cells[0]):
         if name is None:
@@ -780,7 +802,7 @@ def table_to_markdown(textpage, table_item, markdown=True):
     return output + "\n"
 
 
-def table_extract(textpage, table_item):
+def table_extract(table_blocks, table_item, ocrpage=False):
     table = table_item.table
     row_count = table["row_count"]
     col_count = table["col_count"]
@@ -791,6 +813,11 @@ def table_extract(textpage, table_item):
     for i, row in enumerate(cell_boxes):
         for j, cell in enumerate(row):
             if cell is not None:
-                cells[i][j] = extract_cells(textpage, cell_boxes[i][j], markdown=False)
+                cells[i][j] = extract_cells(
+                    table_blocks,
+                    cell_boxes[i][j],
+                    markdown=False,
+                    ocrpage=ocrpage,
+                )
 
     return cells

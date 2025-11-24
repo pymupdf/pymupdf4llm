@@ -95,6 +95,14 @@ class IdentifyHeaders:
         else:
             mydoc = pymupdf.open(doc)
 
+        if mydoc.is_pdf:
+            # remove StructTreeRoot to avoid possible performance degradation
+            mypdf = pymupdf._as_pdf_document(mydoc)
+            root = mupdf.pdf_dict_get(
+                mupdf.pdf_trailer(mypdf), pymupdf.PDF_NAME("Root")
+            )
+            root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
+
         if pages is None:  # use all pages if omitted
             pages = range(mydoc.page_count)
 
@@ -292,11 +300,21 @@ def is_significant(box, paths):
     return False
 
 
+def to_json(*args, **kwargs):
+    raise NotImplementedError("Function 'to_json' is only available in layout mode")
+
+
+def to_text(*args, **kwargs):
+    raise NotImplementedError("Function 'to_text' is only available in layout mode")
+
+
 def to_markdown(
     doc,
     *,
     pages=None,
     hdr_info=None,
+    header=None,
+    footer=None,
     write_images=False,
     embed_images=False,
     ignore_images=False,
@@ -350,6 +368,10 @@ def to_markdown(
     """
     if write_images is False and embed_images is False and force_text is False:
         raise ValueError("Image and text on images cannot both be suppressed.")
+    if header is not None:
+        raise NotImplementedError("Page header handling only works in layout mode")
+    if footer is not None:
+        raise NotImplementedError("Page footer handling only works in layout mode")
     if embed_images is True:
         write_images = False
         image_path = ""

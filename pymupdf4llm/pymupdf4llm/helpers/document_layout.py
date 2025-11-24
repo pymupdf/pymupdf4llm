@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import os
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from typing import Dict, List, Optional, Union
 
 import pymupdf
 import tabulate
+from pymupdf import mupdf
 from pymupdf4llm.helpers import utils
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
 
@@ -22,6 +24,7 @@ except ImportError:
 
 pymupdf.TOOLS.unset_quad_corrections(True)
 
+INFO_MESSAGES = io.StringIO()
 GRAPHICS_TEXT = "\n![](%s)\n"
 CHECK_OCR_TEXT = {"ignore-text"}
 OCR_FONTNAME = "GlyphLessFont"  # if encountered do not use "code" style
@@ -31,13 +34,14 @@ FLAGS = (
     | pymupdf.TEXT_COLLECT_VECTORS
     | pymupdf.TEXT_PRESERVE_IMAGES
     | pymupdf.TEXT_ACCURATE_BBOXES
-    | pymupdf.TEXT_MEDIABOX_CLIP
+    # | pymupdf.TEXT_MEDIABOX_CLIP
 )
+BULLETS = tuple(utils.BULLETS)
 
 
 def omit_if_pua_char(text):
     """Check if character is in the Private Use Area (PUA) of Unicode."""
-    if len(text) > 1:  # only single characters are checked
+    if len(text) != 1:  # only single characters are checked
         return text
     o = ord(text)
     if (
@@ -107,7 +111,11 @@ def create_list_item_levels(layout_info):
 
 
 def is_monospaced(textlines):
-    """Detect text bboxes with all mono-spaced lines."""
+    """Detect text bboxes with all mono-spaced lines.
+
+    Returns True if all lines are mono-spaced.
+    This may be used to output code blocks.
+    """
     line_count = len(textlines)
     mono = 0
 
@@ -383,8 +391,15 @@ def list_item_to_md(textlines, level):
     span0_text = span0["text"].strip()
 
     starter = "- "
-    if span0_text.endswith(".") and span0_text[:-1].isdigit():
-        starter = "1. "
+    if span0_text.startswith(BULLETS):
+        span0_text = span0_text[1:].strip()
+        line["spans"][0]["text"] = span0_text
+    elif span0_text.endswith(".") and span0_text[:-1].isdigit():
+        starter = ""
+    elif " " in span0_text:
+        first_word = span0_text.split(" ")[0]
+        if first_word.endswith(".") and first_word[:-1].isdigit():
+            starter = ""
 
     if not omit_if_pua_char(span0["text"].strip()):
         # bullet was a PUA char: remove it
@@ -554,7 +569,8 @@ class PageLayout:
     width: float
     height: float
     boxes: List[LayoutBox]
-    ocrpage: bool = False  # whether the page is an OCR page
+    full_ocred: bool = False  # whether the page is an OCR page
+    text_ocred: bool = False  # whether the page text only is OCR'd
     fulltext: Optional[List[Dict]] = None  # full page text in extractDICT format
     words: Optional[List[Dict]] = None  # list of words with bbox
     links: Optional[List[Dict]] = None
@@ -581,6 +597,8 @@ class ParsedDocument:
         embed_images: bool = False,
         ignore_code: bool = False,
         show_progress: bool = False,
+        page_separators: bool = False,
+        **kwargs,
     ) -> str:
         """
         Serialize ParsedDocument to markdown text.
@@ -592,7 +610,6 @@ class ParsedDocument:
         else:
             this_iterator = self.pages
         for page in this_iterator:
-
             # Make a mapping: box number -> list item hierarchy level
             list_item_levels = create_list_item_levels(page.boxes)
 
@@ -608,23 +625,13 @@ class ParsedDocument:
 
                 # pictures and formulas: either write image file or embed
                 if btype in ("picture", "formula", "fallback"):
-                    if box.image:
-                        if write_images:
-                            img_filename = f"{self.filename}-{page.page_number:04d}-{i:02d}.{self.image_format}"
-                            filename = os.path.basename(self.filename).replace(" ", "-")
-                            image_filename = os.path.join(
-                                self.image_path,
-                                f"{filename}-{page.page_number:04d}-{i:02d}.{self.image_format}",
-                            )
-                            Path(image_filename).write_bytes(box.image)
-
-                            output += GRAPHICS_TEXT % img_filename
-
-                        elif embed_images:
-                            # make a base64 encoded string of the image
-                            data = base64.b64encode(box.image).decode()
-                            data = f"data:image/{self.image_format};base64," + data
-                            output += GRAPHICS_TEXT % data + "\n\n"
+                    if isinstance(box.image, str):
+                        output += GRAPHICS_TEXT % box.image + "\n\n"
+                    elif isinstance(box.image, bytes):
+                        # make a base64 encoded string of the image
+                        data = base64.b64encode(box.image).decode()
+                        data = f"data:image/{self.image_format};base64," + data
+                        output += GRAPHICS_TEXT % data + "\n\n"
                     else:
                         output += f"**==> picture [{clip.width} x {clip.height}] intentionally omitted <==**\n\n"
 
@@ -633,18 +640,22 @@ class ParsedDocument:
                         if btype == "picture":
                             output += picture_text_to_md(
                                 box.textlines,
-                                ignore_code=ignore_code or page.ocrpage,
+                                ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                         elif btype == "fallback":
                             output += fallback_text_to_md(
                                 box.textlines,
-                                ignore_code=ignore_code or page.ocrpage,
+                                ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                     continue
                 if btype == "table":
-                    output += box.table["markdown"] + "\n\n"
+                    table_text = box.table["markdown"]
+                    if page.full_ocred:
+                        # remove code style if page was OCR'd
+                        table_text = table_text.replace("`", "")
+                    output += table_text + "\n\n"
                     continue
                 if not hasattr(box, "textlines"):
                     print(f"Warning: box {btype} has no textlines")
@@ -663,9 +674,10 @@ class ParsedDocument:
                     continue
                 else:  # treat as normal MD text
                     output += text_to_md(
-                        box.textlines, ignore_code=ignore_code or page.ocrpage
+                        box.textlines, ignore_code=ignore_code or page.full_ocred
                     )
-
+            if page_separators:
+                output += f"--- end of {page.page_number=} ---\n\n"
         return output
 
     def to_json(self, show_progress=False) -> str:
@@ -724,13 +736,13 @@ class ParsedDocument:
                         if btype == "picture":
                             output += picture_text_to_text(
                                 box.textlines,
-                                ignore_code=ignore_code or page.ocrpage,
+                                ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                         elif btype == "fallback":
                             output += fallback_text_to_text(
                                 box.textlines,
-                                ignore_code=ignore_code or page.ocrpage,
+                                ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                     continue
@@ -747,7 +759,7 @@ class ParsedDocument:
                     output += footnote_to_text(box.textlines)
                     continue
                 output += text_to_text(
-                    box.textlines, ignore_code=ignore_code or page.ocrpage
+                    box.textlines, ignore_code=ignore_code or page.full_ocred
                 )
                 continue
         return output
@@ -757,17 +769,26 @@ def parse_document(
     doc,
     filename="",
     image_dpi=150,
+    ocr_dpi=400,
     image_format="png",
     image_path="",
     pages=None,
     show_progress=False,
-    output_images=True,
+    embed_images=False,
+    write_images=False,
     force_text=False,
 ) -> ParsedDocument:
     if isinstance(doc, pymupdf.Document):
         mydoc = doc
     else:
         mydoc = pymupdf.open(doc)
+
+    if mydoc.is_pdf:
+        # remove StructTreeRoot to avoid possible performance degradation
+        mypdf = pymupdf._as_pdf_document(mydoc)
+        root = mupdf.pdf_dict_get(mupdf.pdf_trailer(mypdf), pymupdf.PDF_NAME("Root"))
+        root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
+
     document = ParsedDocument()
     document.filename = mydoc.name if mydoc.name else filename
     document.toc = mydoc.get_toc(simple=True)
@@ -778,6 +799,10 @@ def parse_document(
     document.image_path = image_path
     document.pages = []
     document.force_text = force_text
+    if embed_images and write_images:
+        raise ValueError("Cannot both embed and write images.")
+    document.embed_images = embed_images
+    document.write_images = write_images
     try:
         reason = "OpenCV not installed"
         assert cv2 is not None
@@ -785,7 +810,7 @@ def parse_document(
         assert pymupdf.get_tessdata()
         document.use_ocr = True
     except Exception as e:
-        print(f"{reason}. Disabling OCR.")
+        print(f"{reason}. OCR disabled.", file=INFO_MESSAGES)
         document.use_ocr = False
     if pages is None:
         page_filter = range(mydoc.page_count)
@@ -802,29 +827,45 @@ def parse_document(
         or page_filter[-1] >= mydoc.page_count
     ):
         raise ValueError(
-            "'pages' parameter must be None, int, or a sequence of ints less than page count"
+            f"'pages' parameter must be None, int, or a sequence of ints less than {mydoc.page_count}."
         )
     if show_progress and len(page_filter) > 5:
         print(f"Parsing {len(page_filter)} pages of '{document.filename}'...")
         page_filter = ProgressBar(page_filter)
     for pno in page_filter:
         page = mydoc.load_page(pno)
-
+        textpage = page.get_textpage(flags=FLAGS)
+        blocks = textpage.extractDICT()["blocks"]
+        page_full_ocred = False
+        page_text_ocred = False
         # check if this page should be OCR'd
         if document.use_ocr:
-            decision = check_ocr.should_ocr_page(page, dpi=600)
+            decision = check_ocr.should_ocr_page(
+                page,
+                dpi=ocr_dpi,
+                edge_thresh=0.015,
+                blocks=blocks,
+            )
         else:
             decision = {"should_ocr": False}
+
+        if decision["has_ocr_text"]:  # prevent MD styling if already OCR'd
+            page_full_ocred = True
+
         if decision["should_ocr"]:
-            print(f"Performing OCR on {page.number=}[{page.number+1}]...")
-            if not decision.get("has_text"):
+            # We should be OCR: check full-page vs. text-only
+            if decision.get("pixmap"):
+                print(
+                    f"Full-page OCR on {page.number=}/{page.number+1}.",
+                    file=INFO_MESSAGES,
+                )
                 pix = decision["pixmap"]  # retrieve the Pixmap
                 pdf_data = pix.pdfocr_tobytes()  # OCR it
                 ocr_pdf = pymupdf.open("pdf", pdf_data)  # get the OCR'd PDF
-                ocrpage = ocr_pdf[0]  # this is its OCR'd page
+                ocr_page = ocr_pdf[0]  # this is its OCR'd page
                 # remove everything except the text
-                ocrpage.add_redact_annot(ocrpage.rect)
-                ocrpage.apply_redactions(
+                ocr_page.add_redact_annot(ocr_page.rect)
+                ocr_page.apply_redactions(
                     images=pymupdf.PDF_REDACT_IMAGE_REMOVE,
                     graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
                     text=pymupdf.PDF_REDACT_TEXT_NONE,
@@ -835,49 +876,55 @@ def parse_document(
                 del ocr_pdf
                 textpage = page.get_textpage(flags=FLAGS)
                 blocks = textpage.extractDICT()["blocks"]
+                page_full_ocred = True
             else:
-                textpage = page.get_textpage(flags=FLAGS)
-                blocks = textpage.extractDICT()["blocks"]
+                print(
+                    f"Text-only OCR on {page.number=}/{page.number+1}.",
+                    file=INFO_MESSAGES,
+                )
                 blocks = check_ocr.repair_blocks(blocks, page)
-        else:
-            textpage = page.get_textpage(flags=FLAGS)
-            blocks = textpage.extractDICT()["blocks"]
+                page_text_ocred = True
 
-        bboxlog = page.get_bboxlog()
-        ocrpage = (
-            set([b[0] for b in bboxlog if b[0] == "ignore-text"]) == CHECK_OCR_TEXT
-        )
         page.get_layout()
-        utils.clean_pictures(page, blocks)
-        utils.add_image_orphans(page, blocks)
-        utils.clean_tables(page, blocks)
+        if not page_full_ocred:
+            utils.clean_pictures(page, blocks)
+            utils.add_image_orphans(page, blocks)
+            utils.clean_tables(page, blocks)
         page.layout_information = utils.find_reading_order(
             page.rect, blocks, page.layout_information
         )
 
         # identify vector graphics to help find tables
-        all_lines, all_boxes = utils.complete_table_structure(page)
+        if not page_full_ocred:
+            all_lines, all_boxes = utils.complete_table_structure(page)
+        else:
+            all_lines, all_boxes = [], []
+
         tbf = page.find_tables(
             strategy="lines_strict", add_lines=all_lines, add_boxes=all_boxes
         )
         fulltext = [b for b in blocks if b["type"] == 0]
-        words = [
-            {
-                "bbox": pymupdf.Rect(w[:4]),
-                "text": w[4],
-                "block_n": w[5],
-                "line_n": w[6],
-                "word_n": w[7],
-            }
-            for w in textpage.extractWORDS()
-        ]
+        if [b for b in page.layout_information if b[4] == "table"]:
+            # tables are present on page:
+            if not (page_full_ocred or page_text_ocred):
+                # we need the by-character extraction if no OCR
+                table_blocks = [
+                    b for b in textpage.extractRAWDICT()["blocks"] if b["type"] == 0
+                ]
+            else:
+                table_blocks = fulltext
+        else:
+            table_blocks = None
+
+        words = []  # not yet activated
         links = page.get_links()
         pagelayout = PageLayout(
             page_number=page.number + 1,
             width=page.rect.width,
             height=page.rect.height,
             boxes=[],
-            ocrpage=ocrpage,
+            full_ocred=page_full_ocred,
+            text_ocred=page_text_ocred,
             fulltext=fulltext,
             words=words,
             links=links,
@@ -887,9 +934,17 @@ def parse_document(
             clip = pymupdf.Rect(box[:4])
 
             if layoutbox.boxclass in ("picture", "formula"):
-                if output_images:
+                if document.embed_images or document.write_images:
                     pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
-                    layoutbox.image = pix.tobytes(document.image_format)
+                    if document.embed_images:
+                        layoutbox.image = pix.tobytes(document.image_format)
+                    elif document.write_images:
+                        img_filename = f"{document.filename}-{page.number+1:04d}-{len(pagelayout.boxes):02d}.{document.image_format}"
+                        img_filename = img_filename.replace(" ", "_")
+                        layoutbox.image = os.path.join(
+                            document.image_path, img_filename
+                        )
+                        pix.save(layoutbox.image)
                 else:
                     layoutbox.image = None
                 if layoutbox.boxclass == "picture" and document.force_text:
@@ -900,7 +955,7 @@ def parse_document(
                             textpage=None,
                             blocks=pagelayout.fulltext,
                             clip=clip,
-                            ignore_invisible=not ocrpage,
+                            ignore_invisible=not pagelayout.full_ocred,
                             only_horizontal=False,
                         )
                     ]
@@ -933,13 +988,15 @@ def parse_document(
                     }
 
                     layoutbox.table["extract"] = utils.table_extract(
-                        textpage,
+                        table_blocks,
                         layoutbox,
+                        ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
                     )
 
                     layoutbox.table["markdown"] = utils.table_to_markdown(
-                        textpage,
+                        table_blocks,
                         layoutbox,
+                        ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
                         markdown=True,
                     )
 
@@ -947,9 +1004,16 @@ def parse_document(
                     # print(f"table detection error '{e}' on page {page.number+1}")
                     layoutbox.boxclass = "fallback"
                     # table structure not detected: treat like an image
-                    if output_images:
+                    if document.embed_images or document.write_images:
                         pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
-                        layoutbox.image = pix.tobytes(document.image_format)
+                        if document.embed_images:
+                            layoutbox.image = pix.tobytes(document.image_format)
+                        elif document.write_images:
+                            img_filename = f"{document.filename}-{page.number+1:04d}-{len(pagelayout.boxes):02d}.{document.image_format}"
+                            layoutbox.image = os.path.join(
+                                document.image_path, img_filename
+                            )
+                            pix.save(layoutbox.image)
                     else:
                         layoutbox.image = None
                     layoutbox.textlines = [
@@ -958,7 +1022,7 @@ def parse_document(
                             textpage=None,
                             blocks=pagelayout.fulltext,
                             clip=clip,
-                            ignore_invisible=not ocrpage,
+                            ignore_invisible=not pagelayout.full_ocred,
                         )
                     ]
             else:
@@ -971,13 +1035,17 @@ def parse_document(
                         textpage=None,
                         blocks=pagelayout.fulltext,
                         clip=clip,
-                        ignore_invisible=not ocrpage,
+                        ignore_invisible=not pagelayout.full_ocred,
                     )
                 ]
             pagelayout.boxes.append(layoutbox)
         document.pages.append(pagelayout)
     if mydoc != doc:
         mydoc.close()
+    msg_text = INFO_MESSAGES.getvalue()
+    if msg_text:
+        print("=== Document parser messages ===")
+        print(msg_text)
     return document
 
 
@@ -990,5 +1058,5 @@ if __name__ == "__main__":
     pdoc = parse_document(filename)
     # Path(filename).with_suffix(".json").write_text(pdoc.to_json())
     # Path(filename).with_suffix(".txt").write_text(pdoc.to_text(footer=False))
-    md = pdoc.to_markdown(write_images=True, header=False, footer=False)
+    md = pdoc.to_markdown(write_images=False, header=False, footer=False)
     Path(filename).with_suffix(".md").write_text(md)

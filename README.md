@@ -30,7 +30,7 @@ The Python package on PyPI [pymupdf4llm](https://pypi.org/project/pymupdf4llm/) 
 $ pip install -U pymupdf4llm
 ```
 
-> This command will automatically install [PyMuPDF](https://github.com/pymupdf/PyMuPDF) if required.
+> This command will automatically install or upgrade [PyMuPDF](https://github.com/pymupdf/PyMuPDF) if required.
 
 Then in your script do
 

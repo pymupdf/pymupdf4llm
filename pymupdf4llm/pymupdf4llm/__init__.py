@@ -12,12 +12,18 @@ version = VERSION
 version_tuple = tuple(map(int, version.split(".")))
 
 if pymupdf._get_layout is None:
-    from .helpers.pymupdf_rag import IdentifyHeaders, TocHeaders, to_markdown
+    from .helpers.pymupdf_rag import (
+        IdentifyHeaders,
+        TocHeaders,
+        to_markdown,
+        to_json,
+        to_text,
+    )
 
     pymupdf._warn_layout_once()  # recommend pymupdf_layout
 
 else:
-    from .helpers import document_layout as DL
+    from .helpers import document_layout
 
     def parse_document(
         doc,
@@ -25,19 +31,23 @@ else:
         image_dpi=150,
         image_format="png",
         image_path="",
+        ocr_dpi=400,
         pages=None,
-        output_images=True,
+        write_images=False,
+        embed_images=False,
         show_progress=False,
         force_text=True,
     ):
-        return DL.parse_document(
+        return document_layout.parse_document(
             doc,
             filename=filename,
             image_dpi=image_dpi,
             image_format=image_format,
             image_path=image_path,
             pages=pages,
-            output_images=output_images,
+            ocr_dpi=ocr_dpi,
+            write_images=write_images,
+            embed_images=embed_images,
             show_progress=show_progress,
             force_text=force_text,
         )
@@ -48,32 +58,25 @@ else:
         header=True,
         footer=True,
         pages=None,
-        hdr_info=None,
         write_images=False,
         embed_images=False,
-        ignore_images=False,
-        ignore_graphics=False,
-        detect_bg_color=True,
         image_path="",
         image_format="png",
-        image_size_limit=0.05,
         filename="",
         force_text=True,
         page_chunks=False,
         page_separators=False,
-        margins=0,
         dpi=150,
+        ocr_dpi=400,
         page_width=612,
         page_height=None,
-        table_strategy="lines_strict",
-        graphics_limit=None,
-        fontsize_limit=3,
         ignore_code=False,
-        extract_words=False,
         show_progress=False,
-        use_glyphs=False,
-        ignore_alpha=False,
+        # unsupported options for pymupdf layout:
+        **kwargs,
     ):
+        if write_images and embed_images:
+            raise ValueError("Cannot both write_images and embed_images")
         parsed_doc = parse_document(
             doc,
             filename=filename,
@@ -81,7 +84,9 @@ else:
             image_format=image_format,
             image_path=image_path,
             pages=pages,
-            output_images=embed_images or write_images,
+            ocr_dpi=ocr_dpi,
+            write_images=write_images,
+            embed_images=embed_images,
             show_progress=show_progress,
             force_text=force_text,
         )
@@ -92,19 +97,23 @@ else:
             embed_images=embed_images,
             ignore_code=ignore_code,
             show_progress=show_progress,
+            page_separators=page_separators,
+            page_chunks=page_chunks,
         )
 
     def to_json(
         doc,
-        header=True,
-        footer=True,
         image_dpi=150,
         image_format="png",
         image_path="",
         pages=None,
-        output_images=False,
+        ocr_dpi=400,
+        write_images=False,
+        embed_images=False,
         show_progress=False,
         force_text=True,
+        # unsupported options for pymupdf layout:
+        **kwargs,
     ):
         parsed_doc = parse_document(
             doc,
@@ -112,7 +121,8 @@ else:
             image_format=image_format,
             image_path=image_path,
             pages=pages,
-            output_images=output_images,
+            embed_images=embed_images,
+            write_images=write_images,
             show_progress=show_progress,
             force_text=force_text,
         )
@@ -127,15 +137,16 @@ else:
         ignore_code=False,
         show_progress=False,
         force_text=True,
+        ocr_dpi=400,
+        # unsupported options for pymupdf layout:
+        **kwargs,
     ):
         parsed_doc = parse_document(
             doc,
             filename=filename,
-            image_dpi=150,
-            image_format="png",
-            image_path="",
             pages=pages,
-            output_images=False,
+            embed_images=False,
+            write_images=False,
             show_progress=show_progress,
             force_text=force_text,
         )
