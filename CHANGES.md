@@ -1,5 +1,22 @@
 # Change Log
 
+## Changes in version 0.2.3
+
+### Fixes:
+
+* [332](https://github.com/pymupdf/RAG/issues/332) - TypeError("to_markdown() got an unexpected keyword argument 'header'")
+
+### Other Changes:
+
+* Output (backend) methods now accept a new parameter `ocr_dpi=400` which sets the OCR resolution for full-page OCR.
+* The OCR detection heuristics is more fine-grained and now detects more OCR situations.
+* Resolved multiple performance issues, specifically cases with overwhelmingly many images and extremely large `StructTreeRoot` objects in PDF.
+* Reflected layout-specific API changes in the legacy code and will now raise `NotImplementedError` exceptions when layout-only features are used.
+* Information messages during document parsing are now written to stdout collectively at the end of the phase. This applies to announcing page OCR decisions specifically.
+* Support parameter `page_separators` as in the legacy mode.
+
+------
+
 ## Changes in version 0.2.1
 
 ### Fixes:
