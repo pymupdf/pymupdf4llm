@@ -847,7 +847,7 @@ def parse_document(
                 blocks=blocks,
             )
         else:
-            decision = {"should_ocr": False}
+            decision = {"should_ocr": False, 'has_ocr_text': False}
 
         if decision["has_ocr_text"]:  # prevent MD styling if already OCR'd
             page_full_ocred = True
