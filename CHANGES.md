@@ -1,5 +1,15 @@
 # Change Log
 
+## Changes in version 0.2.4
+
+### Fixes:
+
+* [335](https://github.com/pymupdf/RAG/issues/335) - KeyError "has_ocr_text"
+
+### Other Changes:
+
+
+------
 ## Changes in version 0.2.3
 
 ### Fixes:

@@ -46,6 +46,112 @@ BULLETS = set(
     + list(map(chr, range(0x25A0, 0x2600)))
 )
 
+FLAGS = (
+    0
+    | pymupdf.TEXT_COLLECT_STYLES
+    | pymupdf.TEXT_COLLECT_VECTORS
+    | pymupdf.TEXT_PRESERVE_IMAGES
+    | pymupdf.TEXT_ACCURATE_BBOXES
+    # | pymupdf.TEXT_MEDIABOX_CLIP
+)
+
+REPLACEMENT_CHARACTER = chr(0xFFFD)
+
+
+def is_white(text):
+    """Identify white text."""
+    return WHITE_CHARS.issuperset(text)
+
+
+def analyze_page(page, blocks=None) -> dict:
+    """Analyze the page for the OCR decision.
+
+    Args:
+        blocks: output of page.get_text("dict") if already available
+    Returns:
+        A dict with analysis results. The area-related float values are
+        computed as fractions of the total covered area.
+
+        "covered": pymupdf.Rect, page area covered by content
+        "img_joins": float, fraction of area of the joined images
+        "img_area": float, fraction of sum of image area sizes
+        "txt_joins": float, fraction of area of the joined text spans
+        "txt_area": float, fraction of sum of text span bbox area sizes
+        "vec_joins": float, fraction of area of the joined vector characters
+        "vec_area": float, fraction of sum of vector character area sizes
+        "chars_total": int, count of visible characters
+        "chars_bad": int, count of Replacement Unicode characters
+        "ocr_spans": int, count of text spans with 'GlyphLessFont'
+
+    """
+    chars_total = 0
+    chars_bad = 0
+    if blocks is None:
+        blocks = page.get_text(
+            "dict",
+            flags=FLAGS,
+            clip=pymupdf.INFINITE_RECT(),
+        )["blocks"]
+    img_rect = pymupdf.EMPTY_RECT()
+    txt_rect = +img_rect
+    vec_rect = +img_rect
+    img_area = 0
+    txt_area = 0
+    vec_area = 0
+    ocr_spans = 0
+    for b in blocks:
+        bbox = page.rect & b["bbox"]
+        area = bbox.width * bbox.height
+        if not area:
+            continue
+        if b["type"] == 1:  # Image block
+            img_rect |= bbox
+            img_area += area
+        elif b["type"] == 0:  # Text block
+            for l in b["lines"]:
+                for s in l["spans"]:
+                    if is_white(s["text"]):
+                        continue
+                    sr = page.rect & s["bbox"]
+                    if sr.is_empty or sr.is_infinite:
+                        continue
+                    if s["font"] == "GlyphLessFont":
+                        ocr_spans += 1
+                    elif s["alpha"] == 0:
+                        continue  # skip invisible text
+                    chars_total += len(s["text"].strip())
+                    chars_bad += len([c for c in s["text"] if c == chr(0xFFFD)])
+                    txt_rect |= sr
+                    txt_area += sr.width * sr.height
+        elif (
+            1
+            and b["type"] == 3  # vector block
+            and b["stroked"]  # has been stroked
+            and bbox.width <= 20  # width limit for typical characters
+            and bbox.height <= 20  # height limit for typical characters
+            and not b["isrect"]  # contains curves
+        ):
+            # potential character-like vector block
+            vec_rect |= bbox
+            vec_area += area
+
+    # the rectangle on page covered by some content
+    covered = img_rect | txt_rect | vec_rect
+    cover_area = abs(covered)
+    analysis = {
+        "covered": covered,
+        "img_joins": (abs(img_rect) / cover_area) if cover_area else 0,
+        "img_area": img_area / cover_area if cover_area else 0,
+        "txt_joins": (abs(txt_rect) / cover_area) if cover_area else 0,
+        "txt_area": txt_area / cover_area if cover_area else 0,
+        "vec_area": vec_area / cover_area if cover_area else 0,
+        "vec_joins": (abs(vec_rect) / cover_area) if cover_area else 0,
+        "chars_total": chars_total,
+        "chars_bad": chars_bad,
+        "ocr_spans": ocr_spans,
+    }
+    return analysis
+
 
 def table_cleaner(page, blocks, tbbox):
     """Clean the table bbox 'tbbox'.

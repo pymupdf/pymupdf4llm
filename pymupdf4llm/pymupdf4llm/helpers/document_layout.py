@@ -18,7 +18,11 @@ except ImportError:
     from pymupdf4llm.helpers.progress import ProgressBar
 try:
     import cv2
-    from pymupdf4llm.helpers import check_ocr
+
+    if hasattr(cv2, "Canny"):
+        from pymupdf4llm.helpers import check_ocr
+    else:
+        cv2 = None
 except ImportError:
     cv2 = None
 
@@ -777,6 +781,7 @@ def parse_document(
     embed_images=False,
     write_images=False,
     force_text=False,
+    use_ocr=True,
 ) -> ParsedDocument:
     if isinstance(doc, pymupdf.Document):
         mydoc = doc
@@ -803,14 +808,17 @@ def parse_document(
         raise ValueError("Cannot both embed and write images.")
     document.embed_images = embed_images
     document.write_images = write_images
-    try:
-        reason = "OpenCV not installed"
-        assert cv2 is not None
-        reason = "Tesseract language data not found"
-        assert pymupdf.get_tessdata()
-        document.use_ocr = True
-    except Exception as e:
-        print(f"{reason}. OCR disabled.", file=INFO_MESSAGES)
+    if use_ocr:
+        try:
+            reason = "OpenCV not installed"
+            assert cv2 is not None
+            reason = "Tesseract language data not found"
+            assert pymupdf.get_tessdata()
+            document.use_ocr = True
+        except Exception as e:
+            print(f"OCR disabled: {reason}.")
+            document.use_ocr = False
+    else:
         document.use_ocr = False
     if pages is None:
         page_filter = range(mydoc.page_count)
@@ -848,6 +856,8 @@ def parse_document(
             )
         else:
             decision = {"should_ocr": False}
+            page_analysis = utils.analyze_page(page, blocks)
+            decision["has_ocr_text"] = page_analysis["ocr_spans"] > 0
 
         if decision["has_ocr_text"]:  # prevent MD styling if already OCR'd
             page_full_ocred = True

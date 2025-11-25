@@ -37,6 +37,7 @@ else:
         embed_images=False,
         show_progress=False,
         force_text=True,
+        use_ocr=True,
     ):
         return document_layout.parse_document(
             doc,
@@ -50,6 +51,7 @@ else:
             embed_images=embed_images,
             show_progress=show_progress,
             force_text=force_text,
+            use_ocr=use_ocr,
         )
 
     def to_markdown(
@@ -72,6 +74,7 @@ else:
         page_height=None,
         ignore_code=False,
         show_progress=False,
+        use_ocr=True,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -89,6 +92,7 @@ else:
             embed_images=embed_images,
             show_progress=show_progress,
             force_text=force_text,
+            use_ocr=use_ocr,
         )
         return parsed_doc.to_markdown(
             header=header,
@@ -99,6 +103,7 @@ else:
             show_progress=show_progress,
             page_separators=page_separators,
             page_chunks=page_chunks,
+            use_ocr=use_ocr,
         )
 
     def to_json(
@@ -112,6 +117,7 @@ else:
         embed_images=False,
         show_progress=False,
         force_text=True,
+        use_ocr=True,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -125,6 +131,7 @@ else:
             write_images=write_images,
             show_progress=show_progress,
             force_text=force_text,
+            use_ocr=use_ocr,
         )
         return parsed_doc.to_json()
 
@@ -138,6 +145,7 @@ else:
         show_progress=False,
         force_text=True,
         ocr_dpi=400,
+        use_ocr=True,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -149,6 +157,7 @@ else:
             write_images=False,
             show_progress=show_progress,
             force_text=force_text,
+            use_ocr=use_ocr,
         )
         return parsed_doc.to_text(
             header=header,
