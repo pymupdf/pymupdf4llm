@@ -750,24 +750,27 @@ def complete_table_structure(page):
     return all_lines, all_boxes
 
 
-def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
-    """Extract text from a rect-like 'cell' as plain or MD styled text.
+def extract_cells(table_blocks, cell, markdown=False, ocrpage=False, page=None, document=None, cell_image_counter=None):
+    """Extract text and images from a rect-like 'cell' as plain or MD styled text.
 
     This function should ultimately be used to extract text from a table cell.
     Markdown output will only work correctly if extraction flag bit
     TEXT_COLLECT_STYLES is set.
 
     Args:
-        table_blocks: A list of PyMuPDF TextPage text blocks (type = 0). Must
+        table_blocks: A list of PyMuPDF TextPage text blocks (type = 0 or 1). Must
             have been created with TEXT_COLLECT_STYLE for correct markdown.
             Format is either "dict" or "rawdict" depending on ocrpage.
         cell: A tuple (x0, y0, x1, y1) defining the cell's bbox.
         markdown: If True, return text formatted for Markdown.
         ocrpage: If True, text is written with GlyphLessFont. In this case,
             table_blocks is in format "dict".
+        page: Optional Page object for image extraction from cells.
+        document: Optional ParsedDocument object for image write/embed settings.
+        cell_image_counter: Optional list with one element [counter] to track image numbers.
 
     Returns:
-        A string with the text extracted from the cell.
+        A string with the text and images extracted from the cell.
     """
 
     def outside_cell(bbox, cell):
@@ -779,10 +782,31 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
             or bbox[3] <= cell[1]
         )
 
+    def bbox_overlap(bbox, cell):
+        """Calculate overlap ratio between bbox and cell."""
+        cell_rect = pymupdf.Rect(cell)
+        bbox_rect = pymupdf.Rect(bbox)
+        intersection = cell_rect & bbox_rect
+        if intersection.is_empty:
+            return 0.0
+        return abs(intersection) / abs(bbox_rect)
+
     text = ""
+    images_in_cell = []
+    
     for block in table_blocks:
         if outside_cell(block["bbox"], cell):
             continue
+        
+        # Check if this is an image block (type == 1)
+        if block.get("type") == 1:
+            # Image block found within cell
+            overlap = bbox_overlap(block["bbox"], cell)
+            if overlap > 0.5:  # More than 50% of image is in this cell
+                images_in_cell.append(block)
+            continue
+        
+        # Process text blocks (type == 0)
         for line in block["lines"]:
             if outside_cell(line["bbox"], cell):
                 continue
@@ -848,10 +872,49 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
         .replace("$\n", "$ ")
         .replace(" $ \n", "$ ")
     )
+    
+    # Handle images found in this cell
+    if markdown and images_in_cell and page is not None and document is not None:
+        for img_block in images_in_cell:
+            img_bbox = pymupdf.Rect(img_block["bbox"])
+            
+            # Extract and save the image if write_images or embed_images is enabled
+            if document.write_images or document.embed_images:
+                try:
+                    pix = page.get_pixmap(clip=img_bbox, dpi=document.image_dpi)
+                    
+                    if text:
+                        text += "<br>"
+                    
+                    if document.write_images:
+                        # Generate unique filename for this cell image
+                        if cell_image_counter is None:
+                            cell_image_counter = [0]
+                        cell_image_counter[0] += 1
+                        img_filename = f"{document.filename}-{page.number+1:04d}-table-cell-{cell_image_counter[0]:03d}.{document.image_format}"
+                        img_filename = img_filename.replace(" ", "_")
+                        img_path = os.path.join(document.image_path, img_filename)
+                        pix.save(img_path)
+                        # Add markdown image reference
+                        text += f"![image]({img_path.replace(chr(92), '/')})"
+                    
+                    elif document.embed_images:
+                        # Embed as base64
+                        import base64
+                        img_data = base64.b64encode(pix.tobytes(document.image_format)).decode()
+                        data_uri = f"data:image/{document.image_format};base64,{img_data}"
+                        text += f"![image]({data_uri})"
+                
+                except Exception as e:
+                    # If image extraction fails, add a placeholder
+                    if text:
+                        text += "<br>"
+                    text += f"[Image extraction failed: {str(e)}]"
+    
     return text.strip()
 
 
-def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
+def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False, page=None, document=None):
     output = ""
     table = table_item.table
     row_count = table["row_count"]
@@ -859,6 +922,9 @@ def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
     cell_boxes = table["cells"]
     # make empty cell text list
     cells = [[None for i in range(col_count)] for j in range(row_count)]
+    
+    # Counter for images in table cells
+    cell_image_counter = [0]
 
     # fill None cells with extracted text
     # for rows, copy content from left to right
@@ -877,7 +943,8 @@ def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
         for j, cell in enumerate(row):
             if cell is not None:
                 cells[i][j] = extract_cells(
-                    table_blocks, cell_boxes[i][j], markdown=markdown, ocrpage=ocrpage
+                    table_blocks, cell_boxes[i][j], markdown=markdown, ocrpage=ocrpage,
+                    page=page, document=document, cell_image_counter=cell_image_counter
                 )
     for i, name in enumerate(cells[0]):
         if name is None:
@@ -908,13 +975,16 @@ def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
     return output + "\n"
 
 
-def table_extract(table_blocks, table_item, ocrpage=False):
+def table_extract(table_blocks, table_item, ocrpage=False, page=None, document=None):
     table = table_item.table
     row_count = table["row_count"]
     col_count = table["col_count"]
     cell_boxes = table["cells"]
     # make empty cell text list
     cells = [[None for i in range(col_count)] for j in range(row_count)]
+    
+    # Counter for images in table cells
+    cell_image_counter = [0]
 
     for i, row in enumerate(cell_boxes):
         for j, cell in enumerate(row):
@@ -924,6 +994,9 @@ def table_extract(table_blocks, table_item, ocrpage=False):
                     cell_boxes[i][j],
                     markdown=False,
                     ocrpage=ocrpage,
+                    page=page,
+                    document=document,
+                    cell_image_counter=cell_image_counter,
                 )
 
     return cells
