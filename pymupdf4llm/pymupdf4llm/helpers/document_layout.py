@@ -918,11 +918,13 @@ def parse_document(
             # tables are present on page:
             if not (page_full_ocred or page_text_ocred):
                 # we need the by-character extraction if no OCR
+                # Include both text blocks (type==0) and image blocks (type==1)
                 table_blocks = [
-                    b for b in textpage.extractRAWDICT()["blocks"] if b["type"] == 0
+                    b for b in textpage.extractRAWDICT()["blocks"] if b["type"] in (0, 1)
                 ]
             else:
-                table_blocks = fulltext
+                # Also include images from blocks for OCR case
+                table_blocks = fulltext + [b for b in blocks if b["type"] == 1]
         else:
             table_blocks = None
 
