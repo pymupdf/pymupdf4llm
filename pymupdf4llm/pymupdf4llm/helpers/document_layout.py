@@ -1001,6 +1001,8 @@ def parse_document(
                         table_blocks,
                         layoutbox,
                         ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
+                        page=page,
+                        document=document,
                     )
 
                     layoutbox.table["markdown"] = utils.table_to_markdown(
@@ -1008,6 +1010,8 @@ def parse_document(
                         layoutbox,
                         ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
                         markdown=True,
+                        page=page,
+                        document=document,
                     )
 
                 except Exception as e:
