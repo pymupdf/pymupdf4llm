@@ -1,78 +1,199 @@
-# PyMuPDF4LLM
+# PyMuPDF4LLM - Guia de Uso em Projetos
 
-PyMuPDF4LLM is a specialized extension of PyMuPDF designed specifically for extracting content from PDFs in a format that's optimized for Large Language Models (LLMs).
+Este é um fork do PyMuPDF4LLM com funcionalidades estendidas para extração de tabelas, incluindo representação ASCII de tabelas com células mescladas.
 
-## Key Features
+## Instalação
 
-1. Markdown Output
+### Opção 1: Instalação Local (Desenvolvimento)
 
-- Converts PDFs to clean, structured Markdown format
-- Preserves document hierarchy (headers, lists, tables)
-- Makes PDF content easily digestible for LLMs like Claude, GPT, etc.
-
-2. Intelligent Structure Detection
-
-- Automatically identifies headers, paragraphs, tables, and images
-- Maintains document layout and reading order
-- Preserves semantic structure
-
-3. Image Handling
-
-- Extracts images from PDFs
-- Can save images separately or encode them inline
-- Useful for multimodal LLMs that can process images
-
-## Installation
-
-The Python package on PyPI [pymupdf4llm](https://pypi.org/project/pymupdf4llm/) (there also is an alias [pdf4llm](https://pypi.org/project/pdf4llm/)) is capable of converting PDF pages into **_text strings in Markdown format_** (GitHub compatible). This includes **standard text** as well as **table-based text** in a consistent and integrated view - a feature particularly important in RAG settings.
+Se você está desenvolvendo ou usando este fork localmente:
 
 ```bash
-$ pip install -U pymupdf4llm
+# Clone o repositório
+git clone <url-do-repositorio>
+cd pymupdf4llm
+
+# Instale em modo desenvolvimento
+cd pymupdf4llm
+pip install -e .
 ```
 
-> This command will automatically install [PyMuPDF](https://github.com/pymupdf/PyMuPDF) if required.
+### Opção 2: Instalação como Pacote
 
-Then in your script do
+Se você quer usar este pacote em outro projeto:
+
+```bash
+# No diretório do projeto pymupdf4llm
+cd pymupdf4llm
+pip install -e .
+
+# Ou instale diretamente do diretório
+pip install /caminho/para/pymupdf4llm/pymupdf4llm
+```
+
+### Opção 3: Adicionar como Dependência em requirements.txt
+
+```txt
+# requirements.txt
+-e /caminho/para/pymupdf4llm/pymupdf4llm
+# ou
+pymupdf4llm @ file:///caminho/para/pymupdf4llm/pymupdf4llm
+```
+
+## Uso Básico
+
+### Importação
+
+```python
+import pymupdf4llm
+# ou
+import pymupdf4llm as llm
+```
+
+### Converter PDF para Markdown (Texto Simples)
 
 ```python
 import pymupdf4llm
 
-md_text = pymupdf4llm.to_markdown("input.pdf")
+# Converter todo o PDF para uma string Markdown
+md_text = pymupdf4llm.to_markdown("documento.pdf")
 
-# now work with the markdown text, e.g. store as a UTF8-encoded file
-import pathlib
-pathlib.Path("output.md").write_bytes(md_text.encode())
+# Salvar em arquivo
+with open("output.md", "w", encoding="utf-8") as f:
+    f.write(md_text)
 ```
 
-Instead of the filename string as above, one can also provide a PyMuPDF `Document`. By default, all pages in the PDF will be processed. If desired, the parameter `pages=[...]` can be used to provide a list of zero-based page numbers to consider.
+### Processar Páginas Específicas
 
-Markdown text creation now also processes **multi-column pages**.
+```python
+# Processar apenas as páginas 0, 2 e 5 (índices baseados em 0)
+md_text = pymupdf4llm.to_markdown("documento.pdf", pages=[0, 2, 5])
+```
 
-To create small **chunks of text** - as opposed to generating one large string for the whole document - the new (v0.0.2) option `page_chunks=True` can be used. The result of `.to_markdown("input.pdf", page_chunks=True)` will be a list of Python dictionaries, one for each page.
+## Extração de Tabelas com Estrutura Detalhada
 
-Also new in version 0.0.2 is the optional **extraction of images** and vector graphics: use of parameter `write_images=True`. The will store PNG images in the document's folder, and the Markdown text will appropriately refer to them. The images are named like `"input.pdf-page_number-index.png"`.
+### Uso Básico com `page_chunks=True`
 
-## Documentation and API
+Para obter informações detalhadas sobre tabelas, use `page_chunks=True`:
 
-[Documentation](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html)
+```python
+import pymupdf4llm
 
-[API](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/api.html#pymupdf4llm-api)
+# Processar PDF com informações estruturadas
+chunks = pymupdf4llm.to_markdown("documento.pdf", page_chunks=True)
 
-## Document Support
+# chunks é uma lista de dicionários, um para cada página
+for idx, chunk in enumerate(chunks):
+    print(f"Página {idx + 1}:")
+    print(f"  - {len(chunk.get('tables', []))} tabela(s)")
+    print(f"  - {len(chunk.get('images', []))} imagem(ns)")
+```
 
-While PDF is by far the most important document format worldwide, it is worthwhile mentioning that all examples and helper scripts work in the same way and **_without change_** for [all supported file types](https://pymupdf.readthedocs.io/en/latest/how-to-open-a-file.html#supported-file-types).
+### Estrutura de Retorno
 
-So for an XPS document or an eBook, simply provide the filename for instance as `"input.mobi"` and everything else will work as before.
+Cada chunk (página) contém:
 
+```python
+{
+    "metadata": {
+        "file_path": "caminho/do/arquivo.pdf",
+        "page_count": 10,
+        "page": 1,  # número da página (1-based)
+        # ... outros metadados do PDF
+    },
+    "toc_items": [...],  # Ítens do índice
+    "tables": [...],     # Lista de tabelas (ver abaixo)
+    "images": [...],     # Lista de imagens
+    "graphics": [...],   # Gráficos vetoriais
+    "text": "...",       # Texto em Markdown
+    "words": [...]       # Palavras individuais (se extract_words=True)
+}
+```
 
-## About PyMuPDF
-**PyMuPDF** adds **Python** bindings and abstractions to [MuPDF](https://mupdf.com/), a lightweight **PDF**, **XPS**, and **eBook** viewer, renderer, and toolkit. Both **PyMuPDF** and **MuPDF** are maintained and developed by [Artifex Software, Inc](https://artifex.com).
+## Estrutura das Tabelas
 
-PyMuPDF's homepage is located on [GitHub](https://github.com/pymupdf/PyMuPDF).
+### Acessando Tabelas
 
-## Community
-Join us on **Discord** here: [#pymupdf](https://discord.gg/TSpYGBW4eq).
+```python
+chunks = pymupdf4llm.to_markdown("documento.pdf", page_chunks=True)
 
-## License and Copyright
-**PyMuPDF** is available under [open-source AGPL](https://www.gnu.org/licenses/agpl-3.0.html) and commercial license agreements. If you determine you cannot meet the requirements of the **AGPL**, please contact [Artifex](https://artifex.com/contact/pymupdf-inquiry.php) for more information regarding a commercial license.
+for chunk in chunks:
+    tabelas = chunk.get("tables", [])
+    
+    for tabela in tabelas:
+        print(f"Bbox: {tabela['bbox']}")
+        print(f"Linhas: {tabela['rows']}")
+        print(f"Colunas: {tabela['columns']}")
+        print(f"Markdown: {tabela['markdown']}")
+        print(f"Matriz: {tabela['matriz']}")
+        print(f"Matriz ASCII: {tabela['matriz_ascii']}")  # NOVO!
+```
+
+### Estrutura Completa de uma Tabela
+
+```python
+{
+    "bbox": (x0, y0, x1, y1),  # Coordenadas da tabela
+    "rows": 5,                  # Número de linhas
+    "columns": 3,               # Número de colunas
+    "matriz": [                 # Matriz de células com metadados
+        [
+            {
+                "text": "Conteúdo da célula",
+                "row": 0,
+                "col": 0,
+                "rowspan": 1,
+                "colspan": 1,
+                "bbox": (x0, y0, x1, y1),
+                "is_merged": False,
+                "merged_from": None
+            },
+            # ... mais células
+        ],
+        # ... mais linhas
+    ],
+    "markdown": "| Coluna 1 | Coluna 2 |\n| --- | --- |\n| ...",
+    "matriz_ascii": "----------------------\nHeader |\n----------------------\nCell 1 | Cell 2 |\n..."
+}
+```
+
+### Campo `matriz_ascii` (NOVO)
+
+O campo `matriz_ascii` contém uma representação ASCII da tabela que preserva células mescladas:
+
+```python
+chunks = pymupdf4llm.to_markdown("documento.pdf", page_chunks=True)
+
+for chunk in chunks:
+    for tabela in chunk.get("tables", []):
+        print("Tabela em formato ASCII:")
+        print(tabela["matriz_ascii"])
+```
+
+**Exemplo de saída:**
+
+```
+----------------------
+Header |
+----------------------
+Cell 1 | Cell 2 |
+----------------------
+Cell 3 | Cell 4 |
+----------------------
+```
+
+## Estrutura de uma Célula
+
+Cada célula na matriz contém:
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `text` | `str` | Texto contido na célula |
+| `row` | `int` | Índice da linha (0-based) |
+| `col` | `int` | Índice da coluna (0-based) |
+| `rowspan` | `int` | Número de linhas que a célula ocupa |
+| `colspan` | `int` | Número de colunas que a célula ocupa |
+| `bbox` | `tuple` ou `None` | Coordenadas `(x0, y0, x1, y1)` |
+| `is_merged` | `bool` | Se é uma célula mesclada secundária |
+| `merged_from` | `tuple` ou `None` | Posição `(row, col)` da célula primária |
 

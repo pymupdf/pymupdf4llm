@@ -51,8 +51,8 @@ def extrair_primeira_tabela_llm(pdf_path: Path, strategy="lines_strict"):
             
             # Tenta extrair a matriz de diferentes formas
             dados = None
-            if "matrix" in tabela:
-                dados = tabela["matrix"]
+            if "matriz" in tabela:
+                dados = tabela["matriz"]
             elif "data" in tabela:
                 dados = tabela["data"]
             elif "markdown" in tabela:
@@ -162,7 +162,7 @@ def test_primeira_tabela_com_llm(pdf_teste):
         print(f"\nEstrutura completa da tabela:")
         print(f"   Chaves disponíveis: {list(estrutura_completa.keys())}")
         for key, value in estrutura_completa.items():
-            if key not in ["matrix", "data"]:  # Já vamos mostrar esses separadamente
+            if key not in ["matriz", "data"]:  # Já vamos mostrar esses separadamente
                 print(f"   {key}: {str(value)[:100]}...")
     
     # Verifica formato e mostra o que foi encontrado
@@ -171,7 +171,22 @@ def test_primeira_tabela_com_llm(pdf_teste):
     
     is_matriz = isinstance(tabela, list) and all(isinstance(linha, list) for linha in tabela) if isinstance(tabela, list) else False
     
-    if is_matriz:
+    # Verifica se é matriz de dicionários (nova estrutura)
+    is_matriz_dict = False
+    if is_matriz and len(tabela) > 0 and len(tabela[0]) > 0:
+        primeira_celula = tabela[0][0]
+        is_matriz_dict = isinstance(primeira_celula, dict) and "text" in primeira_celula
+    
+    if is_matriz_dict:
+        print("Formato: Matriz de dicionários (nova estrutura com metadados)")
+        for i, linha in enumerate(tabela):
+            print(f"   Linha {i}:")
+            for j, celula in enumerate(linha):
+                if isinstance(celula, dict):
+                    print(f"      [{i},{j}]: text='{celula.get('text', '')}', row={celula.get('row', '?')}, col={celula.get('col', '?')}, rowspan={celula.get('rowspan', 1)}, colspan={celula.get('colspan', 1)}")
+                else:
+                    print(f"      [{i},{j}]: {celula}")
+    elif is_matriz:
         print("Formato: Matriz (lista de listas)")
         for i, linha in enumerate(tabela):
             print(f"   Linha {i}: {linha}")
@@ -191,7 +206,7 @@ def test_primeira_tabela_com_llm(pdf_teste):
     print("-"*80)
     esperado = {
         (0, 0): "STAGE : ARP-3",
-        (0, 1): "STAGE : ARP-3",
+        (0, 1): "",
         (1, 0): "Input batch size",
         (1, 1): "Output batch size",
         (2, 0): "55 – 60 Kg of ARP2",
@@ -220,7 +235,12 @@ def test_primeira_tabela_com_llm(pdf_teste):
     
     for (i, j), valor_esperado in esperado.items():
         try:
-            valor_obtido = tabela[i][j]
+            celula = tabela[i][j]
+            # Extrai o texto dependendo da estrutura
+            if isinstance(celula, dict):
+                valor_obtido = celula.get("text", "")
+            else:
+                valor_obtido = celula
         except IndexError:
             erros.append(f"Posição ({i},{j}) não existe na tabela extraída.")
             print(f"   ({i},{j}): Posição não existe (tabela tem {len(tabela)} linhas)")
