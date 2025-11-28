@@ -34,9 +34,17 @@ def print_rf_features(pdf_path):
             bboxes.append([x1, y1, x2, y2])
             texts.append(txt)
 
-    stext_page = page.get_textpage()
+    stext_flags = (
+            0
+            | pymupdf.TEXT_PRESERVE_WHITESPACE
+            | pymupdf.TEXT_PRESERVE_LIGATURES
+            | pymupdf.TEXT_INHIBIT_SPACES
+            | pymupdf.TEXT_ACCURATE_BBOXES
+            | pymupdf.TEXT_COLLECT_VECTORS
+    )
+    stext_page = page.get_textpage(flags=stext_flags)
     for bbox_idx, bbox in enumerate(bboxes):
-        print(f'[{bbox_idx+1}] {texts[bbox_idx]} {str(bbox)}')
+        print(f'[{bbox_idx+1}] {texts[bbox_idx]} {str(bbox)}'.encode('utf-8'))
         region = pymupdf.mupdf.FzRect(bbox[0], bbox[1], bbox[2], bbox[3])
         features = pymupdf.features.fz_features_for_region(stext_page, region, 0)
         fet_no = 1
