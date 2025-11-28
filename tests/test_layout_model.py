@@ -5,20 +5,47 @@ import numpy as np
 import argparse
 import pymupdf.features
 
-def print_rf_features():
-    rect = pymupdf.mupdf.FzRect(pymupdf.mupdf.FzRect.Fixed_INFINITE)
-    stext_page = pymupdf.mupdf.FzStextPage(rect)    # mediabox
-    region = pymupdf.mupdf.FzRect(0, 0, 100, 100)
-    features = pymupdf.features.fz_features_for_region(stext_page, region, 0)
+def print_rf_features(pdf_path):
+    default_flags = (
+            0
+            | pymupdf.TEXT_PRESERVE_WHITESPACE
+            | pymupdf.TEXT_PRESERVE_LIGATURES
+            | pymupdf.TEXT_INHIBIT_SPACES
+            | pymupdf.TEXT_ACCURATE_BBOXES
+    )
 
-    fet_no = 1
-    print(f'{features=}:')
-    for name in dir(features):
-        if not name.startswith('_') and name != 'thisown':
-            # print(f'    {name}: {getattr(features, name)!r}')
-            # print(f"'{name}',", end='')
-            print(f'{fet_no} : {name}')
-            fet_no += 1
+    doc = pymupdf.open(pdf_path)
+    page = doc[0]
+    blocks = page.get_text("dict", flags=default_flags)["blocks"]
+    bboxes = []
+    texts = []
+    for block in blocks:
+        for line in block["lines"]:
+            x1 = line['bbox'][0]
+            y1 = line['bbox'][1]
+            x2 = line['bbox'][2]
+            y2 = line['bbox'][3]
+
+            txt = []
+            for span in line['spans']:
+                txt.append(span['text'])
+
+            txt = ' '.join(txt).strip()
+            bboxes.append([x1, y1, x2, y2])
+            texts.append(txt)
+
+    stext_page = page.get_textpage()
+    for bbox_idx, bbox in enumerate(bboxes):
+        print(f'[{bbox_idx+1}] {texts[bbox_idx]} {str(bbox)}')
+        region = pymupdf.mupdf.FzRect(bbox[0], bbox[1], bbox[2], bbox[3])
+        features = pymupdf.features.fz_features_for_region(stext_page, region, 0)
+        fet_no = 1
+        for name in dir(features):
+            if not name.startswith('_') and name != 'thisown':
+                # print(f'    {name}: {getattr(features, name)!r}')
+                # print(f"'{name}',", end='')
+                print(f'\t[{fet_no}] {name} : {getattr(features, name)}')
+                fet_no += 1
 
 
 def test_layout_model(pdf_path):
@@ -59,9 +86,11 @@ def test_layout_model(pdf_path):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["show"])
-    parser.add_argument("file", help="Path to pdf file")
+    parser.add_argument("--mode", choices=["show", "print_rf"])
+    parser.add_argument("--file", help="Path to pdf file")
     args = parser.parse_args()
 
     if args.mode == 'show':
         test_layout_model(args.file)
+    elif args.mode == 'print_rf':
+        print_rf_features(args.file)
