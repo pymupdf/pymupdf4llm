@@ -496,6 +496,9 @@ typedef struct
 	 * line as the line we are looking at now). */
 	float prev_line_gap;
 	int first_char;
+	int have_baseline;
+	float baseline;
+	float baseline_fontsize;
 } gather_state;
 
 static void
@@ -526,6 +529,42 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 			float baseline = line->first_char->origin.y;
 			int newline = 1;
 			fz_rect clipped_line = fz_intersect_rect(region, line->bbox);
+
+			if (fz_contains_rect(region, line->bbox))
+			{
+				if (!(line->dir.y == 0 && line->dir.x != 0))
+				{
+					/* Not a horizontal line. Don't mess with baselines. */
+				}
+				else if (!state->have_baseline)
+				{
+					/* This is the first time we've found a line completely contained within
+					 * the region. So remember the baseline. */
+					state->have_baseline = 1;
+					state->baseline = baseline;
+					state->baseline_fontsize = line->first_char->size;
+				}
+				else if (state->baseline_fontsize > line->first_char->size)
+				{
+					/* Ignore this line because the font size is smaller than the
+					 * one we found before. This avoids us tripping on sub or
+					 * super-scripts. */
+				}
+				else if (state->baseline_fontsize < line->first_char->size)
+				{
+					/* Take a larger fontsize in preference. */
+					state->baseline = baseline;
+					state->baseline_fontsize = line->first_char->size;
+				}
+				else if (state->baseline > baseline)
+				{
+					/* Take a higher baseline in preference. So we take the baseline of
+					 * the first line of a paragraph in the region rather than a later
+					 * one. */
+					state->baseline = baseline;
+					state->baseline_fontsize = line->first_char->size;
+				}
+			}
 
 			/* In the first pass, we find the distance to the first line that
 			 * is not aligned in at least some way in each direction. */
@@ -940,6 +979,8 @@ gather_region_stats2_aux(fz_context *ctx, fz_stext_block *block, fz_rect region,
 					features->stats.consecutive_bottom_alignment_count_left++;
 				if (feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
 					features->stats.consecutive_middle_alignment_count_left++;
+				if (state->have_baseline && feq(line->first_char->origin.y, state->baseline))
+					features->stats.consecutive_baseline_alignment_count_left++;
 			}
 			d = line->bbox.x0 - region.x1;
 			if (d > 0 && d < features->nearest_nonaligned_right)
@@ -950,6 +991,8 @@ gather_region_stats2_aux(fz_context *ctx, fz_stext_block *block, fz_rect region,
 					features->stats.consecutive_bottom_alignment_count_right++;
 				if (feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
 					features->stats.consecutive_middle_alignment_count_right++;
+				if (state->have_baseline && feq(line->first_char->origin.y, state->baseline))
+					features->stats.consecutive_baseline_alignment_count_right++;
 			}
 		}
 	}
@@ -976,9 +1019,11 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_f
 	features->stats.alignment_down_with_right = (features->stats.consecutive_right_alignment_count_down >= 1);
 	features->stats.alignment_left_with_top = (features->stats.consecutive_top_alignment_count_left >= 1);
 	features->stats.alignment_left_with_middle = (features->stats.consecutive_middle_alignment_count_left >= 1);
+	features->stats.alignment_left_with_baseline = (features->stats.consecutive_baseline_alignment_count_left >= 1);
 	features->stats.alignment_left_with_bottom = (features->stats.consecutive_bottom_alignment_count_left >= 1);
 	features->stats.alignment_right_with_top = (features->stats.consecutive_top_alignment_count_right >= 1);
 	features->stats.alignment_right_with_middle = (features->stats.consecutive_middle_alignment_count_right >= 1);
+	features->stats.alignment_right_with_baseline = (features->stats.consecutive_baseline_alignment_count_right >= 1);
 	features->stats.alignment_right_with_bottom = (features->stats.consecutive_bottom_alignment_count_right >= 1);
 }
 

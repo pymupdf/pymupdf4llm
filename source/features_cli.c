@@ -139,9 +139,11 @@ int main
 	printf(",consecutive_left_alignment_count_down");
 	printf(",consecutive_top_alignment_count_left");
 	printf(",consecutive_middle_alignment_count_left");
+	printf(",consecutive_baseline_alignment_count_left");
 	printf(",consecutive_bottom_alignment_count_left");
 	printf(",consecutive_top_alignment_count_right");
 	printf(",consecutive_middle_alignment_count_right");
+	printf(",consecutive_baseline_alignment_count_right");
 	printf(",consecutive_bottom_alignment_count_right");
 	printf(",alignment_up_with_left");
 	printf(",alignment_up_with_centre");
@@ -151,9 +153,11 @@ int main
 	printf(",alignment_down_with_right");
 	printf(",alignment_left_with_top");
 	printf(",alignment_left_with_middle");
+	printf(",alignment_left_with_baseline");
 	printf(",alignment_left_with_bottom");
 	printf(",alignment_right_with_top");
 	printf(",alignment_right_with_middle");
+	printf(",alignment_right_with_baseline");
 	printf(",alignment_right_with_bottom");
 	printf(",ray_line_distance_up");
 	printf(",ray_line_distance_down");
@@ -232,7 +236,7 @@ int main
 				stats = fz_features_for_region(ctx, features, region, atoi(line[6]));
 
 				/* Output the result */
-				printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%g,%g,%g,%g\n",
+				printf("%d,%d,%g,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g,%g,%g,%d,%d,%d,%g,%g,%d,%g,%g,%g,%g,%g,%g,%d,%d,%g,%d,%g,%g,%g,%d,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%g,%g,%g,%g\n",
 					stats->num_non_numerals,
 					stats->num_numerals,
 					stats->ratio,
@@ -276,9 +280,11 @@ int main
 					stats->consecutive_left_alignment_count_down,
 					stats->consecutive_top_alignment_count_left,
 					stats->consecutive_middle_alignment_count_left,
+					stats->consecutive_baseline_alignment_count_left,
 					stats->consecutive_bottom_alignment_count_left,
 					stats->consecutive_top_alignment_count_right,
 					stats->consecutive_middle_alignment_count_right,
+					stats->consecutive_baseline_alignment_count_right,
 					stats->consecutive_bottom_alignment_count_right,
 					stats->alignment_up_with_left,
 					stats->alignment_up_with_centre,
@@ -288,15 +294,17 @@ int main
 					stats->alignment_down_with_right,
 					stats->alignment_left_with_top,
 					stats->alignment_left_with_middle,
+					stats->alignment_left_with_baseline,
 					stats->alignment_left_with_bottom,
 					stats->alignment_right_with_top,
 					stats->alignment_right_with_middle,
+					stats->alignment_right_with_baseline,
 					stats->alignment_right_with_bottom,
 					stats->ray_line_distance_up,
 					stats->ray_line_distance_down,
 					stats->ray_line_distance_left,
 					stats->ray_line_distance_right
-);
+				);
 
 #if 0
 				fprintf(stderr, "1 0 0 setrgbcolor\n");

@@ -66,9 +66,11 @@ typedef struct
 	int consecutive_right_alignment_count_down;
 	int consecutive_top_alignment_count_left;
 	int consecutive_middle_alignment_count_left;
+	int consecutive_baseline_alignment_count_left;
 	int consecutive_bottom_alignment_count_left;
 	int consecutive_top_alignment_count_right;
 	int consecutive_middle_alignment_count_right;
+	int consecutive_baseline_alignment_count_right;
 	int consecutive_bottom_alignment_count_right;
 	/* Boolean versions of the above */
 	int alignment_up_with_left;
@@ -79,9 +81,11 @@ typedef struct
 	int alignment_down_with_right;
 	int alignment_left_with_top;
 	int alignment_left_with_middle;
+	int alignment_left_with_baseline;
 	int alignment_left_with_bottom;
 	int alignment_right_with_top;
 	int alignment_right_with_middle;
+	int alignment_right_with_baseline;
 	int alignment_right_with_bottom;
 	/* Distance to closest plausible bordering line. */
 	float ray_line_distance_up;
