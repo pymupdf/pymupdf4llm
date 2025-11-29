@@ -2,13 +2,14 @@ import pytest
 from pathlib import Path
 import sys
 import os
+import json
 from dotenv import load_dotenv
 
 # Carrega variáveis de ambiente do arquivo .env
 load_dotenv()
 
 # adiciona o caminho até o segundo nível do pacote
-sys.path.insert(0, "/home/blp/Área de trabalho/Projeto Lucredi/pymupdf4llm/pymupdf4llm")
+sys.path.insert(0, "/home/blp/Área de trabalho/NeuralTec/pymupdf4llm/pymupdf4llm")
 
 import pymupdf4llm as llm
 import fitz  # PyMuPDF
@@ -180,10 +181,29 @@ def test_primeira_tabela_com_llm(pdf_teste):
     if is_matriz_dict:
         print("Formato: Matriz de dicionários (nova estrutura com metadados)")
         for i, linha in enumerate(tabela):
-            print(f"   Linha {i}:")
+            print(f"\nRow {i}:")
             for j, celula in enumerate(linha):
                 if isinstance(celula, dict):
-                    print(f"      [{i},{j}]: text='{celula.get('text', '')}', row={celula.get('row', '?')}, col={celula.get('col', '?')}, rowspan={celula.get('rowspan', 1)}, colspan={celula.get('colspan', 1)}")
+                    print(f"  Cell [{i}][{j}]:")
+                    # Formata o dicionário de forma legível
+                    celula_formatada = {
+                        "text": celula.get("text", ""),
+                        "row": celula.get("row", "?"),
+                        "col": celula.get("col", "?"),
+                        "rowspan": celula.get("rowspan", 1),
+                        "colspan": celula.get("colspan", 1),
+                    }
+                    if "bbox" in celula:
+                        celula_formatada["bbox"] = celula.get("bbox")
+                    if "is_merged" in celula:
+                        celula_formatada["is_merged"] = celula.get("is_merged", False)
+                    if "merged_from" in celula:
+                        celula_formatada["merged_from"] = celula.get("merged_from")
+                    if "primary_row" in celula:
+                        celula_formatada["primary_row"] = celula.get("primary_row")
+                    if "primary_col" in celula:
+                        celula_formatada["primary_col"] = celula.get("primary_col")
+                    print(json.dumps(celula_formatada, indent=2, ensure_ascii=False))
                 else:
                     print(f"      [{i},{j}]: {celula}")
     elif is_matriz:
@@ -233,29 +253,54 @@ def test_primeira_tabela_com_llm(pdf_teste):
     print("-"*80)
     erros = []
     
+    def extrair_texto_celula(celula, i, j, tabela):
+        """
+        Extrai o texto de uma célula, lidando com células mescladas.
+        Se a célula for mesclada, retorna string vazia, pois o conteúdo
+        está na célula primária.
+        """
+        if isinstance(celula, dict):
+            # Verifica se é célula mesclada
+            is_merged = celula.get("is_merged", False)
+            if is_merged:
+                # Células mescladas não têm conteúdo próprio, retornam string vazia
+                return ""
+            
+            # Retorna o texto da célula atual (não mesclada)
+            return celula.get("text", "")
+        else:
+            return str(celula)
+    
     for (i, j), valor_esperado in esperado.items():
         try:
             celula = tabela[i][j]
-            # Extrai o texto dependendo da estrutura
-            if isinstance(celula, dict):
-                valor_obtido = celula.get("text", "")
-            else:
-                valor_obtido = celula
+            valor_obtido = extrair_texto_celula(celula, i, j, tabela)
         except IndexError:
             erros.append(f"Posição ({i},{j}) não existe na tabela extraída.")
             print(f"   ({i},{j}): Posição não existe (tabela tem {len(tabela)} linhas)")
             continue
 
         # Comparação case-insensitive e parcial
-        if valor_esperado.lower() not in str(valor_obtido).lower():
+        # Se o valor esperado for vazio, aceita qualquer string vazia ou None
+        if valor_esperado == "":
+            if valor_obtido == "" or valor_obtido is None:
+                print(f"   ({i},{j}): '{valor_obtido}' ✓ (esperado vazio)")
+            else:
+                erros.append(
+                    f"Valor incorreto em ({i},{j}):\n"
+                    f"   Esperado: '' (vazio)\n"
+                    f"   Obtido:   '{valor_obtido}'"
+                )
+                print(f"   ({i},{j}): Esperado '' (vazio), Obtido '{valor_obtido}' ✗")
+        elif valor_esperado.lower() not in str(valor_obtido).lower():
             erros.append(
                 f"Valor incorreto em ({i},{j}):\n"
                 f"   Esperado: '{valor_esperado}'\n"
                 f"   Obtido:   '{valor_obtido}'"
             )
-            print(f"   ({i},{j}): Esperado '{valor_esperado}', Obtido '{valor_obtido}'")
+            print(f"   ({i},{j}): Esperado '{valor_esperado}', Obtido '{valor_obtido}' ✗")
         else:
-            print(f"   ({i},{j}): '{valor_obtido}'")
+            print(f"   ({i},{j}): '{valor_obtido}' ✓")
 
     # Mostra resumo final
     print("\n" + "="*80)

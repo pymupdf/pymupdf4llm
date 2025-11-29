@@ -300,17 +300,19 @@ def matriz_to_ascii(matrix):
                 parts.append(segment)
             col += colspan
 
-        return " ".join(parts).rstrip()
+        # Adiciona "|" no início da linha
+        return "| " + " ".join(parts).rstrip()
 
     # Separator line length based on an example content line
     sample_content = build_content_line(0)
     separator = "-" * len(sample_content)
 
     output_lines = []
-    for row_index in range(len(row_texts)):
-        output_lines.append(separator)
-        output_lines.append(build_content_line(row_index))
+    # Adiciona separador no início da tabela
     output_lines.append(separator)
+    for row_index in range(len(row_texts)):
+        output_lines.append(build_content_line(row_index))
+        output_lines.append(separator)
 
     return "\n".join(output_lines)
 
