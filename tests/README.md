@@ -24,15 +24,23 @@ pip install pytest python-dotenv pymupdf
 
 ## Estrutura de Diretórios
 
-A estrutura recomendada é:
+A estrutura atual é:
 
 ```
 pymupdf4llm/
 ├── tests/
 │   ├── pymupdf4llm/
-│   │   ├── test_tabela1_matrizpt1.py
-│   │   ├── test_tabela1_matrizpt2.py
-│   │   └── ...
+│   │   ├── tables/
+│   │   │   ├── test_tabela1_matrizpt1.py
+│   │   │   ├── test_tabela1_matrizpt2.py
+│   │   │   ├── test_tabela5_matrizpt1.py
+│   │   │   ├── test_tabela5_matrizpt2.py
+│   │   │   ├── test_tabela12_matrizpt1.py
+│   │   │   ├── test_tabela12_matrizpt2.py
+│   │   │   ├── test_tabela14_matrizpt1.py
+│   │   │   └── test_tabela14_matrizpt2.py
+│   │   └── llama_index/
+│   │       └── test_pdf_markdown_reader.py
 │   └── README.md (este arquivo)
 ├── pymupdf4llm/
 │   └── pymupdf4llm/
@@ -105,65 +113,54 @@ PDF_PATH=/home/blp/Área de trabalho/NeuralTec/pymupdf4llm/tests/pdfs/Jubilant.p
 
 ## Executando os Testes
 
-### Executar Todos os Testes
+### Executar Todos os Testes de Tabelas
 
 Na raiz do projeto `pymupdf4llm/`, execute:
+
+```bash
+pytest tests/pymupdf4llm/tables/
+```
+
+Ou, se você estiver dentro da pasta `tests/`:
+
+```bash
+pytest pymupdf4llm/tables/
+```a
+
+### Executar Todos os Testes (incluindo outros testes)
+
+Para executar todos os testes do projeto:
 
 ```bash
 pytest tests/
 ```
 
+### Executar com Saída Detalhada
 
-## Descrição dos Testes
+Para ver mais informações durante a execução:
 
-### `test_tabela1_matrizpt1.py`
-
-Este arquivo contém o teste `test_primeira_tabela_com_llm` que:
-
-1. **Extrai a primeira tabela** do PDF usando PyMuPDF4LLM
-2. **Tenta diferentes estratégias** de detecção de tabelas:
-   - `lines_strict`: Detecção estrita por linhas
-   - `lines`: Detecção por linhas (menos estrita)
-   - `text`: Detecção por texto
-3. **Verifica se a tabela é uma matriz** (lista de listas)
-4. **Compara valores específicos** nas posições esperadas:
-   - `(0, 0)`: "STAGE : ARP-3"
-   - `(0, 1)`: "" (vazio)
-   - `(1, 0)`: "Input batch size"
-   - `(1, 1)`: "Output batch size"
-   - `(2, 0)`: "55 – 60 Kg of ARP2"
-   - `(2, 1)`: "43.18 to 57.6"
-5. **Mostra informações detalhadas** sobre a estrutura encontrada
-
-### `test_tabela1_matrizpt2.py`
-
-Este arquivo contém dois testes:
-
-#### `test_primeira_tabela_com_llm`
-
-Similar ao teste do arquivo `pt1`, mas com melhor tratamento de células mescladas.
-
-#### `test_matriz_ascii_comparacao_imagem`
-
-Este teste:
-
-1. **Extrai a primeira tabela** do PDF
-2. **Converte para formato ASCII** (representação visual com caracteres)
-3. **Compara exatamente** com o formato esperado:
-
-```
-------------------------------------------
-| STAGE : ARP-3                          |
-------------------------------------------
-| Input batch size   | Output batch size |
-------------------------------------------
-| 55 – 60 Kg of ARP2 | 43.18 to 57.6     |
-------------------------------------------
+```bash
+pytest tests/pymupdf4llm/tables/ -v
 ```
 
-4. **Falha se houver diferenças** mínimas na formatação
+### Executar com Prints Visíveis
 
-## 🔍 Solução de Problemas
+Para ver as mensagens de print dos testes (útil para debug):
+
+```bash
+pytest tests/pymupdf4llm/tables/ -v -s
+```
+
+### Executar um Teste Específico
+
+Para executar apenas um arquivo de teste:
+
+```bash
+pytest tests/pymupdf4llm/tables/test_tabela1_matrizpt1.py -v
+```
+
+
+##  Solução de Problemas
 
 ### Erro: "Variável de ambiente PDF_PATH não encontrada"
 
