@@ -21,9 +21,13 @@ WHITE_CHARS = set(
     ]
 )
 
-BULLETS = set(
-    [
+REPLACEMENT_CHARACTER = chr(0xFFFD)
+
+BULLETS = tuple(
+    {
+        chr(0x2A),
         chr(0x2D),
+        chr(0x3E),
         chr(0x6F),
         chr(0xB6),
         chr(0xB7),
@@ -41,9 +45,9 @@ BULLETS = set(
         chr(0x2219),
         chr(0xF0A7),
         chr(0xF0B7),
-        chr(0xFFFD),
-    ]
-    + list(map(chr, range(0x25A0, 0x2600)))
+        REPLACEMENT_CHARACTER,
+    }
+    | set(map(chr, range(0x25A0, 0x2600)))
 )
 
 FLAGS = (
@@ -52,10 +56,20 @@ FLAGS = (
     | pymupdf.TEXT_COLLECT_VECTORS
     | pymupdf.TEXT_PRESERVE_IMAGES
     | pymupdf.TEXT_ACCURATE_BBOXES
-    # | pymupdf.TEXT_MEDIABOX_CLIP
+    | pymupdf.TEXT_MEDIABOX_CLIP
 )
 
-REPLACEMENT_CHARACTER = chr(0xFFFD)
+
+def startswith_bullet(text):
+    if not text:
+        return False
+    if not text.startswith(BULLETS):
+        return False
+    if len(text) == 1:
+        return True
+    if text[1] == " ":
+        return True
+    return False
 
 
 def is_white(text):
@@ -81,7 +95,7 @@ def analyze_page(page, blocks=None) -> dict:
         "vec_area": float, fraction of sum of vector character area sizes
         "chars_total": int, count of visible characters
         "chars_bad": int, count of Replacement Unicode characters
-        "ocr_spans": int, count of text spans with 'GlyphLessFont'
+        "ocr_spans": int, count: text spans with ignored text (render mode 3)
 
     """
     chars_total = 0
@@ -100,9 +114,12 @@ def analyze_page(page, blocks=None) -> dict:
     vec_area = 0
     ocr_spans = 0
     for b in blocks:
+        # Intersect each block bbox with the page rectangle.
+        # Note that this has no effect on text because of the clipping flags,
+        # which causes that we will not see ANY clipped text.
         bbox = page.rect & b["bbox"]
         area = bbox.width * bbox.height
-        if not area:
+        if not area:  # skip any empty block
             continue
         if b["type"] == 1:  # Image block
             img_rect |= bbox
@@ -115,12 +132,18 @@ def analyze_page(page, blocks=None) -> dict:
                     sr = page.rect & s["bbox"]
                     if sr.is_empty or sr.is_infinite:
                         continue
-                    if s["font"] == "GlyphLessFont":
+                    if (
+                        0
+                        or s["font"] == "GlyphLessFont"
+                        or (s["char_flags"] & 8 == 0 and s["char_flags"] & 16 == 0)
+                    ):
                         ocr_spans += 1
                     elif s["alpha"] == 0:
                         continue  # skip invisible text
                     chars_total += len(s["text"].strip())
-                    chars_bad += len([c for c in s["text"] if c == chr(0xFFFD)])
+                    chars_bad += len(
+                        [c for c in s["text"] if c == REPLACEMENT_CHARACTER]
+                    )
                     txt_rect |= sr
                     txt_area += sr.width * sr.height
         elif (
@@ -841,7 +864,7 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     if not span_text.strip():
                         text += " "
                     else:
-                        text += prefix + span_text + suffix
+                        text += prefix + span_text.rstrip() + suffix
     text = (
         text.replace("$<br>", "$ ")
         .replace(" $ <br>", "$ ")

@@ -45,7 +45,7 @@ import pymupdf
 from pymupdf import mupdf
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines, is_white
 from pymupdf4llm.helpers.multi_column import column_boxes
-from pymupdf4llm.helpers.utils import BULLETS
+from pymupdf4llm.helpers.utils import BULLETS, REPLACEMENT_CHARACTER, startswith_bullet
 
 try:
     from tqdm import tqdm as ProgressBar
@@ -53,9 +53,6 @@ except ImportError:
     from pymupdf4llm.helpers.progress import ProgressBar
 
 pymupdf.TOOLS.unset_quad_corrections(True)
-
-# Characters assumed as bullets when starting a line.
-bullet = tuple(BULLETS | {"- ", "* ", "> "})
 
 GRAPHICS_TEXT = "\n![](%s)\n"
 
@@ -301,11 +298,15 @@ def is_significant(box, paths):
 
 
 def to_json(*args, **kwargs):
-    raise NotImplementedError("Function 'to_json' is only available in layout mode")
+    raise NotImplementedError(
+        "Function 'to_json' is only available in PyMuPDF-Layout mode"
+    )
 
 
 def to_text(*args, **kwargs):
-    raise NotImplementedError("Function 'to_text' is only available in layout mode")
+    raise NotImplementedError(
+        "Function 'to_text' is only available in PyMuPDF-Layout mode"
+    )
 
 
 def to_markdown(
@@ -313,8 +314,6 @@ def to_markdown(
     *,
     pages=None,
     hdr_info=None,
-    header=None,
-    footer=None,
     write_images=False,
     embed_images=False,
     ignore_images=False,
@@ -339,6 +338,7 @@ def to_markdown(
     show_progress=False,
     use_glyphs=False,
     ignore_alpha=False,
+    **kwargs,
 ) -> str:
     """Process the document and return the text of the selected pages.
 
@@ -366,12 +366,11 @@ def to_markdown(
         ignore_alpha: (bool, True) ignore text with alpha = 0 (transparent).
 
     """
+    if kwargs.keys():
+        print(f"Warning - arguments ignored in legacy mode: {set(kwargs.keys())}.")
+
     if write_images is False and embed_images is False and force_text is False:
-        raise ValueError("Image and text on images cannot both be suppressed.")
-    if header is not None:
-        raise NotImplementedError("Page header handling only works in layout mode")
-    if footer is not None:
-        raise NotImplementedError("Page footer handling only works in layout mode")
+        raise ValueError("Images and text on images cannot both be suppressed.")
     if embed_images is True:
         write_images = False
         image_path = ""
@@ -682,7 +681,7 @@ def to_markdown(
                 prev_lrect
                 and lrect.y1 - prev_lrect.y1 > lrect.height * 1.5
                 or span0["text"].startswith("[")
-                or span0["text"].startswith(bullet)
+                or startswith_bullet(span0["text"])
                 or span0["flags"] & 1  # superscript?
             ):
                 out_string += "\n"
@@ -721,7 +720,7 @@ def to_markdown(
                     text = f"{hdr_string}{prefix}{ltext}{suffix} "
                 else:
                     text = f"{hdr_string}{prefix}{s['text'].strip()}{suffix} "
-                if text.startswith(bullet):
+                if startswith_bullet(text):
                     text = "- " + text[1:]
                     text = text.replace("  ", " ")
                     dist = span0["bbox"][0] - clip.x0
@@ -1169,7 +1168,7 @@ def to_markdown(
 
         while parms.md_string.startswith("\n"):
             parms.md_string = parms.md_string[1:]
-        parms.md_string = parms.md_string.replace(chr(0), chr(0xFFFD))
+        parms.md_string = parms.md_string.replace(chr(0), REPLACEMENT_CHARACTER)
 
         if EXTRACT_WORDS is True:
             # output words in sequence compliant with Markdown text
@@ -1213,12 +1212,18 @@ def to_markdown(
     # omit clipped text, collect styles, use accurate bounding boxes
     textflags = (
         0
-        | mupdf.FZ_STEXT_CLIP
-        | mupdf.FZ_STEXT_ACCURATE_BBOXES
-        # | mupdf.FZ_STEXT_IGNORE_ACTUALTEXT
-        | 32768  # mupdf.FZ_STEXT_COLLECT_STYLES
+        | pymupdf.TEXT_MEDIABOX_CLIP
+        # | pymupdf.TEXT_ACCURATE_BBOXES
+        | pymupdf.TEXT_COLLECT_STYLES
     )
-    # optionally replace 0xFFFD by glyph number
+    pymupdf.table.FLAGS = (
+        0
+        | pymupdf.TEXTFLAGS_TEXT
+        | pymupdf.TEXT_COLLECT_STYLES
+        # | pymupdf.TEXT_ACCURATE_BBOXES
+        | pymupdf.TEXT_MEDIABOX_CLIP
+    )
+    # optionally replace REPLACEMENT_CHARACTER by glyph number
     if use_glyphs:
         textflags |= mupdf.FZ_STEXT_USE_GID_FOR_UNKNOWN_UNICODE
 
