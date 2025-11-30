@@ -146,6 +146,7 @@ else:
         force_text=True,
         ocr_dpi=400,
         use_ocr=True,
+        table_format="grid",
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -164,6 +165,7 @@ else:
             footer=footer,
             ignore_code=ignore_code,
             show_progress=show_progress,
+            table_format=table_format,
         )
 
 

@@ -107,8 +107,48 @@ End of OpenCV example features
 --------------------------------------------------------------------------
 """
 
+"""
+Functions detecting general photos versus text-heavy images.
+"""
 
-def get_span_ocr(page, bbox, dpi=300):
+
+def entropy_check(img_gray, threshold=4.5):
+    """Compute Shannon entropy of grayscale image."""
+    hist = cv2.calcHist([img_gray], [0], None, [256], [0, 256])
+    hist = hist.ravel() / hist.sum()
+    hist = hist[hist > 0]
+    entropy = -np.sum(hist * np.log2(hist))
+    return entropy < threshold, entropy
+
+
+def fft_check(img_gray, threshold=0.15):
+    """Check ratio of high-frequency energy in FFT spectrum."""
+    # Downsample for speed
+    small = cv2.resize(img_gray, (128, 128))
+    f = np.fft.fft2(small)
+    fshift = np.fft.fftshift(f)
+    magnitude = np.abs(fshift)
+    h, w = magnitude.shape
+    center = magnitude[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
+    ratio = center.sum() / magnitude.sum()
+    return ratio < threshold, ratio
+
+
+def components_check(img_gray, min_components=50):
+    """Count connected components after thresholding."""
+    _, bw = cv2.threshold(img_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    num_labels, _ = cv2.connectedComponents(bw)
+    return num_labels < min_components, num_labels
+
+
+def edge_density_check(img_gray, threshold=0.01):
+    """Compute edge density using Canny."""
+    edges = cv2.Canny(img_gray, 100, 200)
+    density = edges.sum() / 255.0 / edges.size
+    return density < threshold, density
+
+
+def get_span_ocr(page, bbox, dpi=400):
     """Return OCR'd span text using Tesseract.
 
     Args:
@@ -127,7 +167,7 @@ def get_span_ocr(page, bbox, dpi=300):
     return text
 
 
-def repair_blocks(input_blocks, page):
+def repair_blocks(input_blocks, page, dpi=400):
     """Repair text blocks with missing glyphs using OCR.
 
     TODO: Support non-linear block structure.
@@ -148,7 +188,7 @@ def repair_blocks(input_blocks, page):
                 if not REPLACEMENT_CHARACTER in span_text:
                     continue
                 span_text_len = len(span_text)
-                new_text = get_span_ocr(page, span["bbox"])[:span_text_len]
+                new_text = get_span_ocr(page, span["bbox"], dpi=dpi)[:span_text_len]
                 if "chars" in span:
                     # rebuild chars array
                     new_chars = []
@@ -177,25 +217,48 @@ def get_page_image(page, dpi=150, covered=None):
     if covered is None:
         covered = page.rect
     covered = covered.irect
-    pix = page.get_pixmap(dpi=dpi)
-    matrix = pymupdf.Rect(pix.irect).torect(page.rect)
-
-    # make a sub-pixmap of the covered area
-    pix_covered = pymupdf.Pixmap(pymupdf.csRGB, covered)
-    pix_covered.copy(pix, covered)  # copy over covered area
+    # make a gray pixmap of the covered area
+    pix_covered = page.get_pixmap(colorspace=pymupdf.csGRAY, clip=covered)
     # convert to numpy array
-    img = np.frombuffer(pix_covered.samples, dtype=np.uint8).reshape(
+    gray = np.frombuffer(pix_covered.samples, dtype=np.uint8).reshape(
         pix_covered.height, pix_covered.width, pix_covered.n
     )
-    # cv2 needs the gray image version of this
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    return gray, matrix, pix
+    photo_entropy, entropy_val = entropy_check(gray)
+    photo_fft, fft_val = fft_check(gray)
+    photo_components, comp_val = components_check(gray)
+    photo_edges, edge_val = edge_density_check(gray)
+
+    # print(f"Entropy: {entropy_val:.3f} → {photo_entropy}")
+    # print(f"FFT ratio: {fft_val:.3f} → {photo_fft}")
+    # print(f"Components: {comp_val} → {photo_components}")
+    # print(f"Edge density: {edge_val:.6f} → {photo_edges}")
+
+    # Weighted decision logic
+    score = 0
+    if photo_components:
+        score += 2
+    if photo_edges:
+        score += 2
+    if photo_entropy:
+        score += 1
+    if photo_fft:
+        score += 1
+    # print(f"{score=}")
+    if score >= 3:
+        pix = None
+        matrix = pymupdf.Identity
+        photo = True
+    else:
+        pix = page.get_pixmap(dpi=dpi)
+        matrix = pymupdf.Rect(pix.irect).torect(page.rect)
+        photo = False
+
+    return matrix, pix, photo
 
 
 def should_ocr_page(
     page,
     dpi=150,
-    edge_thresh=0.02,
     vector_thresh=0.9,
     image_coverage_thresh=0.9,
     text_readability_thresh=0.9,
@@ -207,7 +270,6 @@ def should_ocr_page(
     Parameters:
         page: PyMuPDF page object
         dpi: DPI used for rasterization
-        edge_thresh: minimum edge density to suggest text presence
         vector_thresh: minimum number of vector paths to suggest glyph simulation
         image_coverage_thresh: fraction of page area covered by images to trigger OCR
         text_readability_thresh: fraction of readable characters to skip OCR
@@ -225,7 +287,6 @@ def should_ocr_page(
         "has_vector_chars": False,
         "transform": pymupdf.Identity,
         "pixmap": None,
-        "edge_density": 0.0,
     }
     page_rect = page.rect
     page_area = abs(page_rect)  # size of the full page
@@ -279,21 +340,16 @@ def should_ocr_page(
     assert decision["should_ocr"] is True
 
     if not decision["has_text"]:
-        # Rasterize and analyze edge density
-        img, matrix, pix = get_page_image(page, dpi=dpi, covered=analysis["covered"])
+        # Rasterize and check for photo versus text-heaviness
+        matrix, pix, photo = get_page_image(page, dpi=dpi, covered=analysis["covered"])
 
-        # Analyze edge density
-        edges = cv2.Canny(img, 100, 200)
-        decision["edge_density"] = float(np.sum(edges > 0) / edges.size)
-        if decision["edge_density"] <= edge_thresh:
+        if photo:
             # this seems to be a non-text picture page
             decision["should_ocr"] = False
+            decision["pixmap"] = None
         else:
             decision["should_ocr"] = True
             decision["transform"] = matrix
             decision["pixmap"] = pix
 
-    if decision["should_ocr"]:
-        decision["transform"] = matrix
-        decision["pixmap"] = pix
     return decision

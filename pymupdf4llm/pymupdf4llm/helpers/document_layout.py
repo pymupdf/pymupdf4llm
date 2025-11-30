@@ -38,7 +38,7 @@ FLAGS = (
     | pymupdf.TEXT_COLLECT_VECTORS
     | pymupdf.TEXT_PRESERVE_IMAGES
     | pymupdf.TEXT_ACCURATE_BBOXES
-    # | pymupdf.TEXT_MEDIABOX_CLIP
+    | pymupdf.TEXT_MEDIABOX_CLIP
 )
 BULLETS = tuple(utils.BULLETS)
 
@@ -387,6 +387,9 @@ def list_item_to_md(textlines, level):
     This post-layout heuristics helps cover cases where more than
     one list item is contained in a single bbox.
     """
+
+    if not textlines:
+        return ""
     indent = "   " * (level - 1)  # indentation based on level
     line = textlines[0]
     x0 = line["bbox"][0]  # left of first line
@@ -395,7 +398,7 @@ def list_item_to_md(textlines, level):
     span0_text = span0["text"].strip()
 
     starter = "- "
-    if span0_text.startswith(BULLETS):
+    if utils.startswith_bullet(span0_text):
         span0_text = span0_text[1:].strip()
         line["spans"][0]["text"] = span0_text
     elif span0_text.endswith(".") and span0_text[:-1].isdigit():
@@ -714,10 +717,14 @@ class ParsedDocument:
         footer: bool = True,
         ignore_code: bool = False,
         show_progress: bool = False,
+        table_format: str = "grid",
     ) -> str:
         """
         Serialize ParsedDocument to plain text. Optionally omit page headers or footers.
         """
+        if table_format not in tabulate.tabulate_formats:
+            print(f"Warning: invalid table format '{table_format}', using 'grid'.")
+            table_format = "grid"
         # Flatten all text boxes into plain text
         output = ""
         if show_progress and len(self.pages) > 5:
@@ -752,7 +759,7 @@ class ParsedDocument:
                     continue
                 if btype == "table":
                     output += (
-                        tabulate.tabulate(box.table["extract"], tablefmt="grid")
+                        tabulate.tabulate(box.table["extract"], tablefmt=table_format)
                         + "\n\n"
                     )
                     continue
@@ -816,7 +823,7 @@ def parse_document(
             assert pymupdf.get_tessdata()
             document.use_ocr = True
         except Exception as e:
-            print(f"OCR disabled: {reason}.")
+            print(f"OCR disabled because {reason}.")
             document.use_ocr = False
     else:
         document.use_ocr = False
@@ -842,7 +849,7 @@ def parse_document(
         page_filter = ProgressBar(page_filter)
     for pno in page_filter:
         page = mydoc.load_page(pno)
-        textpage = page.get_textpage(flags=FLAGS)
+        textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
         blocks = textpage.extractDICT()["blocks"]
         page_full_ocred = False
         page_text_ocred = False
@@ -851,7 +858,6 @@ def parse_document(
             decision = check_ocr.should_ocr_page(
                 page,
                 dpi=ocr_dpi,
-                edge_thresh=0.015,
                 blocks=blocks,
             )
         else:
@@ -884,7 +890,7 @@ def parse_document(
                 page.show_pdf_page(page.rect, ocr_pdf, 0)
                 ocr_pdf.close()  # discard temporary OCR PDF
                 del ocr_pdf
-                textpage = page.get_textpage(flags=FLAGS)
+                textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
                 blocks = textpage.extractDICT()["blocks"]
                 page_full_ocred = True
             else:

@@ -1,5 +1,19 @@
 # Change Log
 
+## Changes in version 0.2.5
+
+### Fixes:
+
+* [341](https://github.com/pymupdf/RAG/issues/341) - Broken markdown parsing for new line directly followed by 'o'...
+
+### Other Changes:
+
+* New parameter `table_format` in method `to_text()` (PyMuPDF-Layout only). This allows selecting the appearance of tables in plain text outputs. The possible values are defined in the list `tabulate.tabulate_formats`. Default is "grid".
+* Installaing PyMuPDF4LLM now supports including all optional dependencies in the `pip` command: `pip install --update pymupdf4llm[ocr,layout]`. This will install pymupdf4llm, pymupdf, and pymupdf-layout. The "ocr" parameter - when needed - installs opencv-python for automatic OCR support in PyMuPDF-Layout mode. Combine this with parameters `--update`, `--force-reinstall` or `--no-cache-dir` as necessary.
+* Major rework of the heuristics that determine whether a page should be OCR'd.
+
+------
+
 ## Changes in version 0.2.4
 
 ### Fixes:
@@ -10,6 +24,7 @@
 
 
 ------
+
 ## Changes in version 0.2.3
 
 ### Fixes:
