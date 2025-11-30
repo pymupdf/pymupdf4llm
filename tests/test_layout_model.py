@@ -1,3 +1,4 @@
+import time
 
 import cv2
 import numpy as np
@@ -43,17 +44,19 @@ def print_rf_features(pdf_path):
             | pymupdf.TEXT_COLLECT_VECTORS
     )
     stext_page = page.get_textpage(flags=stext_flags)
+    st_time = time.time()
     for bbox_idx, bbox in enumerate(bboxes):
         print(f'[{bbox_idx+1}] {texts[bbox_idx]} {str(bbox)}'.encode('utf-8'))
         region = pymupdf.mupdf.FzRect(bbox[0], bbox[1], bbox[2], bbox[3])
         features = pymupdf.features.fz_features_for_region(stext_page, region, 0)
         fet_no = 1
         for name in dir(features):
-            if not name.startswith('_') and name != 'thisown':
+            if not name.startswith('_') and name not in ['this', 'thisown', 'last_char_rect']:
                 # print(f'    {name}: {getattr(features, name)!r}')
                 # print(f"'{name}',", end='')
                 print(f'\t[{fet_no}] {name} : {getattr(features, name)}')
                 fet_no += 1
+    print(f'Elapsed Time : {time.time() - st_time:.2f} sec')
 
 
 def test_layout_model(pdf_path):
