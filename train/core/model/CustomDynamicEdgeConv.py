@@ -4,7 +4,7 @@ import torch.nn as nn
 from typing import Callable, Optional
 from torch_scatter import scatter_max
 
-from train.core.common.model_util import (custom_knn_batched_onnx,
+from train.core.common.model_util import (custom_knn_batched_onnx2 as custom_kNN,
                                           custom_around_box_batched, safe_max_aggregation, softmax_aggregation)
 
 
@@ -33,9 +33,9 @@ class CustomDynamicEdgeConv(nn.Module):
         if nn_index is None:
             if self.nn_type == 'KNN':
                 if bboxes is None:
-                    edge_index = custom_knn_batched_onnx(x, k, batch)
+                    edge_index = custom_kNN(x, k, batch)
                 else:
-                    edge_index = custom_knn_batched_onnx(bboxes, k, batch)
+                    edge_index = custom_kNN(bboxes, k, batch)
             elif self.nn_type == 'RANGE':
                 edge_index = custom_around_box_batched(bboxes, gap=0.05, batch=batch)
             else:
@@ -83,24 +83,7 @@ class CustomDynamicEdgeConv(nn.Module):
             degree.scatter_add_(0, expanded_index[:, :1], ones)  # [E,1] vs [E,1]
             out = out / (degree + 1e-8)
         elif self.aggr == 'softmax':
-            if self.onnx_export_flag:
-                out = softmax_aggregation(x, out, target_nodes, num_features, num_nodes, message)
-            else:
-                # alpha = scatter_softmax(src=message, index=target_nodes, dim=0)
-                # weighted_msg = alpha * message
-                # out = scatter_add(src=weighted_msg, index=target_nodes, dim=0, dim_size=num_nodes)
-
-                # torch_scatter impl is quite different from custom impl.
-                out = softmax_aggregation(x, out, target_nodes, num_features, num_nodes, message)
+            out = softmax_aggregation(x, out, target_nodes, num_features, num_nodes, message)
         elif self.aggr == 'max':
-            if self.onnx_export_flag:
-                # out = MaxAggregatePlaceholder.apply(message, target_nodes, torch.tensor(num_nodes, device=x.device))
-                out = safe_max_aggregation(message, target_nodes, num_nodes)
-            else:
-                out, _ = scatter_max(
-                    src=message,
-                    index=target_nodes,
-                    dim=0,
-                    dim_size=num_nodes
-                )
+            out = safe_max_aggregation(message, target_nodes, num_nodes)
         return out

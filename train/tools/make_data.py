@@ -16,11 +16,15 @@ import numpy as np
 import shutil
 import xml.etree.ElementTree as ET
 import subprocess
+import multiprocessing as mp
 import tempfile
 
 import lmdb
 import torch
 import pymupdf
+import pymongo
+import gridfs
+
 
 import fitz
 import anyconfig
@@ -32,7 +36,6 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import onnxruntime as ort
-
 from train.tools.data.layout.DocumentJsonDataset import DocumentJsonDataset
 
 _illegal_xml_chars_RE = re.compile(u'[\x00-\x08\x0b\x0c\x0e-\x1F\uD800-\uDFFF\uFFFE\uFFFF]')
@@ -639,15 +642,21 @@ def onnx_worker_init_fn(worker_id):
             )
 
 
-import os
-import pickle
-import hashlib
-import torch
-import lmdb
-import blosc
-import pymongo  # Requires: pip install pymongo
-import gridfs  # Part of pymongo
+def safe_save_json_dataset_to_lmdb(cfg, max_retries=1000, wait_sec=60):
+    for attempt in range(1, max_retries + 1):
+        print(f"[INFO] Attempt {attempt} to run training...")
+        proc = mp.Process(target=save_json_dataset_to_lmdb, args=(cfg,))
+        proc.start()
+        proc.join()
 
+        if proc.exitcode == 0:
+            print("[INFO] make_data() finished successfully.")
+            break
+        else:
+            print(f"[WARN] make_data() crashed with exit code {proc.exitcode}. Retrying after {wait_sec} seconds...")
+            time.sleep(wait_sec)
+    else:
+        print("[ERROR] make_data() failed after maximum retries.")
 
 def save_json_dataset_to_lmdb(cfg):
     """
@@ -781,18 +790,21 @@ def save_json_dataset_to_lmdb(cfg):
 
                 for idx, data in enumerate(dataloader):
                     file_name = 'None'
+                    process_time = 0.0
                     if type(data) == str:
                         print(f'[{idx}/{len(dataloader)}] {data} ...')
                         continue
 
                     if data is not None:
                         file_name = data.raw_data['file_name']
+                        process_time = data.raw_data['process_time']
+                        del data.raw_data['process_time']
 
                     if '' == 'D':
                         with open(f'temp/{file_name}', 'wb') as f:
                             pickle.dump(data, f)
 
-                    print(f'[{idx}/{len(dataloader)}] {file_name} ...')
+                    print(f'[{idx}/{len(dataloader)}] {file_name} ({process_time:.2f} sec) ...')
 
                     # Skip invalid data
                     if data is None or data.edge_index.shape[1] <= 0 or data.x.shape[0] >= 5000:
@@ -810,7 +822,7 @@ def save_json_dataset_to_lmdb(cfg):
                         print(ex)
                         continue
 
-                    if len(keys) % 2000 == 0:
+                    if len(keys) % 1000 == 0:
                         print('Committing transaction...')
                         txn.put(b'__keys__', pickle.dumps(keys))
                         txn.commit()
@@ -2159,6 +2171,8 @@ if __name__ == '__main__':
             make_doclaynet_json_add_custom_feature(cfg)
         elif task_name == 'save_json_dataset_to_lmdb':
             save_json_dataset_to_lmdb(cfg)
+        elif task_name == 'safe_save_json_dataset_to_lmdb':
+            safe_save_json_dataset_to_lmdb(cfg)
         elif task_name == 'make_mupdf_xml':
             make_mupdf_xml(cfg)
         elif task_name == 'visualize_lmdb_dataset':

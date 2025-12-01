@@ -6,11 +6,9 @@ from io import BytesIO
 import threading
 
 import pymupdf.layout.DocumentLayoutAnalyzer as DocumentLayoutAnalyzer
-from train.tools.util.TorchDetModelWrapper import TorchDetModelWrapper
-
 
 # -----------------------------------------------------------
-# ?? Model Singleton Class
+#  Model Singleton Class
 # -----------------------------------------------------------
 class ModelManager:
     """
@@ -37,26 +35,12 @@ class ModelManager:
 
         # Load da_cur
         try:
-            da_cur = DocumentLayoutAnalyzer.get_model(feature_set_name='imf')
+            da_cur = DocumentLayoutAnalyzer.get_model()
             self._models['cur'] = da_cur
             print("Successfully loaded 'cur' model.")
         except Exception as e:
             self._models['cur'] = None
             print(f"Error loading 'cur' model: {e}")
-
-        # Load da_dev
-        try:
-            da_dev = TorchDetModelWrapper(
-                config_path="/media/win/PTMP/DoclaynetGNN/model.yaml",
-                model_path="/media/win/PTMP/DoclaynetGNN/0.0000_0.9631_step_78000_lr_1.00e-04_node_0.9472_edge_0.9790.pt",
-                feature_extractor_path="/media/win/Dataset/DocumentlayoutGNN/directional_nn/imf_thin_seg-all/0.9218_all_172d.onnx",
-                device='cpu',
-            )
-            self._models['dev'] = da_dev
-            print("Successfully loaded 'dev' model.")
-        except Exception as e:
-            self._models['dev'] = None
-            print(f"Error loading 'dev' model: {e}")
 
     def get_model(self, da_type: str):
         """Returns the cached model instance for the given type."""
@@ -69,6 +53,7 @@ class ModelManager:
 # -----------------------------------------------------------
 
 da_type = 'cur'
+current_data_dict = None
 
 # --- Configuration ---
 UPLOAD_DIR = './temp/uploads'
@@ -144,56 +129,49 @@ def get_classes_for_color_mapping(pdf_path: str, da_type: str):
     return list(classes)
 
 
-# -----------------------------------------------------------
-# Separate the existing render_page_html into a CPU-bound task (synchronous function)
-# -----------------------------------------------------------
 def _render_page_html_sync(page_idx: int, pdf_path: str, color_map: dict, layout_mode: str, da_type: str) -> str:
     """
     Perform layout prediction and render the result as HTML/SVG based on the selected mode.
-    This is a heavy, synchronous CPU-bound function.
-
-    da_type (str): 'dev' or 'cur' to select the model.
+    The surrounding div applies Mac-style shadow and rounded corners.
     """
+    # ... (PDF loading, pixmap creation, HEAVY CALCULATION logic remains unchanged)
+
     if not pdf_path:
-        return '<p>No PDF path available.</p>'
+        return '<p>No PDF path available.</p>', []
 
     try:
-        doc = fitz.open(pdf_path)  # Open inside the separate process
+        doc = fitz.open(pdf_path)
     except Exception:
-        return '<p>Error reopening PDF document in background process.</p>'
+        return '<p>Error reopening PDF document in background process.</p>', []
 
     if page_idx < 0 or page_idx >= len(doc):
         doc.close()
-        return '<p>Invalid page index.</p>'
+        return '<p>Invalid page index.</p>', []
 
-    zoom = 1.0
+    zoom = 1.5
     page = doc[page_idx]
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
     img_buffer = BytesIO(pix.tobytes("png"))
     encoded_image = f"data:image/png;base64,{base64.b64encode(img_buffer.read()).decode()}"
 
     # === HEAVY CALCULATION ===
-    # Get layout results using the Singleton-managed model
     det_result, data_dict = get_layout_result(doc, page_idx, da_type, return_bbox=layout_mode == 'Node')
 
     # --- Result Selection Logic ---
     if layout_mode == 'Node':
-        # Use raw node bounding boxes. Append a dummy class 'Node' for rendering loop.
         display_results = [(x1, y1, x2, y2, 'Node') for x1, y1, x2, y2 in data_dict['bboxes']]
-        default_color = "#808080"  # Grey for raw nodes
+        default_color = "#808080"
     else:  # 'Layout' mode (Default)
-        # Use the final grouped layout prediction results.
         display_results = det_result
-        default_color = "#ff0000"  # Red (Fallback for layout classes)
+        default_color = "#ff0000"
 
     width, height = pix.width, pix.height
 
     svg_elements = []
-    for x1, y1, x2, y2, cls in display_results:
+    for i, (x1, y1, x2, y2, cls) in enumerate(display_results):
         px1, py1 = int(x1 * zoom), int(y1 * zoom)
         px2, py2 = int(x2 * zoom), int(y2 * zoom)
 
-        # Determine color and label based on mode
         if layout_mode == 'Node':
             color = default_color
             label = 'Node'
@@ -201,25 +179,47 @@ def _render_page_html_sync(page_idx: int, pdf_path: str, color_map: dict, layout
             color = color_map.get(cls, default_color)
             label = cls
 
-        label_y = max(py1 - 8, 20)
+        # --- Modified Rendering Logic ---
+        if layout_mode == 'Node':
+            # Node Mode: Clickable, No Text Label
+            rect_attribs = (
+                f'onclick="this.dispatchEvent(new CustomEvent(\'rect_click\', {{ bubbles: true, detail: {{ index: {i} }} }}))" '
+                f'style="fill:none;stroke:{color};stroke-width:1;filter:drop-shadow(0 0 1px {color}); cursor: pointer; pointer-events: all;"'
+            )
+            text_element = ""
+        else:
+            # Layout Mode: Not Clickable, Show Text Label
+            rect_attribs = (
+                f'style="fill:none;stroke:{color};stroke-width:2;filter:drop-shadow(0 0 1px {color}); pointer-events: none;"'
+            )
+
+            label_y = max(py1 - 8, 20)
+            text_element = f"""
+                <text x="{px1 + 5}" y="{label_y}" fill="{color}" font-weight="bold" font-size="14"
+                    style="text-shadow: 1px 1px 1px #000000; pointer-events: none;">{label}</text>
+            """
+
         svg_elements.append(f"""
-            <rect x="{px1}" y="{py1}" width="{px2 - px1}" height="{py2 - py1}" 
-                  style="fill:none;stroke:{color};stroke-width:1;filter:drop-shadow(0 0 1px {color});" />
-            <text x="{px1 + 5}" y="{label_y}" fill="{color}" font-weight="bold" font-size="14"
-                  style="text-shadow: 1px 1px 1px #000000;">{label}</text>
+            <rect x="{px1}" y="{py1}" width="{px2 - px1}" height="{py2 - py1}" {rect_attribs} />
+            {text_element}
         """)
 
-    doc.close()  # Essential to close the document opened in this process
+    doc.close()
 
-    return f"""
-        <div style="position:relative;width:100%;max-width:{width}px;margin:auto;box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-            <img src="{encoded_image}" style="width:100%;display:block;border-radius: 8px;" />
+    # Apply Mac-style shadow (softer, wider) and rounded corners to the image container
+    html_content = f"""
+        <div style="position:relative;width:100%;max-width:{width}px;margin:auto;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.1); /* Softer, Mac-like shadow */
+                    border-radius: 12px; /* Smooth rounded corners */
+                    overflow: hidden;"> 
+            <img src="{encoded_image}" style="width:100%;display:block;border-radius: 12px;" />
             <svg width="100%" height="100%" viewBox="0 0 {width} {height}"
-                  style="position:absolute;top:0;left:0;">
+                    style="position:absolute;top:0;left:0;">
                 {''.join(svg_elements)}
             </svg>
         </div>
     """
+    return html_content, data_dict
 
 
 # -----------------------------------------------------------
@@ -227,7 +227,7 @@ def _render_page_html_sync(page_idx: int, pdf_path: str, color_map: dict, layout
 # -----------------------------------------------------------
 async def trigger_render():
     """Starts the CPU-bound layout analysis task in a background thread."""
-    global current_doc, current_page_index, is_rendering, rendered_html_content, current_pdf_path, color_map, layout_mode, da_type
+    global current_doc, current_page_index, is_rendering, rendered_html_content, current_pdf_path, color_map, layout_mode, da_type, current_data_dict
 
     if current_doc is None:
         return
@@ -249,22 +249,23 @@ async def trigger_render():
     try:
         # Execute the heavy synchronous function in a separate thread using run.cpu_bound
         # Pass current_da_type to the sync function
-        new_content = await run.cpu_bound(_render_page_html_sync, page_idx, current_pdf_path, color_map, current_mode,
-                                          current_da_type)
+        new_content, data_dict = await run.cpu_bound(_render_page_html_sync, page_idx, current_pdf_path, color_map, current_mode, current_da_type)
 
         # Check if the user changed the page or model type while the task was completing
         if current_page_index == page_idx and layout_mode == current_mode and da_type == current_da_type:
             rendered_html_content = new_content
+            current_data_dict = data_dict
         else:
             # Notify but don't overwrite if state changed (page, mode, or model type)
             ui.notify(
                 f'Rendered page {page_idx + 1} ({current_mode} Mode, {current_da_type} Model) finished, but state changed.',
                 color='info')
 
+
     except Exception as e:
         rendered_html_content = f'<p class="text-red-500 font-bold p-10 bg-red-100 rounded-lg shadow-md">Error rendering page {page_idx + 1}: {e}</p>'
         print(f"Rendering error: {e}")
-
+        current_data_dict = {}
     finally:
         is_rendering = False
 
@@ -290,49 +291,121 @@ async def change_page(direction: int):
 # --- PAGE: Viewer ---
 @ui.page('/viewer')
 def viewer_page():
-    """Viewer page: displays the currently selected PDF page with layout overlays."""
-    global rendered_html_content, is_rendering
+    """
+    Viewer page: displays the currently selected PDF page with layout overlays.
+    Implements independent scrolling for the PDF Viewer (left) and the Node Properties Panel (right).
+    """
+    global rendered_html_content, is_rendering, current_data_dict
 
-    with ui.column().classes('w-full h-full items-center justify-start p-4'):
-        # Viewer container (contains the loading spinner and HTML content)
-        viewer_container = ui.column().classes('w-full max-w-4xl h-full overflow-y-auto')
+    # w-full h-full no-wrap: Main row takes full height and prevents wrapping
+    with ui.row().classes('w-full h-full no-wrap'):
 
-        # HTML for loading indication (managed directly by trigger_render)
-        viewer_html = ui.html(rendered_html_content, sanitize=False).classes('w-full')
+        # --- Left Column: PDF Viewer (66%) ---
+        # The main PDF viewer area, which is itself scrollable if content overflows
+        with ui.column().classes('w-[66%] h-full p-4 overflow-hidden'):
+            viewer_container = ui.column().classes('w-full h-full overflow-y-auto')
+            with viewer_container:
+                viewer_html = ui.html(rendered_html_content, sanitize=False).classes('w-full')
 
+        # --- Right Column: Property Panel (34%) ---
+        # Parent container for the panel content. Must be h-full to anchor the scrollable area.
+        with ui.column().classes('w-[34%] h-full border-l border-gray-200 bg-gray-50 p-4 shadow-inner'):
+
+            # Static Header: Will stay fixed at the top
+            ui.label('Node Properties').classes('text-xl font-bold mb-4 text-gray-800 border-b pb-2 w-full')
+
+            # Scrollable Wrapper: Takes the remaining vertical space (h-full) and manages scroll (overflow-y-auto).
+            # This ensures the scroll is isolated to this section.
+            with ui.column().classes('w-full h-full overflow-y-auto'):
+                # Container for dynamic property rows (Content will push this to scroll)
+                properties_container = ui.column().classes('w-full gap-2')
+
+                # Initial placeholder text
+                with properties_container:
+                    ui.label('Select a node in "Node Mode" to view details.').classes('text-gray-500 italic')
+
+        # --- Event Handler ---
+        def handle_rect_click(e):
+            """
+            Handles click events from SVG rectangles.
+            Populates the property panel with data in a clean, dense table format.
+            """
+            try:
+                # Clear previous properties
+                properties_container.clear()
+                idx = e.args['detail']['index']
+
+                # Validation checks (unchanged)
+                if not current_data_dict or 'custom_features' not in current_data_dict or \
+                        idx >= len(current_data_dict['custom_features']):
+                    with properties_container:
+                        ui.label('No feature data or invalid index.').classes('text-red-500')
+                    return
+
+                # Retrieve features
+                custom_features = current_data_dict['custom_features'][idx]
+                text_val = current_data_dict['text'][idx]
+
+                # Populate Property Panel
+                with properties_container:
+                    ui.label(f'[{idx}]  {text_val}').classes('font-bold text-blue-600 mb-2')
+
+                    # Define table columns (unchanged)
+                    columns = [
+                        {'name': 'key', 'label': 'Key', 'field': 'key', 'required': True, 'align': 'left',
+                         'sortable': True},
+                        {'name': 'value', 'label': 'Value', 'field': 'value', 'required': True, 'align': 'left',
+                         'sortable': True},
+                    ]
+
+                    # Format features into table rows
+                    rows = [{'key': key, 'value': str(value)} for key, value in custom_features.items()]
+
+                    # Display table: flat, bordered, and dense for a compact look.
+                    ui.table(
+                        columns=columns,
+                        rows=rows,
+                        row_key='key'
+                    ).props('flat bordered dense wrap-cells').classes('w-full')
+
+            except Exception as err:
+                print(f"Click handling error: {err}")
+                with properties_container:
+                    ui.label(f"Error: {err}").classes('text-red-500')
+
+        # Bind the click event
+        viewer_html.on('rect_click', handle_rect_click)
+
+        # Timer to refresh viewer content (unchanged)
         def update_viewer_content():
-            """Periodically update the viewer content from the cached result."""
-            # Use the result stored in the global variable without re-executing the heavy task here.
-            viewer_html.content = rendered_html_content
+            if viewer_html.content != rendered_html_content:
+                viewer_html.content = rendered_html_content
 
-        # Update viewer content every 0.2 seconds to quickly reflect status changes (loading start/complete).
         ui.timer(0.2, update_viewer_content)
 
 
-# --- PAGE: Control Panel ---
-@ui.page('/control')
 @ui.page('/control')
 def control_page():
-    """Control page: handles file upload, navigation, and page input."""
+    """Control page: handles file upload, navigation, and page input with Mac-style UI."""
     global current_page_index, current_doc, color_map, layout_mode, da_type
 
-    with ui.column().classes('w-full h-full items-center justify-start p-6 bg-gray-100'):
+    # Use clean white background and generous padding.
+    with ui.column().classes('w-full h-full items-center justify-start p-6 bg-white'):
+
+        # ... (handle_upload function remains unchanged)
 
         async def handle_upload(e):
             """Handle PDF file upload or re-analysis trigger."""
+            # ... (Implementation remains unchanged)
             global current_doc, color_map, current_page_index, current_pdf_path, da_type
 
-            # --- 1. Determine File Path ---
             if hasattr(e, 'file') and e.file.name:
-                # Case 1: Actual file upload event
                 pdf_path = os.path.join(UPLOAD_DIR, e.file.name)
                 content = await e.file.read()
                 with open(pdf_path, 'wb') as f:
                     f.write(content)
 
-                current_pdf_path = pdf_path  # Store the file path
-
-                # Try to open the new document
+                current_pdf_path = pdf_path
                 try:
                     current_doc = fitz.open(pdf_path)
                 except Exception as load_error:
@@ -345,123 +418,84 @@ def control_page():
                 current_page_index = 0
 
             elif current_pdf_path and current_doc:
-                # Case 2: Re-analysis request (model type change)
-                pdf_path = current_pdf_path  # Reuse existing path
-                # Document is already loaded in current_doc
-                ui.notify(f"Re-analyzing page {current_page_index + 1} with new model ({da_type.upper()})...",
+                pdf_path = current_pdf_path
+                ui.notify(f"Re-analyzing page {current_page_index + 1} with current model ({da_type.upper()})...",
                           color='info')
             else:
-                # No PDF is loaded, cannot re-analyze
                 return
 
-            # 2. Generate color mapping for layout classes (common logic for both upload and re-analysis)
+            # Color mapping logic remains unchanged
             COLORS = [
                 "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231",
                 "#911eb4", "#46f0f0", "#f032e6", "#bcf60c", "#fabebe",
                 "#008080", "#e6beff", "#9a6324", "#fffac8", "#800000",
                 "#aaffc3", "#808000", "#ffd8b1", "#000075", "#808080"
             ]
-
-            # PREDEFINED COLOR MAP: Assigns colors based on common layout classes
             PREDEFINED_CLASSES = {
-                'text': COLORS[0],  # Red
-                'title': COLORS[1],  # Green
-                'picture': COLORS[2],  # Yellow
-                'table': COLORS[3],  # Blue
-                'list-item': COLORS[4],  # Orange
-                'page-header': COLORS[5],  # Purple
-                'page-footer': COLORS[6],  # Cyan
-                'section-header': COLORS[7],  # Magenta
-                'footnote': COLORS[8],  # Lime
-                'caption': COLORS[9],  # Pink/Light Red
-                'formula': COLORS[10],  # Teal
-                'unlabelled': COLORS[11],  # Lavender
+                'text': COLORS[0], 'title': COLORS[1], 'picture': COLORS[2], 'table': COLORS[3], 'list-item': COLORS[4],
+                'page-header': COLORS[5], 'page-footer': COLORS[6], 'section-header': COLORS[7], 'footnote': COLORS[8],
+                'caption': COLORS[9], 'formula': COLORS[10], 'unlabelled': COLORS[11],
             }
-
-            # Initialize color_map with predefined colors
             color_map.clear()
             color_map.update(PREDEFINED_CLASSES)
-
-            # Start index for dynamically assigned colors (starting after predefined)
             color_index = len(PREDEFINED_CLASSES)
 
-            # --- Layout analysis for color mapping (first few pages) ---
             if len(current_doc) > 0:
-                # Execute color mapping logic as CPU-bound
                 try:
-                    # Pass current_pdf_path AND da_type
                     all_classes = await run.cpu_bound(get_classes_for_color_mapping, current_pdf_path, da_type)
                     for cls in all_classes:
-                        # Only assign color if the class is NOT already in the predefined map
                         if cls not in color_map:
                             if color_index < len(COLORS):
                                 color_map[cls] = COLORS[color_index]
                                 color_index += 1
                             else:
-                                # Fallback color if we run out of COLORS
-                                color_map[cls] = "#000000"  # Black fallback
+                                color_map[cls] = "#000000"
                 except Exception as color_map_error:
                     print(f"Error during color mapping analysis: {color_map_error}")
                     ui.notify("Error analyzing initial pages for colors.", color='negative')
-            # -----------------------------------------------
 
-            # 3. Start rendering
             await trigger_render()
 
-        # File Upload
-        ui.upload(on_upload=handle_upload, label='Upload PDF').props('accept=".pdf"').classes('w-full my-4')
+        # File Upload: Use flat design and rounded corners for a cleaner look.
+        ui.upload(on_upload=handle_upload, label='Upload PDF') \
+            .props('accept=".pdf" flat color="primary"').classes('w-full my-4 rounded-xl')
 
-        # [ADDED] Model Type Selection
-        ui.label('Model Type:').classes('text-sm font-semibold mt-2')
+        # Separator: Thinner and lighter.
+        ui.separator().classes('w-full opacity-50')
 
-        async def update_model_type(e):
-            """Update global da_type and trigger a re-render."""
-            global da_type
-            da_type = e.value
-            ui.notify(f"Model Type set to **{da_type.upper()}**.", color='info')
-            if current_doc:  # Only re-render if a PDF is loaded
-                # Create a simple dummy event object without 'file' attribute,
-                # as handle_upload now checks for the existence of 'e.file'.
-                await handle_upload(type('obj', (object,), {})())
-                # Note: We pass {} for the dictionary, ensuring e.file is None or non-existent,
-                # triggering the re-analysis logic in handle_upload.
-
-        ui.radio(
-            ['cur', 'dev'],
-            value='cur',
-            on_change=update_model_type,
-        ).props('inline').classes('mt-1')
-        ui.separator().classes('w-full')
-
-        # --- Layout Mode Selection ---
+        # Layout Mode Selection: Minimal styling.
         async def update_layout_mode(e):
             """Update global layout_mode and trigger a re-render."""
             global layout_mode
             layout_mode = e.value
             ui.notify(f"View Mode set to **{layout_mode}**.", color='info')
-            if current_doc:  # Only re-render if a PDF is loaded
+            if current_doc:
                 await trigger_render()
 
-        ui.label('Layout View Mode:').classes('text-sm font-semibold mt-2')
+        ui.label('Layout View Mode:').classes('text-sm font-semibold mt-2 text-gray-700')
+        # Use primary color for radio buttons
         ui.radio(
             ['Layout', 'Node'],
             value=layout_mode,
             on_change=update_layout_mode,
-        ).props('inline').classes('mt-1 mb-4')
+        ).props('inline color="blue"').classes('mt-1 mb-4')
 
-        ui.separator().classes('w-full')
+        ui.separator().classes('w-full opacity-50')
 
-        # Page navigation buttons
+        # Page navigation buttons: Use 'flat' and 'rounded' for circular, minimal buttons.
         with ui.row().classes('gap-4 mt-6'):
-            ui.button('Prev', on_click=lambda: change_page(-1)).props('icon="arrow_back_ios"').classes('w-20')
-            ui.label().classes('w-4')  # Spacing
-            ui.button('Next', on_click=lambda: change_page(1)).props('icon="arrow_forward_ios"').classes('w-20')
+            ui.button('Prev', on_click=lambda: change_page(-1)).props('icon="arrow_back_ios" flat rounded').classes(
+                'w-20')
+            ui.label().classes('w-4')
+            ui.button('Next', on_click=lambda: change_page(1)).props('icon="arrow_forward_ios" flat rounded').classes(
+                'w-20')
 
-        # --- Direct page input ---
+        # Direct page input: Use 'outlined' style and rounded corners.
         with ui.row().classes('items-center mt-4 gap-2'):
-            page_input = ui.number(label='Go to Page', min=1, value=1).classes('w-32')
+            # Apply 'outlined' style and 'rounded-lg' class
+            page_input = ui.number(label='Go to Page', min=1, value=1).props('outlined rounded-lg').classes('w-32')
 
-            # Flag to detect user input activity (to prevent timer overwriting input)
+            # ... (user_editing logic remains unchanged)
             user_editing = False
 
             def on_input_change(e):
@@ -475,7 +509,7 @@ def control_page():
                 """Go to the specific page number entered by the user and trigger render."""
                 global current_doc, current_page_index
                 nonlocal user_editing
-                user_editing = False  # stop editing mode
+                user_editing = False
 
                 if not current_doc:
                     ui.notify('No PDF loaded', color='negative')
@@ -488,11 +522,13 @@ def control_page():
                 else:
                     ui.notify(f'Invalid page number (1 - {len(current_doc)})', color='negative')
 
-            ui.button('Go', on_click=go_to_page).props('icon="send"')
+            # 'Go' button: flat and rounded to match navigation buttons
+            ui.button('Go', on_click=go_to_page).props('icon="send" flat rounded')
 
-        # --- Current page status display ---
+        # Current page status display
         page_label = ui.label('No PDF').classes('mt-4 text-xl font-bold text-blue-800')
 
+        # ... (update_page_label function remains unchanged)
         def update_page_label():
             """Keep page number display and input synchronized with the viewer."""
             global current_doc, current_page_index, is_rendering, layout_mode, da_type
@@ -503,26 +539,25 @@ def control_page():
 
                 page_label.text = f'Page {current_page_index + 1} / {len(current_doc)}{status}'
 
-                # Only update input if user is not editing
                 if not user_editing:
                     page_input.value = current_page_index + 1
             else:
                 page_label.text = 'No PDF loaded'
 
-        # Timer to update page label and input field
         ui.timer(0.5, update_page_label)
 
 
 # --- PAGE: Main Split Layout ---
 @ui.page('/')
 def main_page():
-    """Main layout: displays control panel and viewer in a split-screen."""
+    """Main layout: displays control panel and viewer in a split-screen with Mac-style aesthetics."""
     ui.add_head_html('<title>PDF Visualizer</title>')
 
-    # Split layout (25% / 75%)
+    # Split layout (25% / 75%) with clean, bright background and subtle divider shadow.
     ui.html("""
-    <div style="display:flex;width:100vw;height:100vh;overflow:hidden;background-color:#f8f8f8;">
-        <iframe src="/control" style="width:25%;height:100%;border:none;background-color:white;box-shadow: 2px 0 5px rgba(0,0,0,0.1);"></iframe>
+    <div style="display:flex;width:100vw;height:100vh;overflow:hidden;background-color:#ffffff;">
+        <iframe src="/control" style="width:25%;height:100%;border:none;background-color:white;
+                                     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);"></iframe>
         <iframe src="/viewer" style="width:75%;height:100%;border:none;"></iframe>
     </div>
     """, sanitize=False)

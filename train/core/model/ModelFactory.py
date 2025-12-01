@@ -4,6 +4,10 @@ from train.core.model.BoxNNDGCNN import BoxNNDGCNN
 from train.core.model.BoxRFDGNN import BoxRFDGCNN
 from train.core.model.BoxIMFDGCNN import BoxIMFDGCNN
 
+
+def get_version():
+    return '20251124.0'
+
 def get_model(cfg, data_class_names):
     num_node_classes = len(data_class_names)  # 텍스트, 제목, 이미지, 표 등
     num_edge_classes = 2  # 0: 연결 없음, 1: 연결 있음

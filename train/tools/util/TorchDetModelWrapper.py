@@ -5,8 +5,8 @@ import numpy as np
 
 import onnxruntime as ort
 
-from train.core import get_model
-from train.core import load_model_and_optimizer
+from train.core.model.ModelFactory import get_model
+from train.core.common.model_util import load_model_and_optimizer
 
 from train.infer.common_util import get_edge_matrix, group_node_by_edge_with_networkx_and_class_prior
 from train.infer.onnx.BoxRFDGNN import get_nn_input_from_datadict

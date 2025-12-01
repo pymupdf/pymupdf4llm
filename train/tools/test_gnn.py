@@ -705,18 +705,35 @@ def test_knn_function():
     from train.core.common.model_util import custom_knn_batched
     from torch_cluster.knn import knn
 
-    x = torch.load('./temp/dgcn_input_x.pt').to('cpu')
-    batch = torch.load('./temp/dgcn_input_batch.pt').to('cpu')
+    # ----------------------------------------------------
+    # 1. Generate sample input data
+    # ----------------------------------------------------
+    N = 50            # Number of nodes
+    D = 8             # Feature dimension
+    num_batches = 3   # Number of batches
+
+    torch.manual_seed(42)
+
+    x = torch.randn(N, D)  # Random features of shape (N, D)
+    batch = torch.randint(low=0, high=num_batches, size=(N,))  # Batch IDs for each node
 
     k = 5
 
-    # Run custom_knn_batched
+    # ----------------------------------------------------
+    # 2. Run custom KNN implementation
+    # ----------------------------------------------------
     edge_index_custom = custom_knn_batched(x, k, batch)
 
-    # Run official knn
-    edge_index_official = knn(x, x, k, batch_x=batch, batch_y=batch).flip([1])
+    # ----------------------------------------------------
+    # 3. Run official torch_cluster KNN
+    # ----------------------------------------------------
+    edge_index_official = knn(
+        x, x, k, batch_x=batch, batch_y=batch
+    ).flip([1])  # Flip to match (src, tgt) ordering
 
-    # Create dictionaries to store neighbors per node
+    # ----------------------------------------------------
+    # 4. Build neighbor sets for comparison
+    # ----------------------------------------------------
     custom_neighbors = {i: set() for i in range(x.size(0))}
     official_neighbors = {i: set() for i in range(x.size(0))}
 
@@ -728,27 +745,28 @@ def test_knn_function():
         src, tgt = edge_index_official[0, i].item(), edge_index_official[1, i].item()
         official_neighbors[src].add(tgt)
 
-    # Compare neighbors
+    # ----------------------------------------------------
+    # 5. Compare neighbor sets
+    # ----------------------------------------------------
     all_match = True
     for i in range(x.size(0)):
-
-        print(f"\n--- Node {i} ---")
+        print(f"\nNode {i}")
         print(f"custom_neighbors ({len(custom_neighbors[i])}): {sorted(custom_neighbors[i])}")
         print(f"official_neighbors ({len(official_neighbors[i])}): {sorted(official_neighbors[i])}")
 
         if custom_neighbors[i] != official_neighbors[i]:
             all_match = False
-            print(f"\nTest failed for node {i}:")
+            print(f"\nMismatch detected for node {i}")
 
             diff_in_custom = custom_neighbors[i] - official_neighbors[i]
             diff_in_official = official_neighbors[i] - custom_neighbors[i]
 
             if diff_in_custom:
-                print(f"  In custom but NOT in official: {[f'({i}, {d})' for d in sorted(diff_in_custom)]}")
+                print(f"In custom but not in official: {[f'({i}, {d})' for d in sorted(diff_in_custom)]}")
             if diff_in_official:
-                print(f"  In official but NOT in custom: {[f'({i}, {d})' for d in sorted(diff_in_official)]}")
+                print(f"In official but not in custom: {[f'({i}, {d})' for d in sorted(diff_in_official)]}")
 
-            print(f"\nDistances and batch IDs for custom_neighbors of node {i}:")
+            print("\nDistances and batch IDs for custom neighbors:")
             node_feat = x[i]
             for neighbor_idx in sorted(custom_neighbors[i]):
                 neighbor_feat = x[neighbor_idx]
@@ -757,9 +775,10 @@ def test_knn_function():
                 print(f"  Node {neighbor_idx}: Distance={distance:.4f}, Batch ID={batch_id}")
 
     if all_match:
-        print("\n? Test successful: custom_knn_batched and torch_cluster.knn produce matching neighbor sets.")
+        print("\nTest successful. The custom implementation and torch_cluster KNN produced matching results.")
     else:
-        raise AssertionError("\n? K-NN results do not match. See printed differences above.")
+        raise AssertionError("KNN results do not match. Please check the differences printed above.")
+
 
 
 def test_torch_cluster_knn(k: int = 5, num_nodes: int = 100, feature_dim: int = 16):

@@ -266,11 +266,7 @@ def train_model(cfg):
     eval_interval = cfg['train_segmentation']['eval_interval']
     sleep_time = cfg['train_segmentation']['sleep_time']
 
-    crop_prob = cfg['train_segmentation']['augmentation']['crop_prob']
-    crop_ratio = cfg['train_segmentation']['augmentation']['crop_ratio']
-    noise_prob = cfg['train_segmentation']['augmentation']['noise_prob']
-    noise_ratio = cfg['train_segmentation']['augmentation']['noise_ratio']
-
+    aug_params = cfg['train_segmentation']['augmentation']
     target_type = cfg['train_segmentation']['model']['target_type']
     num_workers = cfg['train_segmentation']['num_workers']
 
@@ -279,8 +275,7 @@ def train_model(cfg):
                                         class_map=data_class_map, image_size=image_size, output_mask_size=mask_size,
                                         target_type=target_type,
                                         cache_size=train_cache_size, cache_rate=train_cache_rate,
-                                        crop_prob=crop_prob, crop_ratio=crop_ratio, noise_prob=noise_prob,
-                                        noise_ratio=noise_ratio)
+                                        aug_params=aug_params)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
     # Create validation dataset and dataloader

@@ -197,103 +197,90 @@ class BoxRFDGCNN(torch.nn.Module):
                 torch.nn.LeakyReLU(inplace=True),
             )
 
-        # 2. DGNN 레이어
-        if conv_type == 'GCN':
-            for i in range(self.gcv_conv_num):
-                if i == 0:
-                    self.gcn_conv_list.append(GCNConv(hidden_dim, dgcn_dim))
-                else:
-                    self.gcn_conv_list.append(GCNConv(dgcn_dim, dgcn_dim))
-            self.dconv_out = torch.nn.Sequential(
-                torch.nn.BatchNorm1d(dgcn_dim * self.gcv_conv_num, affine=True),
-                torch.nn.Linear(dgcn_dim * self.gcv_conv_num, hidden_dim),
-                torch.nn.ReLU(inplace=True),
-            )
-        elif conv_type == 'GAT':
-            num_head = option['conv_option']['num_head']
-            for i in range(self.gcv_conv_num):
-                if i == 0:
-                    self.gcn_conv_list.append(GATConv(hidden_dim, dgcn_dim, heads=num_head))
-                else:
-                    self.gcn_conv_list.append(GATConv(dgcn_dim * num_head, dgcn_dim, heads=num_head))
+        # GNN layers --------------------------------------------------
+        if isinstance(conv_type, str):
+            conv_types = [conv_type] * self.gcv_conv_num
+        elif isinstance(conv_type, list):
+            assert len(conv_type) == self.gcv_conv_num, \
+                "Length of conv_type list must equal self.gcv_conv_num"
+            conv_types = conv_type
+        else:
+            raise ValueError("conv_type must be either str or list")
 
-            if self.gcn_conv_merge == 'DEEP':
-                self.dconv_out = torch.nn.Sequential(
-                    torch.nn.BatchNorm1d(dgcn_dim * num_head, affine=True),
-                    torch.nn.Linear(dgcn_dim * num_head, hidden_dim),
-                    torch.nn.ReLU(inplace=True),
-                )
-            else:
-                self.dconv_out = torch.nn.Sequential(
-                    torch.nn.BatchNorm1d(dgcn_dim * num_head * len(self.gcn_conv_list), affine=True),
-                    torch.nn.Linear(dgcn_dim * num_head * len(self.gcn_conv_list), hidden_dim),
-                    torch.nn.ReLU(inplace=True),
-                )
-        elif conv_type == 'NNConv':
-            edge_input_dim = 18
-            self.edge_nn_list = torch.nn.ModuleList()
+        for i, ctype in enumerate(conv_types):
+            if ctype == 'GCN':
+                # First layer uses hidden_dim, others use dgcn_dim
+                in_dim = hidden_dim if i == 0 else dgcn_dim
+                self.gcn_conv_list.append(GCNConv(in_dim, dgcn_dim))
 
-            for i in range(self.gcv_conv_num):
-                if i == 0:
-                    in_dim = hidden_dim
-                    out_dim = dgcn_dim
-                else:
-                    in_dim = dgcn_dim
-                    out_dim = dgcn_dim
+            elif ctype == 'GAT':
+                num_head = option['conv_option']['num_head']
+                in_dim = hidden_dim if i == 0 else dgcn_dim * num_head
+                self.gcn_conv_list.append(GATConv(in_dim, dgcn_dim, heads=num_head))
 
+            elif ctype == 'NNConv':
+                edge_input_dim = 18
+                in_dim = hidden_dim if i == 0 else dgcn_dim
+                out_dim = dgcn_dim
                 edge_nn = nn.Sequential(
                     nn.Linear(edge_input_dim, dgcn_dim),
                     nn.ReLU(),
                     nn.Linear(dgcn_dim, in_dim * out_dim)
                 )
-
                 self.edge_nn_list.append(edge_nn)
                 self.gcn_conv_list.append(NNConv(in_dim, out_dim, edge_nn, aggr=aggr))
 
-            if self.gcn_conv_merge == 'DEEP':
-                self.dconv_out = torch.nn.Sequential(
-                    torch.nn.BatchNorm1d(dgcn_dim * 2, affine=True),
-                    torch.nn.Linear(dgcn_dim * 2, hidden_dim),
-                    torch.nn.ReLU(inplace=True),
-                )
-            else:
-                self.dconv_out = torch.nn.Sequential(
-                    torch.nn.BatchNorm1d(dgcn_dim * self.gcv_conv_num, affine=True),
-                    torch.nn.Linear(dgcn_dim * self.gcv_conv_num, hidden_dim),
-                    torch.nn.ReLU(inplace=True),
-                )
-        elif conv_type == 'CustomDGC':
-            for i in range(self.gcv_conv_num):
+            elif ctype == 'CustomDGC':
                 if i == 0:
-                    self.gcn_conv_list.append(
-                        CustomDynamicEdgeConv(MLP([2 * hidden_dim, dgcn_dim, dgcn_dim, dgcn_dim]), self.nn_k, aggr,
-                                          nn_type=self.nn_type, onnx_export_flag=self.onnx_flag),
-                    )
+                    mlp = MLP([2 * hidden_dim, dgcn_dim, dgcn_dim, dgcn_dim])
                 else:
-                    self.gcn_conv_list.append(
-                        CustomDynamicEdgeConv(MLP([dgcn_dim * 2, dgcn_dim]), self.nn_k, aggr,
-                                              nn_type=self.nn_type, onnx_export_flag=self.onnx_flag)
+                    mlp = MLP([dgcn_dim * 2, dgcn_dim])
+                self.gcn_conv_list.append(
+                    CustomDynamicEdgeConv(
+                        mlp, self.nn_k, aggr,
+                        nn_type=self.nn_type, onnx_export_flag=self.onnx_flag
                     )
+                )
 
-            if self.gcn_conv_merge == 'DEEP':
-                self.dconv_out = torch.nn.Sequential(
-                    torch.nn.BatchNorm1d(dgcn_dim * 2, affine=True),
-                    torch.nn.Linear(dgcn_dim * 2, hidden_dim),
-                    torch.nn.ReLU(inplace=True),
-                )
             else:
-                self.dconv_out = torch.nn.Sequential(
-                    torch.nn.BatchNorm1d(dgcn_dim * self.gcv_conv_num, affine=True),
-                    torch.nn.Linear(dgcn_dim * self.gcv_conv_num, hidden_dim),
-                    torch.nn.ReLU(inplace=True),
-                )
-        else:
-            conv_out = dgcn_dim * 2
-            self.conv1 = DynamicEdgeConv(MLP([2 * hidden_dim, dgcn_dim, dgcn_dim, dgcn_dim]), self.nn_k, aggr)
-            self.conv2 = DynamicEdgeConv(MLP([conv_out, conv_out]), self.nn_k, aggr)
+                # Default case: DynamicEdgeConv
+                conv_out = dgcn_dim * 2
+                if i == 0:
+                    self.conv1 = DynamicEdgeConv(MLP([2 * hidden_dim, dgcn_dim, dgcn_dim, dgcn_dim]), self.nn_k, aggr)
+                else:
+                    self.conv2 = DynamicEdgeConv(MLP([conv_out, conv_out]), self.nn_k, aggr)
+
+            # Define dconv_out depending on merge strategy and conv_type
+            if isinstance(conv_type, str):
+                ctype = conv_type
+            else:
+                # If list, use the last conv_type for deciding output dimension
+                ctype = conv_types[-1]
+
+            if ctype == 'GCN':
+                out_dim = dgcn_dim * self.gcv_conv_num
+            elif ctype == 'GAT':
+                num_head = option['conv_option']['num_head']
+                if self.gcn_conv_merge == 'DEEP':
+                    out_dim = dgcn_dim * num_head
+                else:
+                    out_dim = dgcn_dim * num_head * len(self.gcn_conv_list)
+            elif ctype == 'NNConv':
+                if self.gcn_conv_merge == 'DEEP':
+                    out_dim = dgcn_dim * 2
+                else:
+                    out_dim = dgcn_dim * self.gcv_conv_num
+            elif ctype == 'CustomDGC':
+                if self.gcn_conv_merge == 'DEEP':
+                    out_dim = dgcn_dim
+                else:
+                    out_dim = dgcn_dim * self.gcv_conv_num
+            else:
+                out_dim = dgcn_dim * 3
+
             self.dconv_out = torch.nn.Sequential(
-                torch.nn.BatchNorm1d(dgcn_dim * 3, affine=True),
-                torch.nn.Linear(dgcn_dim * 3, hidden_dim),
+                torch.nn.BatchNorm1d(out_dim, affine=True),
+                torch.nn.Linear(out_dim, hidden_dim),
                 torch.nn.ReLU(inplace=True),
             )
 
@@ -373,59 +360,59 @@ class BoxRFDGCNN(torch.nn.Module):
             noise = torch.randn_like(fusion_feat) * sigma
             fusion_feat = fusion_feat + noise
 
-        # GNN 레이어 통과
         if batch is None:
             torch.zeros(bboxes.size(0), dtype=torch.long, device=bboxes.device)
 
+        # GNN layers --------------------------------------------------
+        # Default conv_type
         conv_type = 'DGC'
         if 'conv_type' in self.option:
             conv_type = self.option['conv_type']
 
-        if conv_type == 'DGC':
-            gcn_feat_1 = self.conv1(fusion_feat, batch)
-            gcn_feat_2 = self.conv2(gcn_feat_1, batch)
-            gcn_feat = self.dconv_out(torch.cat([gcn_feat_1, gcn_feat_2], dim=1))  # box_len*512
+        # Normalize conv_type to list
+        if isinstance(conv_type, str):
+            conv_types = [conv_type] * self.gcv_conv_num
+        elif isinstance(conv_type, list):
+            assert len(conv_type) == self.gcv_conv_num, \
+                "Length of conv_type list must equal self.gcv_conv_num"
+            conv_types = conv_type
+        else:
+            raise ValueError("conv_type must be either str or list")
 
-        elif conv_type == 'CustomDGC':
-            nn_bboxes = None
-            if self.nn_value == 'BBOX':
-                nn_bboxes = bboxes
-            elif self.nn_value == 'BBOX-FEAT':
-                nn_bboxes = box_feat
+        feat_list = []
+        x = fusion_feat
 
-            feat_list = []
-            x = fusion_feat
-            for gcn_idx, gcn_conv in enumerate(self.gcn_conv_list):
+        for gcn_idx, (ctype, gcn_conv) in enumerate(zip(conv_types, self.gcn_conv_list)):
+            if ctype == 'DGC':
+                if gcn_idx == 0:
+                    gcn_feat_1 = self.conv1(x, batch)
+                    x = gcn_feat_1
+                elif gcn_idx == 1:
+                    gcn_feat_2 = self.conv2(x, batch)
+                    x = gcn_feat_2
+                feat_list.append(x)
+
+            elif ctype == 'CustomDGC':
+                nn_bboxes = None
+                if self.nn_value == 'BBOX':
+                    nn_bboxes = bboxes
+                elif self.nn_value == 'BBOX-FEAT':
+                    nn_bboxes = box_feat
+
                 if self.use_local_nn:
                     x = gcn_conv(x, k, batch, bboxes=nn_bboxes, nn_index=edge_index)
                 else:
                     x = gcn_conv(x, k, batch, bboxes=nn_bboxes)
                 feat_list.append(x)
 
-            if self.gcn_conv_merge == 'DEEP':
-                gcn_feat = self.dconv_out(x)  # box_len*512
-            else:
-                gcn_feat = self.dconv_out(torch.cat(feat_list, dim=1))  # box_len*512
-
-        elif conv_type == 'NNConv':
-            feat_list = []
-            x = fusion_feat
-            for gcn_idx, gcn_conv in enumerate(self.gcn_conv_list):
+            elif ctype == 'NNConv':
                 if self.use_local_nn:
                     x = gcn_conv(x, edge_index, edge_attr)
                 else:
                     x = gcn_conv(x, edge_index, edge_attr)
                 feat_list.append(x)
 
-            if self.gcn_conv_merge == 'DEEP':
-                gcn_feat = self.dconv_out(x)  # box_len*512
-            else:
-                gcn_feat = self.dconv_out(torch.cat(feat_list, dim=1))  # box_len*512
-        else:
-            feat_list = []
-            x = fusion_feat
-
-            for gcn_conv in self.gcn_conv_list:
+            else:  # GCN, GAT, etc.
                 if self.use_local_nn:
                     local_edge_index = edge_index
                 else:
@@ -433,10 +420,11 @@ class BoxRFDGCNN(torch.nn.Module):
                 x = gcn_conv(x, local_edge_index)
                 feat_list.append(x)
 
-            if self.gcn_conv_merge == 'DEEP':
-                gcn_feat = self.dconv_out(x)  # box_len*512
-            else:
-                gcn_feat = self.dconv_out(torch.cat(feat_list, dim=1))
+        # Merge strategy
+        if self.gcn_conv_merge == 'DEEP':
+            gcn_feat = self.dconv_out(x)  # box_len*512
+        else:
+            gcn_feat = self.dconv_out(torch.cat(feat_list, dim=1))  # box_len*512
 
         # 노드 종류 예측
         node_feat = torch.maximum(fusion_feat, gcn_feat)

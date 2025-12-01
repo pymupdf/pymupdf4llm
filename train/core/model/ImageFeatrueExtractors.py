@@ -81,11 +81,11 @@ class UNetThin(nn.Module):
 
         # Decoder blocks
         # No more up_proj layers; we'll handle upsampling and fusion inside forward
-        self.dec6 = DSConvBlock(base_filters * 2, base_filters, use_sep=self.use_sep)
-        self.dec5 = DSConvBlock(base_filters * 2, base_filters, use_sep=self.use_sep)
-        self.dec4 = DSConvBlock(base_filters * 2, base_filters, use_sep=self.use_sep)
-        self.dec3 = DSConvBlock(base_filters * 2, base_filters, use_sep=self.use_sep)
-        self.dec2 = DSConvBlock(base_filters * 2, base_filters, use_sep=self.use_sep)
+        self.dec6 = DSConvBlock(base_filters * 2, base_filters, use_sep=False)
+        self.dec5 = DSConvBlock(base_filters * 2, base_filters, use_sep=False)
+        self.dec4 = DSConvBlock(base_filters * 2, base_filters, use_sep=False)
+        self.dec3 = DSConvBlock(base_filters * 2, base_filters, use_sep=False)
+        self.dec2 = DSConvBlock(base_filters * 2, base_filters, use_sep=False)
 
         # Segmentation head
         self.seg_norm = self._make_norm(base_filters)

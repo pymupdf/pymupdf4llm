@@ -209,14 +209,15 @@ class BoxRFDGNN:
         if self.feature_set_name not in ['imf', 'imf+rf']:
             raise "feature_set_name must be one of 'imf', 'imf+rf'"
 
-        if config_path is None or model_path is None or imf_model_path is None:
+        if config_path is None or model_path is None:
             if self.feature_set_name == 'imf':
-                config_path = f'{script_dir}/resources/onnx/layout_imf.yaml'
-                model_path = f'{script_dir}/resources/onnx/layout_imf.onnx'
+                config_path = f'{script_dir}/resources/onnx/layout_imf2.yaml'
+                model_path = f'{script_dir}/resources/onnx/layout_imf2.onnx'
             elif self.feature_set_name == 'imf+rf':
-                config_path = f'{script_dir}/resources/onnx/layout_imf+rf.yaml'
-                model_path = f'{script_dir}/resources/onnx/layout_imf+rf.onnx'
-            imf_model_path = f'{script_dir}/resources/onnx/feature_imf.onnx'
+                config_path = f'{script_dir}/resources/onnx/layout_imf2+rf2.yaml'
+                model_path = f'{script_dir}/resources/onnx/layout_imf2+rf2.onnx'
+        if imf_model_path is None:
+            imf_model_path = f'{script_dir}/resources/onnx/feature_imf2.onnx'
 
         self.config_path = config_path
         with open(self.config_path, "rb"

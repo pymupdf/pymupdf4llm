@@ -49,8 +49,15 @@ def get_crop_n_pad_image(img, target_size):
 
 
 def get_segmentation_data(img, pkl_data, pdf_boxes, input_size, output_mask_size,
-                             class_map, crop_prob, crop_ratio, noise_prob, noise_ratio):
+                             class_map, aug_params=None):
     src_h, src_w = img.shape[:2]
+
+    crop_prob = crop_ratio = noise_prob = noise_ratio = invert_prob = 0
+    if aug_params is not None:
+        crop_prob = aug_params['crop_prob']
+        crop_ratio = aug_params['crop_ratio']
+        noise_ratio = aug_params['noise_ratio']
+        invert_prob = aug_params['invert_prob']
 
     # --- Resize image according to input_size type ---
     if input_size['type'] == 'Fix':
@@ -284,6 +291,11 @@ def get_segmentation_data(img, pkl_data, pdf_boxes, input_size, output_mask_size
         mask_img_intermediate = mask_pkl_intermediate
 
     # ----------------------------------------------------------------------
+
+    # Invert image
+    if random.random() < invert_prob:
+        img_resized = 255 - img_resized
+
     # --- Apply random cropping augmentation ---
     if random.random() < crop_prob:
         min_ratio, max_ratio = crop_ratio
@@ -338,7 +350,7 @@ class DocumentJsonDataset(Dataset):
     - class_map: dict of {label_str: class_idx}  where class_idx in [0, num_cls-1]
     """
     def __init__(self, pkl_dir, pdf_dir, class_map, image_size, output_mask_size, target_type='segmentation',
-                 cache_size=0, cache_rate=0.0, crop_prob=0.0, crop_ratio=(0.0, 1.0), noise_prob=0.0, noise_ratio=0.0, pkl_prob=None):
+                 cache_size=0, cache_rate=0.0, aug_params=None, pkl_prob=None):
         super().__init__()
         self.cache_size = cache_size
         self.cache_rate = cache_rate
@@ -359,14 +371,12 @@ class DocumentJsonDataset(Dataset):
 
         self.pkl_file_list = []
         self.data_cache = []
-        self.crop_prob = crop_prob
-        self.crop_ratio = crop_ratio
-        self.noise_prob = noise_prob
-        self.noise_ratio = noise_ratio
+        self.aug_params = aug_params
 
         for path_idx, pkl_path in enumerate(pkl_dir):
             sub_list = []
-            for file_name in os.listdir(pkl_path):
+            file_list = os.listdir(pkl_path)
+            for file_name in file_list:
                 pkl_path = os.path.join(pkl_dir[path_idx], file_name)
                 pdf_path = None
                 for pdf_sub_dir in pdf_dir:
@@ -380,7 +390,7 @@ class DocumentJsonDataset(Dataset):
 
             worker_info = torch.utils.data.get_worker_info()
             if worker_info is None:
-                print('%s (%d samples)' % (pkl_path, len(sub_list)))
+                print('%s (%d samples)' % (pkl_dir[path_idx], len(sub_list)))
             else:
                 worker_id = worker_info.id
                 num_workers = worker_info.num_workers
@@ -561,7 +571,7 @@ class DocumentJsonDataset(Dataset):
 
         if self.target_type == 'segmentation':
             data = get_segmentation_data(cv_img, pkl_data, pdf_bboxes, self.image_size, self.output_mask_size, self.class_map,
-                                         self.crop_prob, self.crop_ratio, self.noise_prob, self.noise_ratio)
+                                         self.aug_params)
         elif self.target_type == 'reconstruction':
             data = self.get_reconstruction_data(cv_img)
         else:

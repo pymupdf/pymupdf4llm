@@ -1095,9 +1095,12 @@ def save_model_and_optimizer(model, optimizer, final_model_path):
         }, final_model_path)
 
 
-def load_model_and_optimizer(model, model_path, optimizer=None):
+import torch
+
+def load_model_and_optimizer(model, model_path, optimizer=None, verbose=True):
     """
     Loads model and optimizer from a file, automatically ignoring layers with mismatched shapes.
+    If verbose=True, prints which parameters were loaded and which were ignored.
     """
     data = torch.load(model_path, map_location=torch.device('cpu'))
 
@@ -1109,11 +1112,16 @@ def load_model_and_optimizer(model, model_path, optimizer=None):
 
     # Identify keys to ignore
     keys_to_ignore = []
+    keys_loaded = []
     for k, v in ckpt_state_dict.items():
-        if k in model_state_dict and model_state_dict[k].shape != v.shape:
-            print(f"Ignoring key '{k}' due to shape mismatch: "
-                  f"current shape {model_state_dict[k].shape} vs checkpoint shape {v.shape}")
-            keys_to_ignore.append(k)
+        if k in model_state_dict:
+            if model_state_dict[k].shape != v.shape:
+                if verbose:
+                    print(f"Ignoring key '{k}' due to shape mismatch: "
+                          f"current shape {model_state_dict[k].shape} vs checkpoint shape {v.shape}")
+                keys_to_ignore.append(k)
+            else:
+                keys_loaded.append(k)
 
     # Create a new state dict with only the matching keys
     filtered_state_dict = {
@@ -1123,25 +1131,38 @@ def load_model_and_optimizer(model, model_path, optimizer=None):
     # Load the filtered state dict
     try:
         model.load_state_dict(filtered_state_dict, strict=False)
-        print("Model loaded successfully, ignoring mismatched layers.")
+        if verbose:
+            print("Model loaded successfully, ignoring mismatched layers.")
+            print("\n=== Summary ===")
+            print("Loaded parameters:")
+            for k in keys_loaded:
+                print(f"  - {k}")
+            print("Ignored parameters:")
+            for k in keys_to_ignore:
+                print(f"  - {k}")
     except RuntimeError as ex:
         print(f"Error loading model state dict: {ex}")
 
+    # Load optimizer state dict if available
     try:
-        if optimizer is not None:
+        if optimizer is not None and 'optimizer_state_dict' in data:
             optimizer.load_state_dict(data['optimizer_state_dict'])
+            if verbose:
+                print("Optimizer state dict loaded successfully.")
     except Exception as ex:
         print(f'Error loading optimizer state dict: {ex}')
 
 
 def safe_max_aggregation(message: torch.Tensor, index: torch.Tensor, num_nodes: int) -> torch.Tensor:
-    E, F = message.size()
-    out = torch.full((num_nodes, F), float('-inf'), device=message.device, dtype=message.dtype)
-    for i in range(E):
-        node_idx = index[i]
-        out[node_idx] = torch.maximum(out[node_idx], message[i])
-    out = torch.where(out == float('-inf'), torch.zeros_like(out), out)
+    E, F = message.shape
+
+    index_expanded = index.unsqueeze(1).expand(-1, F)
+    out = torch.zeros(num_nodes, F, device=message.device, dtype=message.dtype)
+    out = out.scatter_reduce(0, index_expanded, message, reduce="amax")
+
+    out = torch.nan_to_num(out, nan=0.0, neginf=0.0)
     return out
+
 
 def softmax_aggregation(x, out, target_nodes, num_features, num_nodes, message):
     expanded_index = target_nodes.unsqueeze(1).expand(-1, num_features)  # [E] -> [E, F]
@@ -1286,6 +1307,43 @@ def custom_knn_batched_onnx(x: Tensor, k: int, batch: Optional[Tensor] = None, m
         return torch.empty(2, 0, dtype=torch.long, device=device)
 
     return edge_indices
+
+
+# kNN implementation with onnx export compatibility
+def custom_knn_batched_onnx2(x: torch.Tensor, k: int, batch: torch.Tensor):
+    """
+    Deterministic kNN fully compatible with ONNX.
+    Uses argsort and epsilon tie-breaking to ensure identical PyTorch and ONNX results.
+    """
+    N, D = x.shape
+
+    # Compute pairwise distance in float32
+    x_square = (x * x).sum(dim=1, keepdim=True)   # (N,1)
+    dist = x_square - 2 * x @ x.T + x_square.T    # (N,N)
+
+    # Mask cross-batch distances
+    mask = (batch.view(N, 1) != batch.view(1, N))
+    dist = dist.masked_fill(mask, 1e12)
+
+    # Mask self-distances
+    idxs = torch.arange(N, device=x.device)
+    eye = (idxs.unsqueeze(0) == idxs.unsqueeze(1))
+    dist = dist.masked_fill(eye, 1e12)
+
+    # Tie-breaking to enforce deterministic ordering
+    # Small epsilon based on row and column index
+    epsilon = 1e-6
+    dist = dist + idxs.view(1, N) * epsilon + idxs.view(N, 1) * epsilon * 1e-3
+
+    # Deterministic neighbor selection using argsort
+    sorted_idx = torch.argsort(dist, dim=1)      # ascending order
+    knn_idx = sorted_idx[:, :k]                  # first k neighbors
+
+    src = torch.arange(N, device=x.device).repeat_interleave(k)
+    tgt = knn_idx.reshape(-1)
+    edge_index = torch.stack([src, tgt], dim=0)
+
+    return edge_index.long()
 
 
 def custom_around_box_batched(x: Tensor, gap: float, batch: Optional[Tensor] = None) -> Tensor:

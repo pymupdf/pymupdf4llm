@@ -163,8 +163,7 @@ def get_picture_clusters(page):
     return page.cluster_drawings(drawings=filtered_paths)
 
 
-def extract_rf_features(data_dict, page):
-    stext_page = page.get_textpage()
+def extract_rf_features(data_dict, stext_page):
     for row_idx, bbox in enumerate(data_dict['bboxes']):
         region = pymupdf.mupdf.FzRect(bbox[0], bbox[1], bbox[2], bbox[3])
         features = rf_features.fz_features_for_region(stext_page, region, 0)
@@ -422,7 +421,16 @@ def create_input_data_from_page(page, input_type=('text',), max_image_num=500, m
         custom_feature['is_vector'] = is_hline_vector + is_vline_vector  # old name
         data_dict['custom_features'].append(custom_feature)
 
-    extract_rf_features(data_dict, page)
+    stext_flags = (
+            0
+            | pymupdf.TEXT_PRESERVE_WHITESPACE
+            | pymupdf.TEXT_PRESERVE_LIGATURES
+            | pymupdf.TEXT_INHIBIT_SPACES
+            | pymupdf.TEXT_ACCURATE_BBOXES
+            | pymupdf.TEXT_COLLECT_VECTORS
+    )
+    stext_page = page.get_textpage(flags=stext_flags)
+    extract_rf_features(data_dict, stext_page)
 
     for row_idx in range(len(data_dict['bboxes'])):
         data_dict['custom_features'][row_idx]['box_type'] = box_type[row_idx]

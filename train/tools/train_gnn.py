@@ -15,7 +15,11 @@ import pymupdf
 import numpy as np
 import multiprocessing as mp
 
+import torch.distributed as dist
+
 from torch_geometric.loader import DataLoader as GeometricDataLoader
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score
 
@@ -43,7 +47,7 @@ def calculate_f1_scores(node_preds, node_targets, edge_preds, edge_targets):
     return node_f1, edge_f1
 
 
-def evaluate_model(model, dataloader, node_criterion, edge_criterion, device):
+def evaluate_model(cfg, model, dataloader, node_criterion, edge_criterion, device):
     """
     Evaluates the model's performance on a given dataset.
 
@@ -57,9 +61,6 @@ def evaluate_model(model, dataloader, node_criterion, edge_criterion, device):
     Returns:
         A tuple containing average losses and F1 scores.
     """
-    with open('train/cfgs/config.yaml', "rb") as f:
-        cfg = anyconfig.load(f)
-
     model.eval()  # Set the model to evaluation mode
     val_node_preds = []
     val_node_targets = []
@@ -117,6 +118,7 @@ def evaluate_model(model, dataloader, node_criterion, edge_criterion, device):
     avg_val_node_loss = val_total_node_loss / len(dataloader)
     avg_val_edge_loss = val_total_edge_loss / len(dataloader)
 
+    model.train()
     return avg_val_loss, avg_val_node_loss, avg_val_edge_loss, node_f1, edge_f1
 
 def update_ema_weights(model, ema_model, decay):
@@ -136,7 +138,10 @@ def copy_ema_to_model(model, ema_model):
         for model_param, ema_param in zip(model.parameters(), ema_model.parameters()):
             model_param.copy_(ema_param)
 
-def train(cfg):
+
+def train(cfg, rank=0, world_size=1):
+    is_ddp_training = world_size > 1
+
     device = cfg['train']['device']
     save_dir = cfg['train']['save_dir']
     load_from = cfg['train']['load_from']
@@ -149,6 +154,18 @@ def train(cfg):
     num_epoch = cfg['train']['num_epoch']
     ema_decay = cfg['train']['ema_decay']
     gradient_clip_norm = cfg['train']['gradient_clip_norm']
+
+    # Init DDP
+    if torch.cuda.is_available():
+        device_id = rank % torch.cuda.device_count()
+        device = torch.device(f"cuda:{device_id}")
+    else:
+        device = torch.device('cpu')
+
+    if is_ddp_training:
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+        if rank == 0:
+            print(f"Initialized DDP on Rank {rank}, using device {device}")
 
     auto_restart_lr = None
     auto_restart_step = None
@@ -207,13 +224,22 @@ def train(cfg):
     else:
         raise Exception(f'Invalid train_dataset_type = {train_dataset_type}')
 
-    train_dataloader = GeometricDataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=0,
-                                           persistent_workers=False, drop_last=True)
+    # For DDP training
+    if is_ddp_training:
+        sampler = DistributedSampler(train_data, num_replicas=world_size, rank=rank, shuffle=True)
+        shuffle_flag = False
+        train_dataloader = GeometricDataLoader(train_data, batch_size=train_batch_size,
+                                               sampler=sampler, shuffle=shuffle_flag,
+                                               num_workers=0, persistent_workers=False, drop_last=True)
+    # For normal training
+    else:
+        train_dataloader = GeometricDataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=0,
+                                               persistent_workers=False, drop_last=True)
 
     if val_dataset_type == 'json':
         val_json_path = cfg['train']['val_dataset']['json_path']
         val_data = DocumentJsonDataset(data_path=val_json_path, k=sample_k, class_map=data_class_map, is_train=True)
-    elif train_dataset_type == 'lmdb':
+    elif val_dataset_type == 'lmdb':
         val_data = DocumentLMDBDataset(lmdb_path=val_lmdb_path, cache_size=0,
                                        rf_names=data_rf_names)
     else:
@@ -233,21 +259,24 @@ def train(cfg):
         with open(f'{save_dir2}/model.yaml', "w") as f:
             anyconfig.dump(model_cfg, f)
 
-    model = get_model(cfg, data_class_names)
-    model = model.to(device)
+    model_0 = get_model(cfg, data_class_names)
+    model_0 = model_0.to(device)
+    if is_ddp_training:
+        model_0 = DDP(model_0, device_ids=[device_id], output_device=device_id)
 
-    print_network(model, verbose=True)
+    model_to_use = model_0.module if is_ddp_training else model_0
+    print_network(model_to_use, verbose=True)
 
     opt_type = cfg['train']['optimizer']['type']
     lr = float(cfg['train']['optimizer']['learning_rate'])
 
     if opt_type == 'SGD':
         momentum = float(cfg['train']['optimizer']['momentum'])
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+        optimizer = torch.optim.SGD(model_0.parameters(), lr=lr, momentum=momentum)
     elif opt_type == 'Adam':
         betas = cfg['train']['optimizer']['betas']
         weight_decay = float(cfg['train']['optimizer']['weight_decay'])
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr,  weight_decay=weight_decay, betas=betas)
+        optimizer = torch.optim.Adam(model_0.parameters(), lr=lr,  weight_decay=weight_decay, betas=betas)
     else:
         raise Exception(f'Invalid optimizer type = {opt_type}!')
 
@@ -258,10 +287,10 @@ def train(cfg):
             opt = optimizer
 
         # Load the state dictionary with strict=False
-        load_model_and_optimizer(model, load_from, optimizer=opt)
+        load_model_and_optimizer(model_to_use, load_from, optimizer=opt)
         print("Model loaded successfully!")
 
-    ema_model = copy.deepcopy(model)
+    ema_model = copy.deepcopy(model_to_use)
     ema_model.eval()
 
     scheduler = None
@@ -312,11 +341,13 @@ def train(cfg):
     base_lr = 1e-6
     target_lr = 1e-4
 
-    # TensorBoard writer
-    log_dir = os.path.join(save_dir, "tf_logs")
-    writer = SummaryWriter(log_dir=log_dir)
+    # TensorBoard writer (only on rank 0)
+    writer = None
+    if rank == 0:
+        log_dir = os.path.join(save_dir, "tf_logs")
+        writer = SummaryWriter(log_dir=log_dir)
 
-    model.train()
+    model_to_use.train()
     num_step = 0
     print("--- Training Start ---")
     # --------------------------------------------
@@ -334,6 +365,9 @@ def train(cfg):
 
     import time
     for epoch in range(num_epoch):
+        if is_ddp_training:
+            train_dataloader.sampler.set_epoch(epoch)
+
         optimizer.zero_grad()
         for batch_idx, batch in enumerate(train_dataloader):
             num_step += 1
@@ -350,7 +384,7 @@ def train(cfg):
             data_load_time = time.time() - start_time
 
             start_time = time.time()
-            node_logits, edge_logits = model.forward_with_batch(batch)
+            node_logits, edge_logits = model_to_use.forward_with_batch(batch)
 
             if node_loss_type == 'focal':
                 soft_max = torch.nn.Softmax(dim=-1)
@@ -362,17 +396,26 @@ def train(cfg):
             node_loss = node_criterion(node_logits, batch.y)
             edge_loss = edge_criterion(edge_logits, batch.edge_label)
 
+            # ignore nan-loss
+            if torch.isnan(node_loss).any() or torch.isnan(edge_loss).any():
+                continue
+
             if train_loss_weight is not None:
                 total_loss = (train_loss_weight[0] * node_loss) + (train_loss_weight[1] * edge_loss)
             else:
-                loss_weight = float((edge_loss / node_loss).cpu())
+                try:
+                    if is_ddp_training and rank != 0:
+                        loss_weight = torch.tensor(1.0).to(device)
+                    else:
+                        loss_weight = (edge_loss / node_loss).clone().detach()
+                    if is_ddp_training:
+                        dist.broadcast(loss_weight.data, src=0)
+                    loss_weight = float(loss_weight.cpu())
+                except Exception:  # Handle division by zero/nan
+                    loss_weight = torch.tensor(1.0).to(device)
                 total_loss = loss_weight * node_loss + edge_loss
 
             forward_time = time.time() - start_time
-
-            # ignore nan-loss
-            if torch.isnan(total_loss).any():
-                continue
 
             start_time = time.time()
             total_loss.backward()
@@ -382,10 +425,10 @@ def train(cfg):
 
             # ----------- Gradient Norm Clipping -----------
             # Apply gradient clipping to stabilize training
-            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
+            torch.nn.utils.clip_grad_norm_(model_0.parameters(), gradient_clip_norm)
 
             # Update EMA model weights after the main model has been updated
-            update_ema_weights(model, ema_model, ema_decay)
+            update_ema_weights(model_to_use, ema_model, ema_decay)
 
             if scheduler is not None:
                 scheduler.step()
@@ -395,59 +438,70 @@ def train(cfg):
 
             current_lr = optimizer.param_groups[0]["lr"]
             if num_step % log_step == 0:
-                print(f'Epoch: {epoch}, Step: {num_step}, LR: {current_lr:.4e}, '
-                      f'Loss: {total_loss:.4f}, Node Loss: {node_loss:.4f}, Edge Loss: {edge_loss:.4f}')
+                if is_ddp_training:
+                    prefix = f'[{rank+1}/{world_size}] '
+                else:
+                    prefix = ''
+
+                print(f'{prefix}Epoch: {epoch},  Step: {num_step}, LR: {current_lr:.4e}, Loss: {total_loss:.4f} '
+                      f'Node Loss: {node_loss:.4f}, Edge Loss: {edge_loss:.4f}')
                 # print(f'[Timing] Data Load: {data_load_time:.4f}s | Forward: {forward_time:.4f}s | Backward: {backward_time:.4f}s')
-                writer.add_scalar("train/lr", current_lr, num_step)
-                writer.add_scalar("train/total_loss", total_loss, num_step)
-                writer.add_scalar("train/node_loss", node_loss, num_step)
-                writer.add_scalar("train/edge_loss", edge_loss, num_step)
+                if writer is not None:
+                    writer.add_scalar("train/lr", current_lr, num_step)
+                    writer.add_scalar("train/total_loss", total_loss, num_step)
+                    writer.add_scalar("train/node_loss", node_loss, num_step)
+                    writer.add_scalar("train/edge_loss", edge_loss, num_step)
 
-            if num_step > 0 and num_step % eval_step == 0:
-                copy_ema_to_model(model, ema_model)
-                avg_val_loss, avg_val_node_loss, avg_val_edge_loss, node_f1, edge_f1 = \
-                    evaluate_model(model, val_dataloader, node_criterion, edge_criterion, device)
-
-                print(f'Validation: Step: {num_step} ({batch_idx}/{len(train_dataloader)}), '
-                      f'Val Loss: {avg_val_loss:.4f}, Val Node Loss: {avg_val_node_loss:.4f}, Val Edge Loss: {avg_val_edge_loss:.4f}, '
-                      f'Node F1: {node_f1:.4f}, Edge F1: {edge_f1:.4f}')
-
-                avg_f1 = (node_f1 + edge_f1) / 2
-                final_model_path = os.path.join(save_dir,
-                                                f"0.0000_{avg_f1:.4f}_step_{num_step}_lr_{current_lr:.2e}_"
-                                                f"node_{node_f1:.4f}_edge_{edge_f1:.4f}.pt")
-                save_model_and_optimizer(model, optimizer, final_model_path)
-                print(f"Final model saved to: {final_model_path}")
-                writer.add_scalar("val/loss", avg_val_loss, num_step)
-                writer.add_scalar("val/Avg-F1", avg_f1, num_step)
-                writer.add_scalar("val/Node-F1", node_f1, num_step)
-                writer.add_scalar("val/Edge-F1", edge_f1, num_step)
-
-                # Optional validation dataset
-                if val_dataloader2 is not None:
+            if rank == 0:
+                if num_step > 0 and num_step % eval_step == 0:
+                    copy_ema_to_model(model_to_use, ema_model)
                     avg_val_loss, avg_val_node_loss, avg_val_edge_loss, node_f1, edge_f1 = \
-                        evaluate_model(model, val_dataloader2, node_criterion, edge_criterion, device)
+                        evaluate_model(cfg, model_to_use, val_dataloader, node_criterion, edge_criterion, device)
 
                     print(f'Validation: Step: {num_step} ({batch_idx}/{len(train_dataloader)}), '
                           f'Val Loss: {avg_val_loss:.4f}, Val Node Loss: {avg_val_node_loss:.4f}, Val Edge Loss: {avg_val_edge_loss:.4f}, '
                           f'Node F1: {node_f1:.4f}, Edge F1: {edge_f1:.4f}')
 
                     avg_f1 = (node_f1 + edge_f1) / 2
-                    final_model_path = os.path.join(save_dir2,
+                    final_model_path = os.path.join(save_dir,
                                                     f"0.0000_{avg_f1:.4f}_step_{num_step}_lr_{current_lr:.2e}_"
                                                     f"node_{node_f1:.4f}_edge_{edge_f1:.4f}.pt")
-                    save_model_and_optimizer(model, None, final_model_path)
+                    save_model_and_optimizer(model_to_use, optimizer, final_model_path)
+                    print(f"Final model saved to: {final_model_path}")
+                    writer.add_scalar("val/loss", avg_val_loss, num_step)
+                    writer.add_scalar("val/Avg-F1", avg_f1, num_step)
+                    writer.add_scalar("val/Node-F1", node_f1, num_step)
+                    writer.add_scalar("val/Edge-F1", edge_f1, num_step)
 
-                model.train()
+                    # Optional validation dataset
+                    if val_dataloader2 is not None:
+                        avg_val_loss, avg_val_node_loss, avg_val_edge_loss, node_f1, edge_f1 = \
+                            evaluate_model(cfg, model_to_use, val_dataloader2, node_criterion, edge_criterion, device)
 
-            if num_step > 0 and num_step % save_step == 0:
-                copy_ema_to_model(model, ema_model)
-                final_model_path = os.path.join(save_dir, "latest_save_point.pt")
-                save_model_and_optimizer(model, optimizer, final_model_path)
+                        print(f'Validation: Step: {num_step} ({batch_idx}/{len(train_dataloader)}), '
+                              f'Val Loss: {avg_val_loss:.4f}, Val Node Loss: {avg_val_node_loss:.4f}, Val Edge Loss: {avg_val_edge_loss:.4f}, '
+                              f'Node F1: {node_f1:.4f}, Edge F1: {edge_f1:.4f}')
+
+                        avg_f1 = (node_f1 + edge_f1) / 2
+                        final_model_path = os.path.join(save_dir2,
+                                                        f"0.0000_{avg_f1:.4f}_step_{num_step}_lr_{current_lr:.2e}_"
+                                                        f"node_{node_f1:.4f}_edge_{edge_f1:.4f}.pt")
+                        save_model_and_optimizer(model_to_use, None, final_model_path)
+
+
+                if num_step > 0 and num_step % save_step == 0:
+                    copy_ema_to_model(model_to_use, ema_model)
+                    final_model_path = os.path.join(save_dir, "latest_save_point.pt")
+                    save_model_and_optimizer(model_to_use, optimizer, final_model_path)
+
+            # Synchronization after rank 0 operations
+            if is_ddp_training:
+                dist.barrier()
 
             # --------------------------------------------
             # Auto-Restart Phase Transition
             # --------------------------------------------
+            best_file = None
             if auto_restart_lr is not None and auto_restart_step is not None:
                 if steps_in_phase >= auto_restart_step[restart_index]:
                     print(f"[Auto-Restart] Phase {restart_index} finished after {steps_in_phase} steps.")
@@ -459,9 +513,6 @@ def train(cfg):
 
                     for fname in os.listdir(save_dir):
                         if not fname.endswith(".pt"):
-                            continue
-                        # Only include files starting with "0.0000"
-                        if not fname.startswith("0.0000"):
                             continue
                         if f"lr_{target_lr:.2e}" not in fname:
                             continue
@@ -479,8 +530,8 @@ def train(cfg):
 
                     if best_file is not None:
                         print(f"[Auto-Restart] Loading best checkpoint {best_file} (F1={best_f1:.4f})")
-                        load_model_and_optimizer(model, best_file, optimizer=None)
-                        ema_model = copy.deepcopy(model)
+                        load_model_and_optimizer(model_to_use, best_file, optimizer=None)
+                        ema_model = copy.deepcopy(model_to_use)
                         ema_model.eval()
                         used_restart_files.add(best_file)
 
@@ -488,13 +539,32 @@ def train(cfg):
                     restart_index = (restart_index + 1) % len(auto_restart_lr)
                     steps_in_phase = 0
                     target_lr = float(auto_restart_lr[restart_index])
-                    # for g in optimizer.param_groups:
-                    #     g['lr'] = float(target_lr)
+                    set_lr(optimizer, target_lr)
                     print(
                         f"[Auto-Restart] Switched to LR={auto_restart_lr[restart_index]} for {auto_restart_step[restart_index]} steps")
 
+                if is_ddp_training:
+                    # Broadcast the new phase information (especially the loaded weights)
+                    dist.barrier()
+
+                    # Need to explicitly load the state dict on non-rank 0 if a checkpoint was loaded by rank 0
+                    if rank != 0 and best_file is not None:
+                        # Since all ranks hit the barrier, load the model now
+                        load_model_and_optimizer(model_to_use, best_file, optimizer=None)
+                        ema_model = copy.deepcopy(model_to_use)
+                        ema_model.eval()
+
                 if sleep_time > 0:
                     time.sleep(sleep_time)
+
+    # --------------------------------------------
+    # 6. Cleanup
+    # --------------------------------------------
+    if is_ddp_training:
+        if rank == 0 and writer:
+            writer.close()
+        dist.destroy_process_group()
+
 
 def calculate_class_balance():
     train_lmdb_path = cfg['train']['train_dataset']['lmdb_path']
@@ -535,10 +605,10 @@ def calculate_class_balance():
     calculate_balance(edge_count)
 
 
-def safe_train(cfg, max_retries=1000, wait_sec=5):
+def safe_train(cfg, max_retries=1000, wait_sec=60):
     for attempt in range(1, max_retries + 1):
         print(f"[INFO] Attempt {attempt} to run training...")
-        proc = mp.Process(target=train, args=(cfg,))
+        proc = mp.Process(target=train, args=(cfg, 0, 1))
         proc.start()
         proc.join()
 
@@ -552,164 +622,10 @@ def safe_train(cfg, max_retries=1000, wait_sec=5):
         print("[ERROR] Training failed after maximum retries.")
 
 
-
-def robins_features_extraction(feature_path, pdf_dir, filename, rect_list):
-    import tempfile
-    import subprocess
-
-    fd, path = tempfile.mkstemp()
-    try:
-        with os.fdopen(fd, 'w') as tmp:
-            tmp.write("PDF,page,x0,y0,x1,y1,class,score,order\n")
-            n = 0
-            for r in rect_list:
-                line = f'{filename},0,{r[0]},{r[1]},{r[2]},{r[3]},0,0,{n}'
-                n = n + 1
-                tmp.write(line + '\n')
-        command = '%s -d "%s" "%s"' % (feature_path, pdf_dir, path)
-        result = subprocess.run(command, text=True, capture_output=True, shell=True)
-        if result.returncode:
-            print('Command failed:\n' + command + '\n')
-        lines = result.stdout.splitlines()
-        feature_rect_list = []
-        feature_header = []
-
-        for line_idx, line in enumerate(lines):
-            if line_idx == 0:
-                feature_header = line.split(',')
-                continue
-            features = []
-            for x in line.split(','):
-                features.append(x)
-            feature_rect_list.append(features)
-        return feature_header, feature_rect_list
-    except Exception as ex:
-        print('%s: %s' % (filename, ex))
-    finally:
-        os.remove(path)
-    return None, None
-
-
-def create_pdf_input_data(features_path, pdf_path):
-    data_dict = {
-        'bboxes': [],
-        'text': [],
-        'custom_features': []
-    }
-    box_type = []
-
-    doc = pymupdf.open(pdf_path)
-    page = doc[0]
-
-    rects = [itm["bbox"] for itm in page.get_image_info()]
-    for rect in rects:
-        x1 = max(0, rect[0])
-        y1 = max(0, rect[1])
-        x2 = max(0, rect[2])
-        y2 = max(0, rect[3])
-        data_dict['bboxes'].append([x1, y1, x2, y2])
-        data_dict['text'].append('')
-        box_type.append('image')
-
-    paths = [
-        p for p in page.get_drawings() if p["rect"].width > 3 and p["rect"].height > 3
-    ]
-    vector_rects = page.cluster_drawings(drawings=paths)
-    for vrect in vector_rects:
-        x1 = vrect[0]
-        y1 = vrect[1]
-        x2 = vrect[2]
-        y2 = vrect[3]
-        data_dict['bboxes'].append([x1, y1, x2, y2])
-        data_dict['text'].append('')
-        box_type.append('vector')
-
-    blocks = page.get_text("dict", flags=11)["blocks"]
-    for block in blocks:
-        for line in block["lines"]:
-            x1 = line['bbox'][0]
-            y1 = line['bbox'][1]
-            x2 = line['bbox'][2]
-            y2 = line['bbox'][3]
-
-            txt = []
-            for span in line['spans']:
-                txt.append(span['text'])
-            txt = ' '.join(txt).strip()
-            data_dict['bboxes'].append([x1, y1, x2, y2])
-            data_dict['text'].append(txt)
-            box_type.append('line')
-
-    pdf_dir = os.path.dirname(pdf_path)
-    file_name = os.path.basename(pdf_path)
-    rb_feat_name, rb_feat_value = robins_features_extraction(features_path, pdf_dir, file_name, data_dict['bboxes'])
-
-    for row_idx in range(len(rb_feat_value)):
-        custom_feature = {}
-        for f_idx, f_name in enumerate(rb_feat_name):
-            if f_idx < 9:
-                continue
-            custom_feature[f_name] = rb_feat_value[row_idx][f_idx]
-        custom_feature['is_vector'] = box_type[row_idx] == 'vector'
-        custom_feature['is_line'] = box_type[row_idx] == 'text'
-        custom_feature['is_image'] = box_type[row_idx] == 'image'
-        data_dict['custom_features'].append(custom_feature)
-
-    return data_dict
-
-
-def make_train_data_pymupdf(cfg):
-    pdf_dir = cfg['make_train_data_pymupdf']['pdf_dir']
-    pkl_dir = cfg['make_train_data_pymupdf']['pkl_dir']
-    save_dir = cfg['make_train_data_pymupdf']['save_dir']
-    features_path = cfg['make_train_data_pymupdf']['features_path']
-
-    os.makedirs(save_dir, exist_ok=True)
-
-    for file_idx, file_name in enumerate(os.listdir(pkl_dir)):
-        pkl_file = f'{pkl_dir}/{file_name}'
-        with open(pkl_file, 'rb') as f:
-            compressed_pickle = f.read()
-        depressed_pickle = blosc.decompress(compressed_pickle)
-        pkl_data = pickle.loads(depressed_pickle)
-        cv_img = cv2.imdecode(pkl_data['jpeg'], cv2.IMREAD_COLOR)
-
-        pdf_path = f'{pdf_dir}/{file_name[:-4]}.pdf'
-        pdf_data = create_pdf_input_data(features_path, pdf_path)
-
-        doc = pymupdf.open(pdf_path)
-        page = doc[0]
-
-        pix = page.get_pixmap()
-        bytes = np.frombuffer(pix.samples, dtype=np.uint8)
-        page_img = bytes.reshape(pix.height, pix.width, pix.n)
-        page_img = cv2.cvtColor(page_img, cv2.COLOR_BGR2RGB)
-
-        gt_label = pkl_data['label']
-        for ant_idx, ant in enumerate(gt_label):
-            x1 = ant[0] * (page_img.shape[1] / cv_img.shape[1])
-            y1 = ant[1] * (page_img.shape[0] / cv_img.shape[0])
-            x2 = ant[2] * (page_img.shape[1] / cv_img.shape[1])
-            y2 = ant[3] * (page_img.shape[0] / cv_img.shape[0])
-
-            cv2.putText(page_img, ant[-1], (int(x1), int(y1)), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 0), 1)
-            cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 1)
-
-            ant[0] = x1
-            ant[1] = y1
-            ant[2] = x2
-            ant[3] = y2
-
-        bboxes = pdf_data['bboxes']
-        for bbox_idx, bbox in enumerate(bboxes):
-            x1 = bbox[0]
-            y1 = bbox[1]
-            x2 = bbox[2]
-            y2 = bbox[3]
-            cv2.rectangle(page_img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 1)
-
-        cv2.imshow('Page', page_img)
-        cv2.waitKey()
+def is_ddp_run():
+    """Checks if the script is being run in a Distributed Data Parallel environment."""
+    # The essential DDP environment variables set by torchrun/torch.distributed.launch
+    return 'RANK' in os.environ and 'WORLD_SIZE' in os.environ
 
 
 if __name__ == '__main__':
@@ -724,12 +640,23 @@ if __name__ == '__main__':
     with open(config_path, "rb") as f:
         cfg = anyconfig.load(f)
 
+    if is_ddp_run():
+        print("Distributed Data Parallel environment detected. Launching DDP training.")
+        rank = int(os.environ['RANK'])
+        world_size = int(os.environ['WORLD_SIZE'])
+        print(f'RANK={rank}, WORLD_SIZE={world_size}')
+    else:
+        rank = 0
+        world_size = 1
+
+    # Original logic for single-process tasks
     task_name = cfg['train_task_name']
     if task_name == 'train':
-        train(cfg)
+        train(cfg, rank, world_size)
     elif task_name == 'safe_train':
         safe_train(cfg)
-    elif task_name == 'make_train_data_pymupdf':
-        make_train_data_pymupdf(cfg)
     elif task_name == 'calculate_class_balance':
         calculate_class_balance()
+    else:
+        print(f"Error: Unknown task_name '{task_name}' in config.")
+        sys.exit(1)

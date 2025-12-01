@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import time
 import traceback
 import hashlib
 
@@ -155,6 +156,11 @@ class DocumentJsonDataset(Dataset):
                     self.filepath_list.append(json_path)
                     self.filename_list.append(file_name)
 
+        pairs = sorted(zip(self.filename_list, self.filepath_list))
+        self.filename_list, self.filepath_list = zip(*pairs)
+        self.filename_list = list(self.filename_list)
+        self.filepath_list = list(self.filepath_list)
+
     def len(self):
         return len(self.filepath_list)
 
@@ -244,6 +250,7 @@ class DocumentJsonDataset(Dataset):
         is_main_process = worker_info is None or worker_info.id == 0
 
         while True:
+            st_time = time.time()
             json_path = self.filepath_list[idx]
 
             # Normal json file
@@ -418,7 +425,7 @@ class DocumentJsonDataset(Dataset):
                         'file_name': self.filename_list[idx],
                         'text_patterns': text_patterns,
                         'image_features': image_feature,
-                        'custom_features': data_dict['custom_features']
+                        'custom_features': data_dict['custom_features'],
                     }
 
                     if self.opt_save_type is not None and 'image' in self.opt_save_type:
@@ -478,6 +485,7 @@ class DocumentJsonDataset(Dataset):
                     idx = np.random.randint(0, self.cache_size)
                     self.data_cache[idx] = data
 
+            data.raw_data['process_time'] = time.time() - st_time
             assert data.x.shape[0] == data.y.shape[0]
             return data
 
