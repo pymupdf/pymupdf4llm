@@ -6,6 +6,7 @@ While other tools train machine learning models on rendered page images, PyMuPDF
 
 [![License PolyForm Noncommercial](https://img.shields.io/badge/license-Polyform_Noncommercial-purple)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 [![Python version](https://img.shields.io/badge/python-3.11+-blue)](https://pypi.org/project/pymupdf-layout/) [![Docs](https://img.shields.io/badge/docs-RTD-green)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+[![Discord](https://img.shields.io/discord/770681584617652264?color=6A7EC2&logo=discord&logoColor=ffffff)](https://discord.gg/ppTFv8uJ46)
 
 ## Features
 
