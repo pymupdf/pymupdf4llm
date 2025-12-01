@@ -11,6 +11,8 @@
 #include <stdio.h>
 
 /* #define DEBUG_CHARS */
+/* #define DEBUG_RAFT */
+/* #define DEBUG_RAFT_AS_PS */
 
 #define MAX_MARGIN 50
 
@@ -290,14 +292,46 @@ overlap_or_abut(fz_rect r, fz_rect s)
 	return (r.x1 >= s.x0 - FUDGE && r.x0 <= s.x1 + FUDGE && r.y1 >= s.y0 - FUDGE && r.y0 <= s.y1 + FUDGE);
 }
 
+#ifdef DEBUG_RAFT
+static void
+verify(fz_context *ctx, flotilla_t *f)
+{
+	int i, j;
+
+	printf("Dump: len=%d\n", f->len);
+	for (i = 0; i < f->len; i++)
+	{
+		printf("%d: %g %g %g %g\n", i, f->rafts[i].area.x0, f->rafts[i].area.y0, f->rafts[i].area.x1, f->rafts[i].area.y1);
+	}
+
+	for (i = 0; i < f->len-1; i++)
+	{
+		for (j = i+1; j < f->len; j++)
+		{
+			if (overlap_or_abut(f->rafts[i].area, f->rafts[j].area))
+			{
+				printf("%d and %d overlap!\n", i, j);
+				assert(i == j);
+			}
+		}
+	}
+}
+#endif
+
 static void
 add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
 {
 	int i, j;
 	int overlaps = -1;
 
+#ifdef DEBUG_RAFT
+	verify(ctx, f);
+
+	printf("%g %g %g %g\n", rect.x0, rect.y0, rect.x1, rect.y1);
+#endif
+
 	/* Does the plank extend any of the existing rafts? */
-	for (i = 0; i < f->len; i++)
+	for (i = f->len-1; i >= 0; i--)
 	{
 		if (overlap_or_abut(rect, f->rafts[i].area))
 		{
@@ -309,46 +343,72 @@ add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
 				r.y1 == f->rafts[i].area.y1)
 			{
 				/* We were entirely contained. Nothing more to do. */
+#ifdef DEBUG_RAFT
+				printf("Contained\n");
+#endif
 				return;
 			}
 			f->rafts[i].area = r;
+#ifdef DEBUG_RAFT
+			printf("Overlap %d -> %g %g %g %g\n", i, r.x0, r.y0, r.x1, r.y1);
+#endif
 			break;
 		}
 	}
 
-	if (i < f->len)
+	if (i >= 0)
 	{
 		/* We've extended raft[i]. We now need to check if any other raft overlaps
 		 * with the extended one. */
-		for (j = 0; j < i; j++)
+
+		/* But our new one might have bridged between two (or more!) existing rafts. */
+		/* Unfortunately, if we bridge between 2 rafts, that new larger raft might now
+		 * intersect with more rafts. So we need to repeatedly scan. */
+		while (1)
 		{
-			if (overlap_or_abut(f->rafts[j].area, f->rafts[i].area))
+			int changed = 0;
+
+			for (j = f->len-1; j > i; j--)
 			{
-				/* Update raft j to be the union of the two. */
-				f->rafts[j].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
-				/* Shorten the list by moving the end one down to be the ith one. */
-				f->len--;
-				if (i != f->len)
-					f->rafts[i] = f->rafts[f->len];
-				/* And make i = j, to a) stop the loop, and b) reflect that the one we
-				 * want to merge to has moved. */
-				i = j;
-			}
-		}
-		for (j = i+1; j < f->len; j++)
-		{
-			if (overlap_or_abut(f->rafts[j].area, f->rafts[i].area))
-			{
-				/* Update raft i to be the union of the two. */
-				f->rafts[i].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
-				/* Shorten the list by moving the end one down to be the jth one. */
-				if (j != f->len)
+				if (overlap_or_abut(f->rafts[j].area, f->rafts[i].area))
 				{
+					/* Update raft i to be the union of the two. */
+					f->rafts[i].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
+#ifdef DEBUG_RAFT
+					printf("Bridge %d -> %g %g %g %g\n", j, f->rafts[i].area.x0, f->rafts[i].area.y0, f->rafts[i].area.x1, f->rafts[i].area.y1);
+#endif
+					/* Shorten the list by moving the end one down to be the ith one. */
 					f->len--;
-					f->rafts[j] = f->rafts[f->len];
-					j--;
+					if (j != f->len)
+					{
+						f->rafts[j] = f->rafts[f->len];
+					}
+					changed = 1;
 				}
 			}
+
+			for (j = i-1; j >= 0; j--)
+			{
+				if (overlap_or_abut(f->rafts[j].area, f->rafts[i].area))
+				{
+					/* Update raft j to be the union of the two. */
+					f->rafts[j].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
+#ifdef DEBUG_RAFT
+					printf("Bridge %d -> %g %g %g %g\n", j, f->rafts[j].area.x0, f->rafts[j].area.y0, f->rafts[j].area.x1, f->rafts[j].area.y1);
+#endif
+					/* Shorten the list by moving the end one down to be the ith one. */
+					f->len--;
+					if (i != f->len)
+					{
+						f->rafts[i] = f->rafts[f->len];
+						i = j;
+					}
+					changed = 1;
+				}
+			}
+
+			if (!changed)
+				break;
 		}
 	}
 	else
@@ -1320,6 +1380,28 @@ process_raft_features(fz_context *ctx, fz_rect region, fz_features *features)
 	}
 }
 
+#ifdef DEBUG_RAFT_AS_PS
+static void
+dump_flotilla_as_ps(fz_context *ctx, flotilla_t *f, int col)
+{
+	int i;
+
+	fz_write_printf(ctx, fz_stddbg(ctx), "%g %g %g setrgbcolor\n0 setlinewidth\n",
+		(col & 0xFF)/255.0f,
+		((col>>8) & 0xFF)/255.0f,
+		((col>>16) & 0xFF)/255.0f);
+
+	for (i = 0; i < f->len; i++)
+	{
+		fz_rect *r = &f->rafts[i].area;
+		fz_write_printf(ctx, fz_stddbg(ctx), "%g %g moveto %g %g lineto %g %g lineto %g %g lineto closepath stroke\n",
+			r->x0, r->y0, r->x0, r->y1, r->x1, r->y1, r->x1, r->y0);
+	}
+
+	fz_write_printf(ctx, fz_stddbg(ctx), "showpage\n");
+}
+#endif
+
 
 #if FZ_VERSION_MAJOR > 1 || (FZ_VERSION_MAJOR == 1 && FZ_VERSION_MINOR >= 27)
     #define STEXT_PAGE_IS_REFERENCE_COUNTED
@@ -1333,7 +1415,7 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 	fz_var(features);
 
 	features = fz_malloc_struct(ctx, fz_features);
-    #ifdef STEXT_PAGE_IS_REFERENCE_COUNTED
+	#ifdef STEXT_PAGE_IS_REFERENCE_COUNTED
 		features->page = fz_keep_stext_page(ctx, page);
 	#else
 		features->page = page;
@@ -1345,6 +1427,10 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 		/* Collect global stats */
 		gather_global_stats(ctx, features->page->first_block, features);
 		process_global_font_stats(ctx, features->page->mediabox, features);
+#ifdef DEBUG_RAFT_AS_PS
+		dump_flotilla_as_ps(ctx, features->vector_flotilla, 0);
+#endif
+
 	}
 	fz_catch(ctx)
 	{
