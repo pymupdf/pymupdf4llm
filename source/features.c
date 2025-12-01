@@ -277,6 +277,19 @@ add_raft_to_flotilla(fz_context *ctx, flotilla_t *f, raft_t r)
 	f->rafts[f->len++] = r;
 }
 
+/* Without FUDGE this would be equivalent to:
+ * fz_is_valid_rect(fz_intersect_rect(r, s))
+ * but faster.
+ *
+ * With FUDGE it is slightly forgiving to allow for FP inaccuracies.
+ */
+ #define FUDGE 0.1
+static int
+overlap_or_abut(fz_rect r, fz_rect s)
+{
+	return (r.x1 >= s.x0 - FUDGE && r.x0 <= s.x1 + FUDGE && r.y1 >= s.y0 - FUDGE && r.y0 <= s.y1 + FUDGE);
+}
+
 static void
 add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
 {
@@ -286,7 +299,7 @@ add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
 	/* Does the plank extend any of the existing rafts? */
 	for (i = 0; i < f->len; i++)
 	{
-		if (fz_is_valid_rect(fz_intersect_rect(rect, f->rafts[i].area)))
+		if (overlap_or_abut(rect, f->rafts[i].area))
 		{
 			/* We overlap. */
 			fz_rect r = fz_union_rect(f->rafts[i].area, rect);
@@ -309,7 +322,7 @@ add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
 		 * with the extended one. */
 		for (j = 0; j < i; j++)
 		{
-			if (fz_is_valid_rect(fz_intersect_rect(f->rafts[j].area, f->rafts[i].area)))
+			if (overlap_or_abut(f->rafts[j].area, f->rafts[i].area))
 			{
 				/* Update raft j to be the union of the two. */
 				f->rafts[j].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
@@ -324,7 +337,7 @@ add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
 		}
 		for (j = i+1; j < f->len; j++)
 		{
-			if (fz_is_valid_rect(fz_intersect_rect(f->rafts[j].area, f->rafts[i].area)))
+			if (overlap_or_abut(f->rafts[j].area, f->rafts[i].area))
 			{
 				/* Update raft i to be the union of the two. */
 				f->rafts[i].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
