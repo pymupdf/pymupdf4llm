@@ -59,7 +59,7 @@ def print_rf_features(pdf_path):
     print(f'Elapsed Time : {time.time() - st_time:.2f} sec')
 
 
-def test_layout_model(pdf_path):
+def _test_layout_model(pdf_path):
     import pymupdf.layout.DocumentLayoutAnalyzer as DocumentLayoutAnalyzer
     from pymupdf.layout.pymupdf_util import create_input_data_from_page
 
@@ -102,6 +102,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.mode == 'show':
-        test_layout_model(args.file)
+        _test_layout_model(args.file)
     elif args.mode == 'print_rf':
         print_rf_features(args.file)
