@@ -9,7 +9,7 @@
 ### Other Changes:
 
 * New parameter `table_format` in method `to_text()` (PyMuPDF-Layout only). This allows selecting the appearance of tables in plain text outputs. The possible values are defined in the list `tabulate.tabulate_formats`. Default is "grid".
-* Installaing PyMuPDF4LLM now supports including all optional dependencies in the `pip` command: `pip install --update pymupdf4llm[ocr,layout]`. This will install pymupdf4llm, pymupdf, and pymupdf-layout. The "ocr" parameter - when needed - installs opencv-python for automatic OCR support in PyMuPDF-Layout mode. Combine this with parameters `--update`, `--force-reinstall` or `--no-cache-dir` as necessary.
+* Installing PyMuPDF4LLM now supports including all optional dependencies in the `pip` command: `pip install --upgrade pymupdf4llm[ocr,layout]`. This will install pymupdf4llm, pymupdf, and pymupdf-layout. The "ocr" parameter - when needed - installs opencv-python for automatic OCR support in PyMuPDF-Layout mode. Combine this with parameters `--upgrade`, `--force-reinstall` or `--no-cache-dir` as necessary.
 * Major rework of the heuristics that determine whether a page should be OCR'd.
 
 ------
