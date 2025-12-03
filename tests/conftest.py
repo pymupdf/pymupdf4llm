@@ -12,7 +12,7 @@ import pytest
 #
 def install_required_packages():
     packages = 'pymupdf4llm'
-    command = f'pip install --upgrade {packages}'
+    command = f'pip install {packages}'
     print(f'{__file__}:install_required_packages)(): Running: {command}', flush=1)
     subprocess.run(command, shell=1, check=1)
 
