@@ -142,6 +142,9 @@ def _test_activate(call_activate, install_opencv):
     '''
     Check that things work in same way regardless of whether we call
     pymupdf.layout.activate() or whether opencv-python is installed.
+    
+    Note that this uninstalls/installs pymupdf4llm using pip, which might mess
+    up testing if one is using a specific pymupdf4llm version.
     '''
     print(f'### _test_activate(): {call_activate=} {install_opencv=}.', flush=1)
     subprocess.run(f'pip uninstall -y opencv-python', shell=1, check=1)
