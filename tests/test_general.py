@@ -144,7 +144,7 @@ def _test_activate(call_activate, install_opencv):
     pymupdf.layout.activate() or whether opencv-python is installed.
     '''
     print(f'### _test_activate(): {call_activate=} {install_opencv=}.', flush=1)
-    subprocess.run(f'pip uninstall opencv-python', shell=1, check=1)
+    subprocess.run(f'pip uninstall -y opencv-python', shell=1, check=1)
     subprocess.run(f'pip install pymupdf4llm', shell=1, check=1)
     if install_opencv:
         subprocess.run(f'pip install opencv-python', shell=1, check=1)
