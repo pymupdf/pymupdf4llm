@@ -58,6 +58,7 @@ The SEC requires natural gas and oil companies, in filings made with the SEC, to
 |Third Quarter|74.00|31.15|35.86|
 |Second Quarter|68.10|45.25|65.96|
 |First Quarter|49.87|34.42|46.15|
+
 **----- End of picture text -----**<br>
 
 
