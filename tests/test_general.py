@@ -187,3 +187,20 @@ def test_show_build_info():
     print(f'{pymupdf.layout.platform_python_implementation=}')
     print(f'{pymupdf.layout.version=}')
     print(f'{pymupdf.layout.version_tuple=}')
+
+def test_92():
+    subprocess.run(f'pip install opencv-python pymupdf4llm', shell=1, check=1)
+    import pymupdf4llm
+    path = os.path.normpath(f'{__file__}/../../tests/test_92.pdf')
+    with pymupdf.open(path) as document:
+        e = None
+        try:
+            md = pymupdf4llm.to_markdown(document)
+        except Exception as ee:
+            e = ee
+        print()
+        print(f'pymupdf4llm.to_markdown() returned {e=}.')
+        if pymupdf4llm.version_tuple < (0, 2, 6):
+            assert e, f'Did not get expected exception, {pymupdf4llm.version_tuple=}.'
+        else:
+            assert not e, f'Unexpected exception from pymupdf4llm.to_markdown(), {pymupdf4llm.version_tuple=}: {e}'
