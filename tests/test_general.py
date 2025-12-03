@@ -181,12 +181,29 @@ def test_activate_no_opencv():
 def test_activate_yes_opencv():
     _test_activate(1, 1)
 
+
 def test_show_build_info():
     print()
-    print(f'{pymupdf.layout.git_sha=}')
-    print(f'{pymupdf.layout.platform_python_implementation=}')
-    print(f'{pymupdf.layout.version=}')
-    print(f'{pymupdf.layout.version_tuple=}')
+    # Get pymupdf.layout version with importlib because it is only present in
+    # >=1.26.7.
+    import importlib
+    layout_version = importlib.metadata.version('pymupdf.layout')
+    print(f'{layout_version=}')
+    layout_version_tuple = tuple([int(i) for i in layout_version.split('.')])
+    print(f'{layout_version_tuple=}')
+    if layout_version_tuple >= (1, 26, 7):
+        # Everything should be present.
+        print(f'{pymupdf.layout.git_sha=}')
+        print(f'{pymupdf.layout.platform_python_implementation=}')
+        print(f'{pymupdf.layout.version=}')
+        print(f'{pymupdf.layout.version_tuple=}')
+    else:
+        # Don't fail if fields are not present.
+        print(f'{getattr(pymupdf.layout, "git_sha")=}')
+        print(f'{getattr(pymupdf.layout, "platform_python_implementation")=}')
+        print(f'{getattr(pymupdf.layout, "version")=}')
+        print(f'{getattr(pymupdf.layout, "version_tuple")=}')
+
 
 def test_92():
     subprocess.run(f'pip install opencv-python pymupdf4llm', shell=1, check=1)
