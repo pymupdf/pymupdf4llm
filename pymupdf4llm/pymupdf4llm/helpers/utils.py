@@ -258,6 +258,10 @@ def clean_tables(page, blocks):
             l for b in blocks if b["type"] == 0 for l in b["lines"] if l["bbox"] in bbox
         ]
         y_vals0 = sorted(set(round(l["bbox"][3]) for l in lines))
+        if not y_vals0:
+            # no text lines in the table bbox
+            page.layout_information[i][4] = "table-fallback"
+            continue
         y_vals = [y_vals0[0]]
         for y in y_vals0[1:]:
             if y - y_vals[-1] > 3:
