@@ -101,7 +101,7 @@ def get_raw_lines(
             ):
                 continue  # no joining
             # We need to join bbox and text of two consecutive spans
-            # On occasion, spans may also be duplicated.
+            # Sometimes, spans may also be duplicated.
             if s0["text"] != s1["text"] or s0["bbox"] != s1["bbox"]:
                 s0["text"] += s1["text"]
             s0["bbox"] |= s1["bbox"]  # join boundary boxes
@@ -131,7 +131,8 @@ def get_raw_lines(
                 continue
             for sno, s in enumerate(line["spans"]):  # the numered spans
                 sbbox = pymupdf.Rect(s["bbox"])  # span bbox as a Rect
-                if is_white(s["text"]):  # ignore white text
+                if is_white(s["text"]):
+                    # ignore white text if not a Type3 font
                     continue
                 # Ignore invisible text. Type 3 font text is never invisible.
                 if (

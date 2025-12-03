@@ -548,7 +548,7 @@ def fallback_text_to_md(textlines, ignore_code: bool = False, clip=None):
     for tl in textlines:
         ltext = "|" + "|".join([s["text"].strip() for s in tl["spans"]]) + "|\n"
         output += ltext
-    output += "**----- End of picture text -----**<br>\n"
+    output += "\n**----- End of picture text -----**<br>\n"
     return output + "\n\n"
 
 
@@ -631,7 +631,7 @@ class ParsedDocument:
                     continue
 
                 # pictures and formulas: either write image file or embed
-                if btype in ("picture", "formula", "fallback"):
+                if btype in ("picture", "formula", "table-fallback"):
                     if isinstance(box.image, str):
                         output += GRAPHICS_TEXT % box.image + "\n\n"
                     elif isinstance(box.image, bytes):
@@ -650,7 +650,7 @@ class ParsedDocument:
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
-                        elif btype == "fallback":
+                        elif btype == "table-fallback":
                             output += fallback_text_to_md(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
@@ -741,7 +741,7 @@ class ParsedDocument:
                     continue
                 if btype == "page-footer" and footer is False:
                     continue
-                if btype in ("picture", "formula", "fallback"):
+                if btype in ("picture", "formula", "table-fallback"):
                     output += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
                     if box.textlines:
                         if btype == "picture":
@@ -750,7 +750,7 @@ class ParsedDocument:
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
-                        elif btype == "fallback":
+                        elif btype == "table-fallback":
                             output += fallback_text_to_text(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
@@ -1018,7 +1018,7 @@ def parse_document(
 
                 except Exception as e:
                     # print(f"table detection error '{e}' on page {page.number+1}")
-                    layoutbox.boxclass = "fallback"
+                    layoutbox.boxclass = "table-fallback"
                     # table structure not detected: treat like an image
                     if document.embed_images or document.write_images:
                         pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)

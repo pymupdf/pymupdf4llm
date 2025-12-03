@@ -1,5 +1,16 @@
 # Change Log
 
+## Changes in version 0.2.6
+
+### Fixes:
+
+* [Forum](https://forum.mupdf.com/t/bug-pymupdf4llm-list-index-out-of-range-in-document-layout-py-2/216) - List index out of range ...
+
+### Other Changes:
+
+
+------
+
 ## Changes in version 0.2.5
 
 ### Fixes:
