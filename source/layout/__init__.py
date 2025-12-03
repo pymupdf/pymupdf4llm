@@ -2,6 +2,11 @@ from . import DocumentLayoutAnalyzer
 from . import onnx
 from . import pymupdf_util
 
+from ._build import git_sha
+from ._build import platform_python_implementation
+from ._build import version
+from ._build import version_tuple
+
 import pymupdf
 
 

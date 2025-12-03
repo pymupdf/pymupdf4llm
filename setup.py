@@ -161,9 +161,16 @@ def build():
             )
     
     # Create text for _layout_build.py with build-time information.
+    def int_or_0(text):
+        try:
+            return int(text)
+        except Exception:
+            return 0
     build_py = ''
     sha, comment, diff, branch = pipcl.git_info(g_root)
+    version_tuple = tuple(int_or_0(i) for i in g_version.split('.'))
     build_py += f'version = {g_version!r}\n'
+    build_py += f'version_tuple = {version_tuple!r}\n'
     build_py += f'git_sha = {sha!r}\n'
     build_py += f'platform_python_implementation = {platform.python_implementation()!r}\n'
     # Don't show details.
@@ -177,7 +184,7 @@ def build():
     ret = [
             (f'{build_dir}/features.py', to_dir),
             (f'{build_dir}/{sharedlibrary_leaf}', to_dir),
-            (build_py.encode(), f'{to_dir}_features_build.py'),
+            (build_py.encode(), f'{to_dir}layout/_build.py'),
             ]
     for p in pipcl.git_items(f'{g_root}/source/layout'):
         ret.append( (f'{g_root}/source/layout/{p}', f'{to_dir}layout/{p}'))

@@ -177,3 +177,10 @@ def test_activate_no_opencv():
 
 def test_activate_yes_opencv():
     _test_activate(1, 1)
+
+def test_show_build_info():
+    print()
+    print(f'{pymupdf.layout.git_sha=}')
+    print(f'{pymupdf.layout.platform_python_implementation=}')
+    print(f'{pymupdf.layout.version=}')
+    print(f'{pymupdf.layout.version_tuple=}')
