@@ -27,8 +27,8 @@ jobs:
         os: [
                 ubuntu-latest,
                 windows-2022,
-                macos-13,
                 macos-14,
+                macos-15-intel,
                 ]
         args: [
             '',
@@ -42,6 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
       - name: multiple
         env:
           PYMUPDF_LAYOUT_test_args: ${{inputs.args}}

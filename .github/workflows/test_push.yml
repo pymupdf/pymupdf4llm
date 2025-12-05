@@ -1,0 +1,50 @@
+name: test push
+
+on:
+  pull_request:
+    branches: [master]
+
+  workflow_dispatch:
+    inputs:
+      args:
+        default: ''
+        description: 'Arguments to be passed to scripts/test_push.py.'
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+                ubuntu-latest,
+                windows-2022,
+                macos-13,
+                macos-14,
+                ]
+
+      # Avoid cancelling of all runs after a single failure.
+      fail-fast: false
+
+    steps:
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
+
+      - name: test
+        run: |
+          pip install pytest
+
+          # Use current pymupdf release.
+          pip install -v pymupdf
+
+          # Use latest pymupdf and mupdf in git.
+          #git clone https://github.com/pymupdf/PyMuPDF.git
+          #'PYMUPDF_SETUP_MUPDF_BUILD=git:--branch master' pip install -v ./PyMuPDF
+
+          # Build, install and test local pymupdf_layout.
+          pip install -v ./
+          python -m pytest -v tests

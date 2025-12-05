@@ -3,6 +3,7 @@ import glob
 import os
 import sys
 import textwrap
+import subprocess
 import time
 
 sys.path.insert(0, os.path.abspath(f'{__file__}/../..'))
@@ -135,3 +136,88 @@ def test_competitor_examples():
                 with open(expected_path, 'w', errors='backslashreplace') as f:
                     f.write(md)
                 print(f'test_competitor_examples(): have written to {expected_path=}.')
+
+
+def _test_activate(call_activate, install_opencv):
+    '''
+    Check that things work in same way regardless of whether we call
+    pymupdf.layout.activate() or whether opencv-python is installed.
+    
+    Note that this uninstalls/installs pymupdf4llm using pip, which might mess
+    up testing if one is using a specific pymupdf4llm version.
+    '''
+    print(f'### _test_activate(): {call_activate=} {install_opencv=}.', flush=1)
+    subprocess.run(f'pip uninstall -y opencv-python', shell=1, check=1)
+    subprocess.run(f'pip install pymupdf4llm', shell=1, check=1)
+    if install_opencv:
+        subprocess.run(f'pip install opencv-python', shell=1, check=1)
+    try:
+        # We run a separate python script so we can control imports etc.
+        argv0 = os.path.normpath(f'{__file__}/../../tests/activate.py')
+        md_path_expected = os.path.normpath(f'{__file__}/../../tests/test_activate_expected.md')
+        md_path_out = os.path.normpath(f'{__file__}/../../tests/test_activate_{call_activate}_out.md')
+        if os.path.isfile(md_path_out):
+            os.remove(md_path_out)
+        subprocess.run(f'{sys.executable} {argv0} {call_activate} {md_path_out}', shell=1, check=1)
+        with open(md_path_out, encoding='utf8') as f:
+            md = f.read()
+        with open(md_path_expected, encoding='utf8') as f:
+            md_expected = f.read()
+        assert md == md_expected
+    finally:
+        cp = subprocess.run(f'pip uninstall -y pymupdf4llm opencv-python', shell=1, check=1)
+
+
+def test_activate_no():
+    _test_activate(0, 0)
+
+def test_activate_yes():
+    _test_activate(1, 0)
+    
+
+def test_activate_no_opencv():
+    _test_activate(0, 1)
+
+def test_activate_yes_opencv():
+    _test_activate(1, 1)
+
+
+def test_show_build_info():
+    print()
+    # Get pymupdf.layout version with importlib because it is only present in
+    # >=1.26.7.
+    import importlib
+    layout_version = importlib.metadata.version('pymupdf.layout')
+    print(f'{layout_version=}')
+    layout_version_tuple = tuple([int(i) for i in layout_version.split('.')])
+    print(f'{layout_version_tuple=}')
+    if layout_version_tuple >= (1, 26, 7):
+        # Everything should be present.
+        print(f'{pymupdf.layout.git_sha=}')
+        print(f'{pymupdf.layout.platform_python_implementation=}')
+        print(f'{pymupdf.layout.version=}')
+        print(f'{pymupdf.layout.version_tuple=}')
+    else:
+        # Don't fail if fields are not present.
+        print(f'{getattr(pymupdf.layout, "git_sha")=}')
+        print(f'{getattr(pymupdf.layout, "platform_python_implementation")=}')
+        print(f'{getattr(pymupdf.layout, "version")=}')
+        print(f'{getattr(pymupdf.layout, "version_tuple")=}')
+
+
+def test_92():
+    subprocess.run(f'pip install opencv-python pymupdf4llm', shell=1, check=1)
+    import pymupdf4llm
+    path = os.path.normpath(f'{__file__}/../../tests/test_92.pdf')
+    with pymupdf.open(path) as document:
+        e = None
+        try:
+            md = pymupdf4llm.to_markdown(document)
+        except Exception as ee:
+            e = ee
+        print()
+        print(f'pymupdf4llm.to_markdown() returned {e=}.')
+        if pymupdf4llm.version_tuple < (0, 2, 6):
+            assert e, f'Did not get expected exception, {pymupdf4llm.version_tuple=}.'
+        else:
+            assert not e, f'Unexpected exception from pymupdf4llm.to_markdown(), {pymupdf4llm.version_tuple=}: {e}'

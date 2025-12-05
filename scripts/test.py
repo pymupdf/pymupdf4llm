@@ -272,7 +272,13 @@ def main():
                     pipcl.run(f'pip install -v {pymupdf_wheel}', env_extra=env_extra)
                 else:
                     pipcl.run(f'pip install -v {pymupdf}', env_extra=env_extra, prefix=f'## pip install pymupdf/: ')
-                pipcl.run(f'pip install -v -U swig', env_extra=env_extra, prefix=f'## pip install swig: ')
+                
+                # Need to install swig ourselves because we are going to
+                # use `pip --no-build-isolation` so pip will not call
+                # setup.py:get_requires_for_build_wheel() etc.
+                swig_version = '==4.3.1' if pipcl.darwin() else ''
+                pipcl.run(f'pip install -v -U swig{swig_version}', env_extra=env_extra, prefix=f'## pip install swig: ')
+                
                 # Tell our setup.py not to return pymupdf from
                 # sce/setup.py:get_requires_for_build_wheel(), or specify it as
                 # runtime requirement in <requires_dist>.
