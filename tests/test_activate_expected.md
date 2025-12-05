@@ -24,7 +24,9 @@ PricewaterhouseCoopers LLP 6120 South Yale, Suite 1850 Tulsa, OK 74136 (918) 524
 
 Communication concerning the transfer of shares, lost certificates, duplicate mailings or change of address notifications should be directed to our transfer agent: Computershare Trust Company, N.A. 250 Royall Street Canton, MA 02021 (800) 884-4225 www.computershare.com 
 
-**Trustee for the Company’s Senior Notes** The Bank of New York Mellon Trust Company, N.A. 101 Barclay Street, 8th Floor New York, NY 10286 www.bnymellon.com 
+## **Trustee for the Company’s Senior Notes** 
+
+The Bank of New York Mellon Trust Company, N.A. 101 Barclay Street, 8th Floor New York, NY 10286 www.bnymellon.com 
 
 ## **Forward-looking Statements** 
 
