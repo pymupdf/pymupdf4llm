@@ -1,5 +1,17 @@
 # Change Log
 
+## Changes in version 0.2.7
+
+### Fixes:
+
+* [323](https://github.com/pymupdf/pymupdf4llm/issues/323) - `page_chunks=True` parameter was ignored in PyMuPDF-Layout mode
+
+### Other Changes:
+
+* Methods `to_markdown()` / `to_text()` now both support Page chunk output via parameter `page_chunks=True`.
+
+------
+
 ## Changes in version 0.2.6
 
 ### Fixes:

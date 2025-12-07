@@ -43,9 +43,14 @@ from dataclasses import dataclass
 
 import pymupdf
 from pymupdf import mupdf
-from pymupdf4llm.helpers.get_text_lines import get_raw_lines, is_white
+from pymupdf4llm.helpers.get_text_lines import get_raw_lines
 from pymupdf4llm.helpers.multi_column import column_boxes
-from pymupdf4llm.helpers.utils import BULLETS, REPLACEMENT_CHARACTER, startswith_bullet
+from pymupdf4llm.helpers.utils import (
+    BULLETS,
+    REPLACEMENT_CHARACTER,
+    startswith_bullet,
+    is_white,
+)
 
 try:
     from tqdm import tqdm as ProgressBar

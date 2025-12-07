@@ -147,6 +147,7 @@ else:
         ocr_dpi=400,
         use_ocr=True,
         table_format="grid",
+        page_chunks=False,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -166,6 +167,7 @@ else:
             ignore_code=ignore_code,
             show_progress=show_progress,
             table_format=table_format,
+            page_chunks=page_chunks,
         )
 
 

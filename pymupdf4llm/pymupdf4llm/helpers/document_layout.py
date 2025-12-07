@@ -2,7 +2,9 @@ import base64
 import io
 import json
 import os
+import math
 from dataclasses import dataclass
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -30,7 +32,6 @@ pymupdf.TOOLS.unset_quad_corrections(True)
 
 INFO_MESSAGES = io.StringIO()
 GRAPHICS_TEXT = "\n![](%s)\n"
-CHECK_OCR_TEXT = {"ignore-text"}
 OCR_FONTNAME = "GlyphLessFont"  # if encountered do not use "code" style
 FLAGS = (
     0
@@ -41,6 +42,40 @@ FLAGS = (
     | pymupdf.TEXT_MEDIABOX_CLIP
 )
 BULLETS = tuple(utils.BULLETS)
+
+
+def make_page_chunk(doc, page, text) -> Dict:
+    """Create a page chunk dictionary for output.
+
+    Args:
+        doc: the ParsedDocument object
+        page: the PageLayout object
+        text: the page text string
+
+    Returns:
+        dict: page chunk dictionary
+    """
+    chunk = defaultdict(lambda: None)
+    page_tocs = [t for t in doc.toc if t[-1] == page.page_number]
+    chunk["metadata"] = doc.metadata | {
+        "file_path": doc.filename,
+        "page_count": doc.page_count,
+        "page_number": page.page_number,
+    }
+
+    chunk["toc_items"] = page_tocs
+    chunk["page_boxes"] = [
+        (
+            math.floor(b.x0),
+            math.floor(b.y0),
+            math.ceil(b.x1),
+            math.ceil(b.y1),
+            b.boxclass,
+        )
+        for b in page.boxes
+    ]
+    chunk["text"] = text
+    return chunk
 
 
 def omit_if_pua_char(text):
@@ -594,7 +629,7 @@ class ParsedDocument:
     image_dpi: int = 150  # image resolution
     image_format: str = "png"  # 'png' or 'jpg'
     image_path: str = ""  # path to save images
-    use_ocr: bool = True  # whether to invoke OCR if beneficial
+    use_ocr: bool = True  # if beneficial invoke OCR
 
     def to_markdown(
         self,
@@ -605,18 +640,24 @@ class ParsedDocument:
         ignore_code: bool = False,
         show_progress: bool = False,
         page_separators: bool = False,
+        page_chunks: bool = False,
         **kwargs,
-    ) -> str:
+    ) -> Union[str, List[Dict]]:
         """
         Serialize ParsedDocument to markdown text.
         """
-        output = ""
+        if page_chunks:
+            document_output = []
+        else:
+            document_output = ""
+
         if show_progress and len(self.pages) > 5:
             print(f"Generating markdown text...")
             this_iterator = ProgressBar(self.pages)
         else:
             this_iterator = self.pages
         for page in this_iterator:
+            md_string = ""
             # Make a mapping: box number -> list item hierarchy level
             list_item_levels = create_list_item_levels(page.boxes)
 
@@ -633,25 +674,25 @@ class ParsedDocument:
                 # pictures and formulas: either write image file or embed
                 if btype in ("picture", "formula", "table-fallback"):
                     if isinstance(box.image, str):
-                        output += GRAPHICS_TEXT % box.image + "\n\n"
+                        md_string += GRAPHICS_TEXT % box.image + "\n\n"
                     elif isinstance(box.image, bytes):
                         # make a base64 encoded string of the image
                         data = base64.b64encode(box.image).decode()
                         data = f"data:image/{self.image_format};base64," + data
-                        output += GRAPHICS_TEXT % data + "\n\n"
+                        md_string += GRAPHICS_TEXT % data + "\n\n"
                     else:
-                        output += f"**==> picture [{clip.width} x {clip.height}] intentionally omitted <==**\n\n"
+                        md_string += f"**==> picture [{clip.width} x {clip.height}] intentionally omitted <==**\n\n"
 
                     # output text in image if requested
                     if box.textlines:
                         if btype == "picture":
-                            output += picture_text_to_md(
+                            md_string += picture_text_to_md(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                         elif btype == "table-fallback":
-                            output += fallback_text_to_md(
+                            md_string += fallback_text_to_md(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
@@ -662,30 +703,35 @@ class ParsedDocument:
                     if page.full_ocred:
                         # remove code style if page was OCR'd
                         table_text = table_text.replace("`", "")
-                    output += table_text + "\n\n"
+                    md_string += table_text + "\n\n"
                     continue
                 if not hasattr(box, "textlines"):
                     print(f"Warning: box {btype} has no textlines")
                     continue
                 if btype == "title":
-                    output += title_to_md(box.textlines)
+                    md_string += title_to_md(box.textlines)
                 elif btype == "section-header":
-                    output += section_hdr_to_md(box.textlines)
+                    md_string += section_hdr_to_md(box.textlines)
                 elif btype == "list-item":
-                    output += list_item_to_md(box.textlines, list_item_levels[i])
+                    md_string += list_item_to_md(box.textlines, list_item_levels[i])
                 elif btype == "footnote":
-                    output += footnote_to_md(box.textlines)
+                    md_string += footnote_to_md(box.textlines)
                 elif not header and btype == "page-header":
                     continue
                 elif not footer and btype == "page-footer":
                     continue
                 else:  # treat as normal MD text
-                    output += text_to_md(
+                    md_string += text_to_md(
                         box.textlines, ignore_code=ignore_code or page.full_ocred
                     )
             if page_separators:
-                output += f"--- end of {page.page_number=} ---\n\n"
-        return output
+                md_string += f"--- end of {page.page_number=} ---\n\n"
+            if not page_chunks:
+                document_output += md_string
+            else:
+                chunk = make_page_chunk(self, page, md_string)
+                document_output.append(chunk)
+        return document_output
 
     def to_json(self, show_progress=False) -> str:
         # Serialize to JSON
@@ -717,22 +763,29 @@ class ParsedDocument:
         footer: bool = True,
         ignore_code: bool = False,
         show_progress: bool = False,
+        page_chunks: bool = False,
         table_format: str = "grid",
-    ) -> str:
+        **kwargs,
+    ) -> Union[str, List[Dict]]:
         """
         Serialize ParsedDocument to plain text. Optionally omit page headers or footers.
         """
         if table_format not in tabulate.tabulate_formats:
             print(f"Warning: invalid table format '{table_format}', using 'grid'.")
             table_format = "grid"
-        # Flatten all text boxes into plain text
-        output = ""
+
+        if page_chunks:
+            document_output = []
+        else:
+            document_output = ""
+
         if show_progress and len(self.pages) > 5:
             print(f"Generating plain text ..")
             this_iterator = ProgressBar(self.pages)
         else:
             this_iterator = self.pages
         for page in this_iterator:
+            text_string = ""
             list_item_levels = create_list_item_levels(page.boxes)
             for i, box in enumerate(page.boxes):
                 clip = pymupdf.IRect(box.x0, box.y0, box.x1, box.y1)
@@ -742,38 +795,43 @@ class ParsedDocument:
                 if btype == "page-footer" and footer is False:
                     continue
                 if btype in ("picture", "formula", "table-fallback"):
-                    output += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
+                    text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
                     if box.textlines:
                         if btype == "picture":
-                            output += picture_text_to_text(
+                            text_string += picture_text_to_text(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                         elif btype == "table-fallback":
-                            output += fallback_text_to_text(
+                            text_string += fallback_text_to_text(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
                     continue
                 if btype == "table":
-                    output += (
+                    text_string += (
                         tabulate.tabulate(box.table["extract"], tablefmt=table_format)
                         + "\n\n"
                     )
                     continue
                 if btype == "list-item":
-                    output += list_item_to_text(box.textlines, list_item_levels[i])
+                    text_string += list_item_to_text(box.textlines, list_item_levels[i])
                     continue
                 if btype == "footnote":
-                    output += footnote_to_text(box.textlines)
+                    text_string += footnote_to_text(box.textlines)
                     continue
-                output += text_to_text(
+                text_string += text_to_text(
                     box.textlines, ignore_code=ignore_code or page.full_ocred
                 )
-                continue
-        return output
+
+            if not page_chunks:
+                document_output += text_string
+            else:
+                chunk = make_page_chunk(self, page, text_string)
+                document_output.append(chunk)
+        return document_output
 
 
 def parse_document(
