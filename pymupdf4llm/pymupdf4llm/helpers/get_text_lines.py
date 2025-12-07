@@ -15,13 +15,9 @@ License GNU Affero GPL 3.0
 import sys
 
 import pymupdf
-from pymupdf4llm.helpers.utils import WHITE_CHARS
+from pymupdf4llm.helpers.utils import is_white
 
 TYPE3_FONT_NAME = "Unnamed-T3"
-
-
-def is_white(text):
-    return WHITE_CHARS.issuperset(text)
 
 
 def get_raw_lines(
