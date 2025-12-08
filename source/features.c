@@ -30,6 +30,19 @@ typedef struct
 	font_freq_t *list;
 } font_freq_list;
 
+/* A bunch of rafts makes a flotilla. */
+typedef struct
+{
+	fz_rect area;
+} raft_t;
+
+typedef struct
+{
+	int len;
+	int max;
+	raft_t *rafts;
+} flotilla_t;
+
 struct fz_features
 {
 	fz_feature_stats stats;
@@ -49,9 +62,17 @@ struct fz_features
 	float bottom_right_y;
 	float bottom_right_height;
 	float max_right_indent;
+	/* Calculated during the first pass, the distance to the nearest
+	 * non-aligned block. */
+	float nearest_nonaligned_up;
+	float nearest_nonaligned_down;
+	float nearest_nonaligned_left;
+	float nearest_nonaligned_right;
+	flotilla_t *vector_flotilla;
+	flotilla_t *image_flotilla;
 };
 
-#if 0
+#if 1
 static int feq(float a, float b)
 {
 	a -= b;
@@ -209,6 +230,135 @@ font_freq_drop(fz_context *ctx, font_freq_list *list)
 	list->max = list->len = 0;
 }
 
+/*
+	Raft handling
+
+	We call any 2-dimensional area that's covered by (some type of) content
+	a raft. i.e. it's made up of several distinct objects lashed together
+	into something that covers a large flat area.
+
+	For instance, the borders and/or backgrounds from a table would form a
+	raft behind the text content. And the boundaries of that raft might
+	help us distinguish that table from an adjacent table on a different
+	raft.
+
+	While we could theorectically make rafts from anything, images and
+	vectors seem like the best bet. We could make rafts from mixed images
+	and vectors, but to start with, I think we'll get best results from
+	images and vectors separately.
+*/
+static flotilla_t *
+new_flotilla(fz_context *ctx)
+{
+	return fz_malloc_struct(ctx, flotilla_t);
+}
+
+static void
+drop_flotilla(fz_context *ctx, flotilla_t *f)
+{
+	if (!f)
+		return;
+	fz_free(ctx, f->rafts);
+	fz_free(ctx, f);
+}
+
+static void
+add_raft_to_flotilla(fz_context *ctx, flotilla_t *f, raft_t r)
+{
+	if (f->len == f->max)
+	{
+		int newmax = f->max * 2;
+		if (newmax == 0)
+			newmax = 8;
+		f->rafts = (raft_t *) fz_realloc(ctx, f->rafts, sizeof(f->rafts[0]) * newmax);
+		f->max = newmax;
+	}
+
+	f->rafts[f->len++] = r;
+}
+
+static void
+add_plank_to_flotilla(fz_context *ctx, flotilla_t *f, fz_rect rect)
+{
+	int i, j;
+	int overlaps = -1;
+
+	/* Does the plank extend any of the existing rafts? */
+	for (i = 0; i < f->len; i++)
+	{
+		if (fz_is_valid_rect(fz_intersect_rect(rect, f->rafts[i].area)))
+		{
+			/* We overlap. */
+			fz_rect r = fz_union_rect(f->rafts[i].area, rect);
+			if (r.x0 == f->rafts[i].area.x0 &&
+				r.y0 == f->rafts[i].area.y0 &&
+				r.x1 == f->rafts[i].area.x1 &&
+				r.y1 == f->rafts[i].area.y1)
+			{
+				/* We were entirely contained. Nothing more to do. */
+				return;
+			}
+			f->rafts[i].area = r;
+			break;
+		}
+	}
+
+	if (i < f->len)
+	{
+		/* We've extended raft[i]. We now need to check if any other raft overlaps
+		 * with the extended one. */
+		for (j = 0; j < i; j++)
+		{
+			if (fz_is_valid_rect(fz_intersect_rect(f->rafts[j].area, f->rafts[i].area)))
+			{
+				/* Update raft j to be the union of the two. */
+				f->rafts[j].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
+				/* Shorten the list by moving the end one down to be the ith one. */
+				f->len--;
+				if (i != f->len)
+					f->rafts[i] = f->rafts[f->len];
+				/* And make i = j, to a) stop the loop, and b) reflect that the one we
+				 * want to merge to has moved. */
+				i = j;
+			}
+		}
+		for (j = i+1; j < f->len; j++)
+		{
+			if (fz_is_valid_rect(fz_intersect_rect(f->rafts[j].area, f->rafts[i].area)))
+			{
+				/* Update raft i to be the union of the two. */
+				f->rafts[i].area = fz_union_rect(f->rafts[j].area, f->rafts[i].area);
+				/* Shorten the list by moving the end one down to be the jth one. */
+				if (j != f->len)
+				{
+					f->len--;
+					f->rafts[j] = f->rafts[f->len];
+					j--;
+				}
+			}
+		}
+	}
+	else
+	{
+		/* This didn't overlap anything else. Make a new raft. */
+		raft_t raft = { rect };
+		add_raft_to_flotilla(ctx, f, raft);
+	}
+}
+
+static int
+find_raft(flotilla_t *flotilla, fz_rect region)
+{
+	int i;
+
+	for (i = 0; i < flotilla->len; i++)
+	{
+		if (fz_contains_rect(flotilla->rafts[i].area, region))
+			return i;
+	}
+	return -1;
+}
+
 static void
 gather_global_stats(fz_context *ctx, fz_stext_block *block, fz_features *features)
 {
@@ -225,7 +375,11 @@ gather_global_stats(fz_context *ctx, fz_stext_block *block, fz_features *feature
 				gather_global_stats(ctx, block->u.s.down->first_block, features);
 			continue;
 		}
-		else if (block->type != FZ_STEXT_BLOCK_TEXT)
+		if (block->type == FZ_STEXT_BLOCK_VECTOR)
+		{
+			add_plank_to_flotilla(ctx, features->vector_flotilla, block->bbox);
+		}
+		if (block->type != FZ_STEXT_BLOCK_TEXT)
 			continue;
 		for (line = block->u.t.first_line; line != NULL; line = line->next)
 		{
@@ -342,6 +496,9 @@ typedef struct
 	 * line as the line we are looking at now). */
 	float prev_line_gap;
 	int first_char;
+	int have_baseline;
+	float baseline;
+	float baseline_fontsize;
 } gather_state;
 
 static void
@@ -372,6 +529,84 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 			float baseline = line->first_char->origin.y;
 			int newline = 1;
 			fz_rect clipped_line = fz_intersect_rect(region, line->bbox);
+
+			if (fz_contains_rect(region, line->bbox))
+			{
+				if (!(line->dir.y == 0 && line->dir.x != 0))
+				{
+					/* Not a horizontal line. Don't mess with baselines. */
+				}
+				else if (!state->have_baseline)
+				{
+					/* This is the first time we've found a line completely contained within
+					 * the region. So remember the baseline. */
+					state->have_baseline = 1;
+					state->baseline = baseline;
+					state->baseline_fontsize = line->first_char->size;
+				}
+				else if (state->baseline_fontsize > line->first_char->size)
+				{
+					/* Ignore this line because the font size is smaller than the
+					 * one we found before. This avoids us tripping on sub or
+					 * super-scripts. */
+				}
+				else if (state->baseline_fontsize < line->first_char->size)
+				{
+					/* Take a larger fontsize in preference. */
+					state->baseline = baseline;
+					state->baseline_fontsize = line->first_char->size;
+				}
+				else if (state->baseline > baseline)
+				{
+					/* Take a higher baseline in preference. So we take the baseline of
+					 * the first line of a paragraph in the region rather than a later
+					 * one. */
+					state->baseline = baseline;
+					state->baseline_fontsize = line->first_char->size;
+				}
+			}
+
+			/* In the first pass, we find the distance to the first line that
+			 * is not aligned in at least some way in each direction. */
+			if (line->bbox.x1 <= region.x0 || line->bbox.x0 >= region.x1)
+			{
+				/* Line does not overlap horizontally, so we can ignore it. */
+			}
+			else if (feq(line->bbox.x0, region.x0) ||
+				feq(line->bbox.x1, region.x1) ||
+				feq(line->bbox.x0+line->bbox.x1, region.x0+region.x1))
+			{
+				/* Aligned in at least some way. */
+			}
+			else
+			{
+				float d = region.y0 - line->bbox.y1;
+				if (d > 0 && d < features->nearest_nonaligned_up)
+					features->nearest_nonaligned_up = d;
+				d =  line->bbox.y0 - region.y1;
+				if (d > 0 && d < features->nearest_nonaligned_down)
+					features->nearest_nonaligned_down = d;
+			}
+
+			if (line->bbox.y1 <= region.y0 || line->bbox.y0 >= region.y1)
+			{
+				/* Line does not overlap horizontally, so we can ignore it. */
+			}
+			else if (feq(line->bbox.y0, region.y0) ||
+				feq(line->bbox.y1, region.y1) ||
+				feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
+			{
+				/* Aligned in at least some way. */
+			}
+			else
+			{
+				float d = region.x0 - line->bbox.x1;
+				if (d > 0 && d < features->nearest_nonaligned_left)
+					features->nearest_nonaligned_left = d;
+				d =  line->bbox.x0 - region.x1;
+				if (d > 0 && d < features->nearest_nonaligned_right)
+					features->nearest_nonaligned_right = d;
+			}
 
 			state->prev_line_gap = state->line_gap;
 			state->line_gap = block->bbox.x1 - clipped_line.x1;
@@ -631,6 +866,139 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 }
 
 static void
+gather_region_stats2_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_features *features, gather_state *state)
+{
+	fz_feature_stats *stats = &features->stats;
+
+	for (; block != NULL; block = block->next)
+	{
+		fz_stext_line *line;
+
+		if (block->type == FZ_STEXT_BLOCK_STRUCT)
+		{
+			if (block->u.s.down != NULL)
+			{
+				gather_region_stats2_aux(ctx, block->u.s.down->first_block, region, features, state);
+			}
+			continue;
+		}
+		if (block->type == FZ_STEXT_BLOCK_VECTOR)
+		{
+			/* We are only interested in rectangles. */
+			float d;
+			if ((block->u.v.flags & FZ_STEXT_VECTOR_IS_RECTANGLE) == 0)
+				continue;
+
+			/* We're only interested in blocks that cover the centre of our bbox */
+			d = (region.y0 + region.y1)/2;
+			if (block->bbox.y0 <= d && block->bbox.y1 >= d)
+			{
+				/* 2 cases here. Firstly, does this rectangle cover us? */
+				if (block->bbox.x0 <= region.x0 && block->bbox.x1 >= region.x1)
+				{
+					/* Covered */
+					d = region.x0 - block->bbox.x0;
+					if (d >= 0 && d < features->stats.margin_l && features->stats.ray_line_distance_left > d)
+						features->stats.ray_line_distance_left = d;
+					d = block->bbox.x1 - region.x1;
+					if (d >= 0 && d < features->stats.margin_r && features->stats.ray_line_distance_right > d)
+						features->stats.ray_line_distance_right = d;
+				}
+				else
+				{
+					/* We're looking for a block off to one side of us. */
+					d = region.x0 - block->bbox.x1;
+					if (d >= 0 && d < features->stats.margin_l && features->stats.ray_line_distance_left > d)
+						features->stats.ray_line_distance_left = d;
+					d = block->bbox.x0 - region.x1;
+					if (d >= 0 && d < features->stats.margin_r && features->stats.ray_line_distance_right > d)
+						features->stats.ray_line_distance_right = d;
+				}
+			}
+			d = (region.x0 + region.x1)/2;
+			if (block->bbox.x0 <= d && block->bbox.x1 >= d)
+			{
+				/* 2 cases here. Firstly, does this rectangle cover us? */
+				if (block->bbox.y0 <= region.y0 && block->bbox.y1 >= region.y1)
+				{
+					/* Covered */
+					d = region.y0 - block->bbox.y0;
+					if (d >= 0 && d < features->stats.margin_t && features->stats.ray_line_distance_up > d)
+						features->stats.ray_line_distance_up = d;
+					d = block->bbox.y1 - region.y1;
+					if (d >= 0 && d < features->stats.margin_b && features->stats.ray_line_distance_down > d)
+						features->stats.ray_line_distance_down = d;
+				}
+				else
+				{
+					/* We're looking for a block off to one side of us. */
+					d = region.y0 - block->bbox.y1;
+					if (d >= 0 && d < features->stats.margin_t && features->stats.ray_line_distance_up > d)
+						features->stats.ray_line_distance_up = d;
+					d = block->bbox.y0 - region.y1;
+					if (d >= 0 && d < features->stats.margin_b && features->stats.ray_line_distance_down > d)
+						features->stats.ray_line_distance_down = d;
+				}
+			}
+			continue;
+		}
+		if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
+		for (line = block->u.t.first_line; line != NULL; line = line->next)
+		{
+			float d;
+
+			/* In the second pass, we can count the number of blocks that are aligned
+			 * in at least some way within the previously found limits */
+			d = region.y0 - line->bbox.y1;
+			if (d > 0 && d < features->nearest_nonaligned_up)
+			{
+				if (feq(line->bbox.x0, region.x0))
+					features->stats.consecutive_left_alignment_count_up++;
+				if (feq(line->bbox.x1, region.x1))
+					features->stats.consecutive_right_alignment_count_up++;
+				if (feq(line->bbox.x0+line->bbox.x1, region.x0+region.x1))
+					features->stats.consecutive_centre_alignment_count_up++;
+			}
+			d = line->bbox.y0 - region.y1;
+			if (d > 0 && d < features->nearest_nonaligned_down)
+			{
+				if (feq(line->bbox.x0, region.x0))
+					features->stats.consecutive_left_alignment_count_down++;
+				if (feq(line->bbox.x1, region.x1))
+					features->stats.consecutive_right_alignment_count_down++;
+				if (feq(line->bbox.x0+line->bbox.x1, region.x0+region.x1))
+					features->stats.consecutive_centre_alignment_count_down++;
+			}
+			d = region.x0 - line->bbox.x1;
+			if (d > 0 && d < features->nearest_nonaligned_left)
+			{
+				if (feq(line->bbox.y0, region.y0))
+					features->stats.consecutive_top_alignment_count_left++;
+				if (feq(line->bbox.y1, region.y1))
+					features->stats.consecutive_bottom_alignment_count_left++;
+				if (feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
+					features->stats.consecutive_middle_alignment_count_left++;
+				if (state->have_baseline && feq(line->first_char->origin.y, state->baseline))
+					features->stats.consecutive_baseline_alignment_count_left++;
+			}
+			d = line->bbox.x0 - region.x1;
+			if (d > 0 && d < features->nearest_nonaligned_right)
+			{
+				if (feq(line->bbox.y0, region.y0))
+					features->stats.consecutive_top_alignment_count_right++;
+				if (feq(line->bbox.y1, region.y1))
+					features->stats.consecutive_bottom_alignment_count_right++;
+				if (feq(line->bbox.y0+line->bbox.y1, region.y0+region.y1))
+					features->stats.consecutive_middle_alignment_count_right++;
+				if (state->have_baseline && feq(line->first_char->origin.y, state->baseline))
+					features->stats.consecutive_baseline_alignment_count_right++;
+			}
+		}
+	}
+}
+
+static void
 gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_features *features)
 {
 	gather_state state = { 0 };
@@ -639,8 +1007,24 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_f
 	state.first_char = 1;
 
 	gather_region_stats_aux(ctx, block, region, features, &state, 0);
+	gather_region_stats2_aux(ctx, block, region, features, &state);
 
 	features->stats.num_fonts_in_region = features->region_fonts.len;
+
+	features->stats.alignment_up_with_left = (features->stats.consecutive_left_alignment_count_up >= 1);
+	features->stats.alignment_up_with_centre = (features->stats.consecutive_centre_alignment_count_up >= 1);
+	features->stats.alignment_up_with_right = (features->stats.consecutive_right_alignment_count_up >= 1);
+	features->stats.alignment_down_with_left = (features->stats.consecutive_left_alignment_count_down >= 1);
+	features->stats.alignment_down_with_centre = (features->stats.consecutive_centre_alignment_count_down >= 1);
+	features->stats.alignment_down_with_right = (features->stats.consecutive_right_alignment_count_down >= 1);
+	features->stats.alignment_left_with_top = (features->stats.consecutive_top_alignment_count_left >= 1);
+	features->stats.alignment_left_with_middle = (features->stats.consecutive_middle_alignment_count_left >= 1);
+	features->stats.alignment_left_with_baseline = (features->stats.consecutive_baseline_alignment_count_left >= 1);
+	features->stats.alignment_left_with_bottom = (features->stats.consecutive_bottom_alignment_count_left >= 1);
+	features->stats.alignment_right_with_top = (features->stats.consecutive_top_alignment_count_right >= 1);
+	features->stats.alignment_right_with_middle = (features->stats.consecutive_middle_alignment_count_right >= 1);
+	features->stats.alignment_right_with_baseline = (features->stats.consecutive_baseline_alignment_count_right >= 1);
+	features->stats.alignment_right_with_bottom = (features->stats.consecutive_bottom_alignment_count_right >= 1);
 }
 
 typedef struct
@@ -900,6 +1284,30 @@ process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 	font_freq_common(ctx, &features->region_fonts, 100000);
 }
 
+static void
+process_raft_features(fz_context *ctx, fz_rect region, fz_features *features)
+{
+	int raft = find_raft(features->vector_flotilla, region);
+
+	features->stats.raft_num = raft+1;
+	if (raft == -1)
+	{
+		features->stats.raft_edge_up = 0;
+		features->stats.raft_edge_down = 0;
+		features->stats.raft_edge_left = 0;
+		features->stats.raft_edge_right = 0;
+	}
+	else
+	{
+		fz_rect a = features->vector_flotilla->rafts[raft].area;
+		features->stats.raft_edge_up = region.y0 - a.y0;
+		features->stats.raft_edge_down = a.y1 - region.y1;
+		features->stats.raft_edge_left = region.x0 - a.x0;
+		features->stats.raft_edge_right = a.x1 - region.x1;
+	}
+}
+
+
 #if FZ_VERSION_MAJOR > 1 || (FZ_VERSION_MAJOR == 1 && FZ_VERSION_MINOR >= 27)
     #define STEXT_PAGE_IS_REFERENCE_COUNTED
 #endif
@@ -919,9 +1327,11 @@ fz_new_page_features(fz_context *ctx, fz_stext_page *page)
 	#endif
 	fz_try(ctx)
 	{
-	    /* Collect global stats */
-	    gather_global_stats(ctx, features->page->first_block, features);
-	    process_global_font_stats(ctx, features->page->mediabox, features);
+		features->vector_flotilla = new_flotilla(ctx);
+		features->image_flotilla = new_flotilla(ctx);
+		/* Collect global stats */
+		gather_global_stats(ctx, features->page->first_block, features);
+		process_global_font_stats(ctx, features->page->mediabox, features);
 	}
 	fz_catch(ctx)
 	{
@@ -944,6 +1354,8 @@ fz_drop_page_features(fz_context *ctx, fz_features *features)
 	#ifdef STEXT_PAGE_IS_REFERENCE_COUNTED
 		fz_drop_stext_page(ctx, features->page);
 	#endif
+	drop_flotilla(ctx, features->vector_flotilla);
+	drop_flotilla(ctx, features->image_flotilla);
 
 	fz_free(ctx, features);
 }
@@ -953,6 +1365,9 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 {
 	fz_feature_stats *stats = &features->stats;
 	fz_stext_page *page = features->page;
+	float max_h = page->mediabox.y1 - page->mediabox.y0;
+	float max_w = page->mediabox.x1 - page->mediabox.x0;
+	memset(stats, 0, sizeof(*stats));
 	stats->margin_l = MAX_MARGIN;
 	stats->margin_r = MAX_MARGIN;
 	stats->margin_t = MAX_MARGIN;
@@ -966,10 +1381,19 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 	stats->bottom_right_x = region.x0;
 	features->bottom_right_y = region.y0;
 	stats->is_header = -1;
+	stats->ray_line_distance_up = max_h;
+	stats->ray_line_distance_down = max_h;
+	stats->ray_line_distance_left = max_w;
+	stats->ray_line_distance_right = max_w;
+	features->nearest_nonaligned_up = max_h;
+	features->nearest_nonaligned_down = max_h;
+	features->nearest_nonaligned_left = max_w;
+	features->nearest_nonaligned_right = max_w;
 
 	/* Now collect for the region itself. */
 	gather_region_stats(ctx, page->first_block, region, features);
 	process_region_font_stats(ctx, region, features);
+	process_raft_features(ctx, region, features);
 
 	/* Now we scan again, to try to make contextual features. */
 	contextual_features_above(ctx, page->first_block, region, &features->stats);

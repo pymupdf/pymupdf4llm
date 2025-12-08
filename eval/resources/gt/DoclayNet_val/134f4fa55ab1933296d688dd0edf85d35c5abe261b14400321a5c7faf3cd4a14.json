@@ -1,0 +1,19 @@
+{
+    "filename": "134f4fa55ab1933296d688dd0edf85d35c5abe261b14400321a5c7faf3cd4a14.pdf",
+    "bboxes": [
+        [
+            64,
+            754,
+            228,
+            764,
+            "page-footer"
+        ],
+        [
+            64,
+            70,
+            548,
+            734,
+            "table"
+        ]
+    ]
+}

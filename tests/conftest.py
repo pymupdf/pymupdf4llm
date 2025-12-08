@@ -11,7 +11,7 @@ import pytest
 # pytest. Doing it here seems to be the least ugly approach.
 #
 def install_required_packages():
-    packages = 'pymupdf4llm'
+    packages = 'pymupdf4llm opencv-python'
     command = f'pip install {packages}'
     print(f'{__file__}:install_required_packages)(): Running: {command}', flush=1)
     subprocess.run(command, shell=1, check=1)

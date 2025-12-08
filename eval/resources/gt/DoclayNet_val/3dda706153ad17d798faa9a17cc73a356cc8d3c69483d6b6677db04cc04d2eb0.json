@@ -1,0 +1,26 @@
+{
+    "filename": "3dda706153ad17d798faa9a17cc73a356cc8d3c69483d6b6677db04cc04d2eb0.pdf",
+    "bboxes": [
+        [
+            49,
+            34,
+            542,
+            166,
+            "table"
+        ],
+        [
+            35,
+            810,
+            353,
+            819,
+            "page-footer"
+        ],
+        [
+            494,
+            810,
+            541,
+            819,
+            "page-footer"
+        ]
+    ]
+}
