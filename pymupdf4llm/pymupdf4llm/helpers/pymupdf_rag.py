@@ -564,7 +564,9 @@ def to_markdown(
                     )
                 ]
                 for i, _ in tab_candidates:
-                    out_string += "\n" + parms.tabs[i].to_markdown(clean=False) + "\n"
+                    table_md = parms.tabs[i].to_markdown(clean=False)
+                    table_md = add_images_to_table_markdown(parms.page, parms.tabs[i], table_md, parms)
+                    out_string += "\n" + table_md + "\n"
                     if EXTRACT_WORDS:
                         # for "words" extraction, add table cells as line rects
                         cells = sorted(
@@ -763,6 +765,95 @@ def to_markdown(
                 return i
         return 0
 
+    def add_images_to_table_markdown(page, table, table_md, parms):
+        """Add images found in table cells to the markdown output."""
+        if not (write_images or embed_images):
+            return table_md
+        
+        # Get all images on the page
+        image_list = page.get_image_info()
+        if not image_list:
+            return table_md
+        
+        # Split markdown into lines
+        md_lines = table_md.strip().split('\n')
+        if len(md_lines) < 3:  # Need at least header + separator + one row
+            return table_md
+        
+        # Track images added to avoid duplicates
+        used_images = set()
+        
+        # Process each data row (skip header and separator)
+        for row_idx in range(2, len(md_lines)):
+            line = md_lines[row_idx]
+            if not line.strip() or not line.startswith('|'):
+                continue
+            
+            # Parse table cells
+            cells = [c.strip() for c in line.split('|')[1:-1]]  # Remove first/last empty
+            
+            # Get table row info
+            # Markdown line 2 = first data row = table.rows[1] (since rows[0] is header)
+            table_row_idx = row_idx - 2 + 1  # +1 to skip header row in table.rows
+            if table_row_idx >= table.row_count:
+                continue
+            
+            row_cells = table.rows[table_row_idx].cells
+            
+            # Check each cell for images
+            for col_idx, cell_bbox in enumerate(row_cells):
+                if col_idx >= len(cells) or cell_bbox is None:
+                    continue
+                
+                cell_rect = pymupdf.Rect(cell_bbox)
+                
+                # Find images that overlap with this cell
+                for img_idx, img_info in enumerate(image_list):
+                    if img_idx in used_images:
+                        continue
+                    
+                    img_bbox = pymupdf.Rect(img_info['bbox'])
+                    
+                    # Calculate overlap
+                    intersection = cell_rect & img_bbox
+                    if intersection.is_empty:
+                        continue
+                    
+                    overlap_ratio = abs(intersection) / abs(img_bbox)
+                    
+                    # If >50% of image is in this cell, it belongs here
+                    if overlap_ratio > 0.5:
+                        # Extract and save the image
+                        try:
+                            pix = page.get_pixmap(clip=img_bbox, dpi=DPI)
+                            
+                            if write_images:
+                                filename = os.path.basename(parms.filename).replace(" ", "-")
+                                img_filename = os.path.join(
+                                    IMG_PATH, f"{filename}-{page.number}-table-{img_idx}.{IMG_EXTENSION}"
+                                )
+                                pix.save(img_filename)
+                                img_ref = f"![image]({img_filename.replace(chr(92), '/')})"
+                            elif embed_images:
+                                data = b2a_base64(pix.tobytes(IMG_EXTENSION)).decode()
+                                data_uri = f"data:image/{IMG_EXTENSION};base64," + data
+                                img_ref = f"![image]({data_uri})"
+                            
+                            # Add image reference to cell
+                            if cells[col_idx]:
+                                cells[col_idx] += "<br>" + img_ref
+                            else:
+                                cells[col_idx] = img_ref
+                            
+                            used_images.add(img_idx)
+                        except Exception:
+                            pass  # Skip failed image extractions
+            
+            # Reconstruct the row with images
+            md_lines[row_idx] = '|' + '|'.join(cells) + '|'
+        
+        return '\n'.join(md_lines) + '\n'
+    
     def output_tables(parms, text_rect):
         """Output tables above given text rectangle."""
         this_md = ""  # markdown string for table(s) content
@@ -773,7 +864,9 @@ def to_markdown(
             ):
                 if i in parms.written_tables:
                     continue
-                this_md += parms.tabs[i].to_markdown(clean=False) + "\n"
+                table_md = parms.tabs[i].to_markdown(clean=False)
+                table_md = add_images_to_table_markdown(parms.page, parms.tabs[i], table_md, parms)
+                this_md += table_md + "\n"
                 if EXTRACT_WORDS:
                     # for "words" extraction, add table cells as line rects
                     cells = sorted(
@@ -794,7 +887,9 @@ def to_markdown(
             for i, trect in parms.tab_rects.items():
                 if i in parms.written_tables:
                     continue
-                this_md += parms.tabs[i].to_markdown(clean=False) + "\n"
+                table_md = parms.tabs[i].to_markdown(clean=False)
+                table_md = add_images_to_table_markdown(parms.page, parms.tabs[i], table_md, parms)
+                this_md += table_md + "\n"
                 if EXTRACT_WORDS:
                     # for "words" extraction, add table cells as line rects
                     cells = sorted(
