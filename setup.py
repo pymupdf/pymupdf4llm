@@ -52,7 +52,7 @@ if 1:
 # Use a fourth digit if making multiple releases of PyMuPDFPro that are to be
 # used with the same version of PyMuPDF, for example `1.24.9.1`.
 #
-g_version = '1.26.6'
+g_version = '1.26.7'
 
 # We build and run with PyMuPDF version equal to the first three numbers of our
 # version.
