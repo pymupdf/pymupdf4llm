@@ -9,8 +9,9 @@ from pathlib import Path
 from ..common_util import (get_boxes_transform, get_edge_by_directional_nn, get_edge_by_alignment, get_edge_by_knn,
                            get_edge_transform_bbox, get_edge_transform_bbox2,
                            get_text_pattern, get_edge_matrix, group_node_by_edge_with_networkx_and_class_prior,
-                           extract_bbox_features, resize_image, to_gray,
+                           extract_bbox_features_by_roi_pooling, extract_bbox_features_by_roi_align, resize_image, to_gray,
                            extract_bboxes_from_segmentation)
+from ..pymupdf_util import create_input_data_from_page
 
 
 def get_rf_features(custom_feature, rf_names):
@@ -57,8 +58,7 @@ def get_rf_features(custom_feature, rf_names):
 
 
 def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=False,
-                               feature_extractor=None, feature_map=None,
-                               edge_sampling='4D', save_crop_page=True):
+                               edge_sampling='4D', save_crop_page=False):
     original_bboxes = data_dict['bboxes']
     x = get_boxes_transform(original_bboxes)
 
@@ -142,41 +142,21 @@ def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=False,
         crop_img = page_img[y1_min:y2_max, x1_min:x2_max]
         crop_img = resize_image(crop_img, (500, 500))
 
+    feature_map = None
+    if 'feature_map' in data_dict:
+        feature_map = data_dict['feature_map']
+
     # Image feature extractor
-    if feature_extractor is not None:
+    if feature_map is not None:
         page_img = data_dict['image']
         page_h, page_w, _ = page_img.shape
-
-        if feature_map is None:
-            input_shape = feature_extractor.get_inputs()[0].shape
-            target_height = input_shape[2]
-            target_width = input_shape[3]
-
-            img_resized = resize_image(page_img, (target_width, target_height))
-            img_gray = to_gray(img_resized)
-
-            img_gray = img_gray.astype(np.float32)
-            min_val, max_val = img_gray.min(), img_gray.max()
-            if max_val > min_val:  # avoid division by zero
-                img_gray = (img_gray - min_val) / (max_val - min_val)
-            else:
-                img_gray = np.zeros_like(img_gray, dtype=np.float32)
-
-            nn_input = img_gray.astype(np.float32)
-            nn_input = np.expand_dims(nn_input, axis=0)
-            nn_input = np.expand_dims(nn_input, axis=0)
-
-            ort_inputs = {feature_extractor.get_inputs()[0].name: nn_input}
-            ort_outputs = feature_extractor.run(None, ort_inputs)[0]
-        else:
-            ort_outputs = feature_map
 
         apply_softmax = False
         add_uncertainty = False
 
-        image_features = extract_bbox_features(ort_outputs, original_bboxes, page_w, page_h,
-                                               apply_softmax=apply_softmax, concat_mean_max=True,
-                                               add_uncertainty=add_uncertainty)
+        image_features = extract_bbox_features_by_roi_align(feature_map, original_bboxes, page_w, page_h,
+                                                            apply_softmax=apply_softmax, concat_mean_max=True,
+                                                            add_uncertainty=add_uncertainty)
 
         edge_bboxes = []
         row, col = edge_index
@@ -190,9 +170,9 @@ def get_nn_input_from_datadict(data_dict, cfg, return_nn_index=False,
             y2 = max(bbox1[3], bbox2[3])
             edge_bboxes.append([x1, y1, x2, y2])
 
-        edge_features = extract_bbox_features(ort_outputs, edge_bboxes, page_w, page_h,
-                                              apply_softmax=apply_softmax, concat_mean_max=True,
-                                              add_uncertainty=add_uncertainty)
+        edge_features = extract_bbox_features_by_roi_align(feature_map, edge_bboxes, page_w, page_h,
+                                                           apply_softmax=apply_softmax, concat_mean_max=True,
+                                                           add_uncertainty=add_uncertainty)
         edge_attr = np.concatenate([edge_attr, edge_features], axis=1)
     else:
         image_features = None
@@ -211,13 +191,13 @@ class BoxRFDGNN:
 
         if config_path is None or model_path is None:
             if self.feature_set_name == 'imf':
-                config_path = f'{script_dir}/resources/onnx/layout_imf2.yaml'
-                model_path = f'{script_dir}/resources/onnx/layout_imf2.onnx'
+                config_path = f'{script_dir}/resources/onnx/layout_imf1.1.yaml'
+                model_path = f'{script_dir}/resources/onnx/layout_imf1.1.onnx'
             elif self.feature_set_name == 'imf+rf':
-                config_path = f'{script_dir}/resources/onnx/layout_imf2+rf2.yaml'
-                model_path = f'{script_dir}/resources/onnx/layout_imf2+rf2.onnx'
+                config_path = f'{script_dir}/resources/onnx/layout_imf1.1+rf2.1.yaml'
+                model_path = f'{script_dir}/resources/onnx/layout_imf1.1+rf2.1.onnx'
         if imf_model_path is None:
-            imf_model_path = f'{script_dir}/resources/onnx/feature_imf2.onnx'
+            imf_model_path = f'{script_dir}/resources/onnx/feature_imf1.1.onnx'
 
         self.config_path = config_path
         with open(self.config_path, "rb"
@@ -238,68 +218,18 @@ class BoxRFDGNN:
             self.feature_extractor = ort.InferenceSession(imf_model_path, providers=['CPUExecutionProvider'])
         else:
             self.feature_extractor = None
-        self.feature_map = None
 
     def load_onnx_model(self, model_path):
         ort.set_default_logger_severity(3)
         self.session = ort.InferenceSession(model_path)
 
-    def get_prior_result(self, page):
-        pix = page.get_pixmap()
-        bytes = np.frombuffer(pix.samples, dtype=np.uint8)
-        page_img = bytes.reshape(pix.height, pix.width, pix.n)
-        original_height, original_width = page_img.shape[0], page_img.shape[1]
 
-        if self.feature_extractor is None:
-            return None
-        else:
-            input_shape = self.feature_extractor.get_inputs()[0].shape
-            target_height = input_shape[2]
-            target_width = input_shape[3]
-
-            img_resized = resize_image(page_img, (target_width, target_height))
-            img_gray = to_gray(img_resized)
-
-            img_gray = img_gray.astype(np.float32)
-            min_val, max_val = img_gray.min(), img_gray.max()
-            if max_val > min_val:  # avoid division by zero
-                img_gray = (img_gray - min_val) / (max_val - min_val)
-            else:
-                img_gray = np.zeros_like(img_gray, dtype=np.float32)
-
-            nn_input = img_gray.astype(np.float32)
-            nn_input = np.expand_dims(nn_input, axis=0)
-            nn_input = np.expand_dims(nn_input, axis=0)
-
-            ort_inputs = {self.feature_extractor.get_inputs()[0].name: nn_input}
-            ort_outputs = self.feature_extractor.run(None, ort_inputs)[0]
-
-            class_names = ['background']
-            class_names.extend(self.data_class_names)
-            class_names.remove('unlabelled')
-            det_result = extract_bboxes_from_segmentation(ort_outputs, class_names=class_names, min_component_area=10)
-
-            scale_x = original_width / target_width
-            scale_y = original_height / target_height
-
-            scaled_det_result = []
-            for bbox_info in det_result:
-                x1_resized, y1_resized, x2_resized, y2_resized = bbox_info['bbox']
-                x1_original = int(x1_resized * scale_x)
-                y1_original = int(y1_resized * scale_y)
-                x2_original = int(x2_resized * scale_x)
-                y2_original = int(y2_resized * scale_y)
-                bbox_info['bbox'] = [x1_original, y1_original, x2_original, y2_original]
-                scaled_det_result.append(bbox_info)
-
-            # Save image feature map for later reuse in predict
-            self.feature_map = ort_outputs
-            return scaled_det_result
-
-
-    def predict(self, data_dict, verbose=False):
+    def predict(self, page, input_type=('text',), verbose=False):
         import numpy as np
 
+        data_dict = create_input_data_from_page(page, input_type=input_type,
+                                                feature_set_name=self.feature_set_name,
+                                                feature_extractor=self.feature_extractor)
         bboxes = np.array(data_dict['bboxes'], dtype=np.float32)
 
         # Empty input
@@ -325,11 +255,7 @@ class BoxRFDGNN:
         # Prepare neural network inputs from data_dict.
         # get_nn_input_from_datadict should return tensors/arrays in numpy-compatible formats.
         x, edge_index, edge_attr, nn_index, nn_attr, rf_feature, text_feature, image_feature, image_data = \
-            get_nn_input_from_datadict(data_dict, self.cfg, feature_map=self.feature_map,
-                                       return_nn_index=('nn_index' in onnx_input_names),
-                                       feature_extractor=self.feature_extractor)
-        # Reset to avoid some unintended bugs
-        self.feature_map = None
+            get_nn_input_from_datadict(data_dict, self.cfg, return_nn_index=('nn_index' in onnx_input_names))
 
         # Build input data dict with explicit dtypes that are commonly expected by ONNX models.
         input_data_dict = {

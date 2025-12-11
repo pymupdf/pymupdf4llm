@@ -1,5 +1,6 @@
 import os
 import copy
+import concurrent.futures
 
 import numpy as np
 import tempfile
@@ -8,7 +9,7 @@ import subprocess
 import pymupdf
 import pymupdf.features as rf_features
 
-from .common_util import compute_iou, get_text_pattern
+from .common_util import compute_iou, resize_image, to_gray, extract_bboxes_from_segmentation
 
 def robins_features_extraction(feature_path, pdf_dir, filename, rect_list):
     fd, path = tempfile.mkstemp()
@@ -235,8 +236,58 @@ def merge_boxes(boxes, iou_threshold=0.5):
             merged.append(base)
     return merged
 
-def create_input_data_from_page(page, input_type=('text',), max_image_num=500, max_vec_line_num=200,
-                                pdf_path=None, features_path=None):
+
+def image_feature_extraction_task(page_img, feature_extractor, input_type):
+    page_h, page_w, _ = page_img.shape
+
+    input_shape = feature_extractor.get_inputs()[0].shape
+    target_height = input_shape[2]
+    target_width = input_shape[3]
+
+    img_resized = resize_image(page_img, (target_width, target_height))
+    img_gray = to_gray(img_resized)
+
+    img_gray = img_gray.astype(np.float32)
+    min_val, max_val = img_gray.min(), img_gray.max()
+    if max_val > min_val:
+        img_gray = (img_gray - min_val) / (max_val - min_val)
+    else:
+        img_gray = np.zeros_like(img_gray, dtype=np.float32)
+
+    nn_input = img_gray.astype(np.float32)
+    nn_input = np.expand_dims(nn_input, axis=0)
+    nn_input = np.expand_dims(nn_input, axis=0)
+
+    ort_inputs = {feature_extractor.get_inputs()[0].name: nn_input}
+    ort_outputs = feature_extractor.run(None, ort_inputs)[0]
+
+    feature_map = ort_outputs
+    bboxes_to_add = []
+    box_types_to_add = []
+
+    if 'seg-image' in input_type:
+        class_names = ['background', 'text', 'title', 'picture', 'table', 'list-item', 'page-header', 'page-footer',
+                       'section-header', 'footnote', 'caption', 'formula']
+
+        prior_det = extract_bboxes_from_segmentation(ort_outputs, class_names=class_names,
+                                                     min_component_area=50, morphology_kernel_size=3)
+        resize_x = page_w / target_width
+        resize_y = page_h / target_height
+        for det in prior_det:
+            if det['class'] == 'picture' and det['score'] > 0.8:
+                bbox = [
+                    det['bbox'][0] * resize_x, det['bbox'][1] * resize_y,
+                    det['bbox'][2] * resize_x, det['bbox'][3] * resize_y
+                ]
+                bboxes_to_add.append(bbox)
+                box_types_to_add.append('image')
+
+    return feature_map, bboxes_to_add, box_types_to_add
+
+
+def create_input_data_from_page(page, input_type=('text',), feature_set_name='rf+imf',
+                                max_image_num=500, max_vec_line_num=200,
+                                feature_extractor=None):
     data_dict = {
         'bboxes': [],
         'text': [],
@@ -260,6 +311,16 @@ def create_input_data_from_page(page, input_type=('text',), max_image_num=500, m
     bytes = np.frombuffer(pix.samples, dtype=np.uint8)
     page_img = bytes.reshape(pix.height, pix.width, pix.n)
     data_dict['image'] = page_img
+
+    feature_extractor_future = None
+    if feature_extractor is not None:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            feature_extractor_future = executor.submit(
+                image_feature_extraction_task,
+                page_img,
+                feature_extractor,
+                input_type
+            )
 
     if 'image' in input_type:
         img_bboxes = [itm["bbox"] for itm in page.get_image_info()]
@@ -387,6 +448,20 @@ def create_input_data_from_page(page, input_type=('text',), max_image_num=500, m
                 data_dict['text'].append('')
                 box_type.append(type_val)
 
+    if feature_extractor_future is not None:
+        try:
+            feature_map, bboxes_to_add, box_types_to_add = feature_extractor_future.result()
+            data_dict['feature_map'] = feature_map
+            for bbox, type_val in zip(bboxes_to_add, box_types_to_add):
+                if bbox not in data_dict['bboxes']:
+                    data_dict['bboxes'].append(bbox)
+                    data_dict['text'].append('')
+                    box_type.append(type_val)
+
+        except Exception as exc:
+            print(f"Error in image feature extraction : {exc}")
+
+    # Add 'custom-features'
     for row_idx in range(len(data_dict['bboxes'])):
         custom_feature = {
             'box_type': box_type[row_idx]
@@ -421,16 +496,17 @@ def create_input_data_from_page(page, input_type=('text',), max_image_num=500, m
         custom_feature['is_vector'] = is_hline_vector + is_vline_vector  # old name
         data_dict['custom_features'].append(custom_feature)
 
-    stext_flags = (
-            0
-            | pymupdf.TEXT_PRESERVE_WHITESPACE
-            | pymupdf.TEXT_PRESERVE_LIGATURES
-            | pymupdf.TEXT_INHIBIT_SPACES
-            | pymupdf.TEXT_ACCURATE_BBOXES
-            | pymupdf.TEXT_COLLECT_VECTORS
-    )
-    stext_page = page.get_textpage(flags=stext_flags)
-    extract_rf_features(data_dict, stext_page)
+    if 'rf' in feature_set_name:
+        stext_flags = (
+                0
+                | pymupdf.TEXT_PRESERVE_WHITESPACE
+                | pymupdf.TEXT_PRESERVE_LIGATURES
+                | pymupdf.TEXT_INHIBIT_SPACES
+                | pymupdf.TEXT_ACCURATE_BBOXES
+                | pymupdf.TEXT_COLLECT_VECTORS
+        )
+        stext_page = page.get_textpage(flags=stext_flags)
+        extract_rf_features(data_dict, stext_page)
 
     for row_idx in range(len(data_dict['bboxes'])):
         data_dict['custom_features'][row_idx]['box_type'] = box_type[row_idx]
@@ -449,7 +525,7 @@ def create_input_data_from_page(page, input_type=('text',), max_image_num=500, m
 
 
 def create_input_data_by_pymupdf(pdf_path=None, document=None, page_no=0,
-                                 input_type=('text',), features_path=None):
+                                 input_type=('text',), feature_extractor=None):
     if document is None:
         if not os.path.exists(pdf_path):
             raise Exception(f'{pdf_path} is not exist!')
@@ -459,31 +535,9 @@ def create_input_data_by_pymupdf(pdf_path=None, document=None, page_no=0,
         doc = document
         page = doc[page_no]
 
-    data_dict = create_input_data_from_page(page, input_type, pdf_path=pdf_path, features_path=features_path)
+    data_dict = create_input_data_from_page(page, input_type, feature_extractor=feature_extractor)
     data_dict['file_path'] = pdf_path
 
     if document is None:
         doc.close()
     return data_dict
-
-
-
-if __name__ == "__main__":
-    import cv2
-
-    pdf_dir = '/media/win/PTMP/PDF/EdgarDataset/edgar_form10k_2401_2512/PDF'
-
-    for pdf_file in os.listdir(pdf_dir):
-        pdf_path = f'{pdf_dir}/{pdf_file}'
-        pdf_path = '/media/win/Dataset/DocLayNet/PDF/8bf4146b5fc6f2d6471995610a3f2ae34442053ddcaca710fea31e037506cd49.pdf'
-        data_dict = create_input_data_by_pymupdf(pdf_path, input_type=['text', 'image', 'vec_line'])
-
-        print(len(data_dict['bboxes']))
-
-        img = data_dict['image'].copy()
-        for bbox in data_dict['bboxes']:
-            x1, y1, x2, y2 = list(map(int, bbox))
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 1)
-
-        cv2.imshow('Image', img)
-        cv2.waitKey()

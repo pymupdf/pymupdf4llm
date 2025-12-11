@@ -7,6 +7,7 @@ import networkx as nx
 from collections import Counter, deque
 from typing import Optional, List, Dict, Tuple
 
+
 def get_boxes_transform(bboxes_list):
     """
     Normalizes bounding box coordinates (x1, y1, x2, y2) and
@@ -710,14 +711,14 @@ def group_node_by_edge_with_networkx_and_class_prior(
     return groups
 
 
-def extract_bbox_features(
+def extract_bbox_features_by_roi_pooling(
     features: np.ndarray,
     bboxes: List[Tuple[float, float, float, float]],
     page_width: int,
     page_height: int,
-    apply_softmax: bool = True,
+    apply_softmax: bool = False,
     concat_mean_max: bool = True,
-    add_uncertainty: bool = True
+    add_uncertainty: bool = False
 ) -> np.ndarray:
     """
     Extract per-bbox features with mean/max pooling and uncertainty metrics.
@@ -837,6 +838,192 @@ def extract_bbox_features(
 
     return out
 
+
+def extract_bbox_features_by_roi_align(
+        features: np.ndarray,
+        bboxes: List[Tuple[float, float, float, float]],
+        page_width: int,
+        page_height: int,
+        roi_align_output_size: int = 2,  # New Parameter
+        apply_softmax: bool = False,
+        concat_mean_max: bool = True,
+        add_uncertainty: bool = False
+) -> np.ndarray:
+    """
+    Extract per-bbox features with RoIAlign-like sampling and mean/max pooling,
+    and uncertainty metrics. This version uses bilinear interpolation for
+    more accurate feature extraction.
+
+    Args:
+        features (np.ndarray): Feature map tensor (N, C, H, W). Typically N=1.
+        bboxes (List[Tuple[float, float, float, float]]): Boxes (x1, y1, x2, y2)
+            defined on the same coordinate system as page_width/page_height.
+        page_width (int): Width of the image used to produce 'features'.
+        page_height (int): Height of the image used to produce 'features'.
+        roi_align_output_size (int): The target height and width (P) for the
+            sampled feature map (P x P). Default is 7.
+        apply_softmax (bool): If True, apply channel-wise softmax per spatial location.
+        concat_mean_max (bool): If True, output [mean; max] -> 2C dims; else only mean -> C dims.
+        add_uncertainty (bool): If True, append entropy_mean and margin_mean -> +2 dims.
+
+    Returns:
+        np.ndarray: Shape (len(bboxes), C or 2C plus optional +2 for uncertainty).
+    """
+    # Validate shapes
+    assert features.ndim == 4, f"features must be (N,C,H,W), got {features.shape}"
+    N, C, H, W = features.shape
+    assert N == 1, "Only batch size 1 is supported."
+    fmap = features[0]  # (C, H, W)
+
+    # Use the new parameter
+    P = roi_align_output_size
+    assert P >= 1, "roi_align_output_size must be a positive integer."
+
+    # --- Prepare feature maps (Raw vs Probs) ---
+    if apply_softmax:
+        # Calculate probabilities from logits (fmap)
+        f = fmap.reshape(C, -1)
+        f = f - f.max(axis=0, keepdims=True)  # numerical stability
+        np.exp(f, out=f)
+        denom = f.sum(axis=0, keepdims=True) + 1e-12
+        probs = (f / denom).reshape(C, H, W)  # (C, H, W)
+        fmap_used = probs  # use probs for pooling
+    else:
+        fmap_used = fmap  # use raw features/logits for pooling
+        # For uncertainty metrics we still need probabilities
+        g = fmap.reshape(C, -1)
+        g = g - g.max(axis=0, keepdims=True)
+        np.exp(g, out=g)
+        denom_g = g.sum(axis=0, keepdims=True) + 1e-12
+        probs = (g / denom_g).reshape(C, H, W)  # (C, H, W)
+
+    # --- Output Dimension Setup ---
+    base_dim = C * 2 if concat_mean_max else C
+    out_dim = base_dim + (2 if add_uncertainty else 0)
+    out = np.zeros((len(bboxes), out_dim), dtype=np.float32)
+
+    # --- RoIAlign Helper: Bilinear Interpolation ---
+    def bilinear_interpolate(feature_map: np.ndarray, x: float, y: float) -> np.ndarray:
+        """
+        Perform bilinear interpolation on the feature map at fractional coordinates (x, y).
+        The feature map is (C, H, W). Coordinates are 0-indexed, ranging from 0 to W-1 or H-1.
+        """
+        C_f, H_f, W_f = feature_map.shape
+
+        # Clamp fractional coordinates to boundary
+        x = np.clip(x, 0, W_f - 1 - 1e-6)
+        y = np.clip(y, 0, H_f - 1 - 1e-6)
+
+        # Get the four surrounding integer grid points
+        x0, y0 = int(np.floor(x)), int(np.floor(y))
+        x1, y1 = x0 + 1, y0 + 1
+
+        # Calculate interpolation weights (deltas)
+        dx = x - x0
+        dy = y - y0
+
+        # Clamp x1, y1 to boundaries
+        x1 = np.clip(x1, 0, W_f - 1)
+        y1 = np.clip(y1, 0, H_f - 1)
+
+        # Feature values at the four surrounding points (C,)
+        f00 = feature_map[:, y0, x0]
+        f10 = feature_map[:, y0, x1]
+        f01 = feature_map[:, y1, x0]
+        f11 = feature_map[:, y1, x1]
+
+        # Bilinear interpolation
+        interp_val = (
+                f00 * (1 - dx) * (1 - dy) +
+                f10 * dx * (1 - dy) +
+                f01 * (1 - dx) * dy +
+                f11 * dx * dy
+        )
+        return interp_val
+
+    # --- Process each bounding box ---
+    for i, (x1, y1, x2, y2) in enumerate(bboxes):
+        # 1. Map bbox from image space to feature map space (floating point)
+        scale_x = W / float(page_width)
+        scale_y = H / float(page_height)
+
+        fx1, fy1 = x1 * scale_x, y1 * scale_y
+        fx2, fy2 = x2 * scale_x, y2 * scale_y
+
+        roi_width = fx2 - fx1
+        roi_height = fy2 - fy1
+
+        # 2. Define sampling grid (P x P)
+        bin_size_x = roi_width / P
+        bin_size_y = roi_height / P
+
+        sample_points = []
+        for p_y in range(P):
+            y_center = fy1 + (p_y + 0.5) * bin_size_y
+            for p_x in range(P):
+                x_center = fx1 + (p_x + 0.5) * bin_size_x
+                sample_points.append((x_center, y_center))
+
+        if not sample_points:
+            continue
+
+        # 3. Sample features using Bilinear Interpolation
+        sampled_features = []
+        sampled_probs = []
+
+        for sx, sy in sample_points:
+            # Features for pooling (fmap_used)
+            interp_feat = bilinear_interpolate(fmap_used, sx, sy)
+            sampled_features.append(interp_feat)
+
+            # Probabilities for uncertainty (probs)
+            if add_uncertainty:
+                interp_prob = bilinear_interpolate(probs, sx, sy)
+                sampled_probs.append(interp_prob)
+
+        # Stack to (C, P*P)
+        patch_feat = np.stack(sampled_features, axis=1)  # (C, P*P)
+
+        # 4. Pooling over the sampled features
+
+        # Mean pooling over spatial dims (P*P)
+        mean_vec = patch_feat.mean(axis=1)  # (C,)
+
+        if concat_mean_max:
+            max_vec = patch_feat.max(axis=1)  # (C,)
+            pooled = np.concatenate([mean_vec, max_vec], axis=0)  # (2C,)
+        else:
+            pooled = mean_vec  # (C,)
+
+        # 5. Add Uncertainty Metrics (from sampled probabilities)
+        if add_uncertainty:
+            patch_prob = np.stack(sampled_probs, axis=1)  # (C, P*P)
+
+            # Entropy: -sum_c p_c log p_c, averaged over the patch
+            eps = 1e-12
+            ent_map_flat = -(patch_prob * np.log(patch_prob + eps)).sum(axis=0)  # (P*P,)
+            entropy_mean = ent_map_flat.mean()
+
+            # Margin: top1 - top2, averaged over the patch
+            C_, num_samples = patch_prob.shape
+
+            # Get indices of the two largest probability channels at each location (P*P)
+            idx_part = np.argpartition(patch_prob, -2, axis=0)[-2:]  # (2, P*P)
+            # Get the actual top two probability values
+            top_two = np.take_along_axis(patch_prob, idx_part, axis=0)  # (2, P*P)
+
+            top_two.sort(axis=0)
+
+            # Margin = top1 - top2 for each location
+            margins = top_two[1] - top_two[0]  # (P*P,)
+            margin_mean = margins.mean()
+
+            # Append [entropy_mean, margin_mean]
+            pooled = np.concatenate([pooled, np.array([entropy_mean, margin_mean], dtype=np.float32)], axis=0)
+
+        out[i, :pooled.shape[0]] = pooled.astype(np.float32)
+
+    return out
 
 def resize_image(image: np.ndarray, new_size: tuple) -> np.ndarray:
     """
