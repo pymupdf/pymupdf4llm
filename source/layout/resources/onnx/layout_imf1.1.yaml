@@ -1,0 +1,80 @@
+data:
+  class_list:
+  - text
+  - title
+  - picture
+  - table
+  - list-item
+  - page-header
+  - page-footer
+  - section-header
+  - footnote
+  - caption
+  - formula
+  class_priority:
+  - 1
+  - 5
+  - 6
+  - 4
+  - 0
+  - 3
+  - 2
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  class_priority1:
+  - 0
+  - 7
+  - 4
+  - 10
+  - 9
+  - 3
+  - 5
+  - 6
+  - 8
+  - 2
+  - 1
+  rf_names:
+  - num_ratio
+  - is_text
+  - is_vector
+  - is_image
+  - is_hline_vector
+  - is_vline_vector
+model:
+  dgcn_aggr: max
+  dgcn_dim: 128
+  edge_input_dim: 368
+  edge_input_dim1: 24
+  hidden_dim: 512
+  imf_input_dim: 344
+  imf_output_dim: 128
+  name: BoxRFDGCNN
+  node_input_dim: 8
+  node_output_dim: 16
+  option:
+    conv_merge_type: null
+    conv_num: 2
+    conv_type: CustomDGC
+    drop_egc: 0.0
+    drop_ngc: 0.0
+    edge_type: SEO
+    feature_types:
+    - bbox
+    - image
+    - text_pattern
+    normalization:
+    - BBX
+    - BRF
+    - BTX
+    - BIM
+    - BFS
+    training_noise: 0.0
+    training_noise_prob: 0.0
+  rf_output_dim: 48
+  sample_k: 20
+  txp_input_dim: 40
+  txp_output_dim: 20
+  type: DGCNN
