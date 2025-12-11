@@ -12,8 +12,7 @@ da = None
 
 def det_func(pdf_path):
     doc = pymupdf.open(pdf_path)
-    data_dict = create_input_data_from_page(doc[0])
-    det_result = da.predict(data_dict)
+    det_result = da.predict(doc[0])
     return det_result
 
 
