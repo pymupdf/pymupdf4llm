@@ -16,8 +16,8 @@ def activate():
 
     def _get_layout(*args, **kwargs):
         page = args[0]
-        data_dict = pymupdf_util.create_input_data_from_page(page)
-        det_result = MODEL.predict(data_dict)
+        # data_dict = pymupdf_util.create_input_data_from_page(page)
+        det_result = MODEL.predict(page)
         return det_result
 
     pymupdf._get_layout = _get_layout
