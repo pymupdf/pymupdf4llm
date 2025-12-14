@@ -1,6 +1,6 @@
 from .onnx.BoxRFDGNN import BoxRFDGNN
 
-__version__ = '251211'
+__version__ = '251214'
 
 def get_model(model_name='BoxRFDGNN', feature_set_name='imf+rf',
               config_path=None, model_path=None, imf_model_path=None):

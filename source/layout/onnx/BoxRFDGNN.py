@@ -243,6 +243,10 @@ class BoxRFDGNN:
             print(">>> model_type:", model_type)
 
         input_names = ["x", "edge_index", "edge_attr", "rf_features", "text_patterns", "image_features", "k", "batch"]
+
+        if type(model_type) is list:
+            model_type = model_type[0]
+
         if model_type in ['GAT', 'NNConv']:
             onnx_input_names = ["x", "edge_index", "edge_attr", "rf_features", "text_patterns"]
         elif model_type in ['CustomDGC']:
