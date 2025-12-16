@@ -312,15 +312,20 @@ def create_input_data_from_page(page, input_type=('text',), feature_set_name='rf
     page_img = bytes.reshape(pix.height, pix.width, pix.n)
     data_dict['image'] = page_img
 
-    feature_extractor_future = None
     if feature_extractor is not None:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            feature_extractor_future = executor.submit(
-                image_feature_extraction_task,
-                page_img,
-                feature_extractor,
-                input_type
-            )
+        try:
+            feature_map, bboxes_to_add, box_types_to_add = image_feature_extraction_task(page_img,
+                                                                                         feature_extractor,
+                                                                                         input_type)
+            data_dict['feature_map'] = feature_map
+            for bbox, type_val in zip(bboxes_to_add, box_types_to_add):
+                if bbox not in data_dict['bboxes']:
+                    data_dict['bboxes'].append(bbox)
+                    data_dict['text'].append('')
+                    box_type.append(type_val)
+
+        except Exception as exc:
+            print(f"Error in image feature extraction : {exc}")
 
     if 'image' in input_type:
         img_bboxes = [itm["bbox"] for itm in page.get_image_info()]
@@ -447,19 +452,6 @@ def create_input_data_from_page(page, input_type=('text',), feature_set_name='rf
                 type_val = 'check-box'
                 data_dict['text'].append('')
                 box_type.append(type_val)
-
-    if feature_extractor_future is not None:
-        try:
-            feature_map, bboxes_to_add, box_types_to_add = feature_extractor_future.result()
-            data_dict['feature_map'] = feature_map
-            for bbox, type_val in zip(bboxes_to_add, box_types_to_add):
-                if bbox not in data_dict['bboxes']:
-                    data_dict['bboxes'].append(bbox)
-                    data_dict['text'].append('')
-                    box_type.append(type_val)
-
-        except Exception as exc:
-            print(f"Error in image feature extraction : {exc}")
 
     # Add 'custom-features'
     for row_idx in range(len(data_dict['bboxes'])):
