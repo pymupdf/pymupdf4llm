@@ -220,7 +220,8 @@ def make_vis_pdf(pdf_path, gt_bboxes_doc, det_bboxes_doc, output_dir, iou_thresh
 # --- 3. Evaluation Function ---
 def evaluate_detection(det_func, result_csv_path=None, gt_dir='eval/resources/gt', iou_threshold=0.6,
                        class_names=None, gt_names=('DoclayNet_val',),
-                       pdf_dirs=None, vis_error_count=None, vis_pdf_dir=None, verbose=True):
+                       pdf_dirs=None, vis_error_count=None, vis_pdf_dir=None, verbose=True,
+                       limit=None):
     """
     Compares detection results (obtained solely via det_func) with ground truth to calculate
     Precision, Recall, and F1-score.
@@ -243,6 +244,7 @@ def evaluate_detection(det_func, result_csv_path=None, gt_dir='eval/resources/gt
         vis_pdf_dir (str, optional): Root directory to save visualized PDFs. If provided, visualization PDFs
                                      are saved directly into this directory.
         verbose (bool, optional): If True, display progress bars via tqdm. Defaults to True.
+        limit (int, optional): If true, we only look at the first <limit> pdf files.
 
     Returns:
         list: A list of evaluation results, broken down by dataset.
@@ -317,7 +319,8 @@ def evaluate_detection(det_func, result_csv_path=None, gt_dir='eval/resources/gt
                              leave=False, disable=not verbose):
         gt_dataset_path = os.path.join(gt_dir, dataset_name)
         json_files = [f for f in os.listdir(gt_dataset_path) if f.endswith('.json')]
-        # json_files = json_files[:100]
+        if limit:
+            json_files = json_files[:limit]
 
         if not json_files:
             # This case should technically be caught by the initial validation, but included for robustness
