@@ -2058,6 +2058,15 @@ def git_info( directory):
     if not e:
         out1, _ = out.split('\n', 1)
         sha, comment = out1.split(' ', 1)
+    
+    if platform.system() == 'Windows':
+        # Have seen `git diff` sometimes hang when using a rsync'd
+        # checkout. But it seems to work ok if we first diff a single file.
+        #log(f'Doing dummy `git diff` of a single file, to avoid potential hang in later `git diff` on Windows.')
+        text = run(f'cd {directory} && git ls-files', capture=1)
+        path0 = text.split('\n', 1)[0].strip()
+        run(f'cd {directory} && git diff {path0}')
+        
     e, out = run(
             f'cd {directory} && git diff',
             capture=1,
