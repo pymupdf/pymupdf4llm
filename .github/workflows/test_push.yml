@@ -20,8 +20,8 @@ jobs:
         os: [
                 ubuntu-latest,
                 windows-2022,
-                macos-13,
                 macos-14,
+                macos-15-intel,
                 ]
 
       # Avoid cancelling of all runs after a single failure.
