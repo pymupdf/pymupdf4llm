@@ -44,7 +44,7 @@ FLAGS = (
 BULLETS = tuple(utils.BULLETS)
 
 
-def make_page_chunk(doc, page, text) -> Dict:
+def make_page_chunk(doc, page, text, string_lengths) -> Dict:
     """Create a page chunk dictionary for output.
 
     Args:
@@ -55,6 +55,7 @@ def make_page_chunk(doc, page, text) -> Dict:
     Returns:
         dict: page chunk dictionary
     """
+    assert len(page.boxes) == len(string_lengths)
     chunk = defaultdict(lambda: None)
     page_tocs = [t for t in doc.toc if t[-1] == page.page_number]
     chunk["metadata"] = doc.metadata | {
@@ -64,16 +65,25 @@ def make_page_chunk(doc, page, text) -> Dict:
     }
 
     chunk["toc_items"] = page_tocs
-    chunk["page_boxes"] = [
-        (
-            math.floor(b.x0),
-            math.floor(b.y0),
-            math.ceil(b.x1),
-            math.ceil(b.y1),
-            b.boxclass,
+    page_boxes = []
+    for i in range(len(page.boxes)):
+        b = page.boxes[i]
+        start = string_lengths[i - 1] if i > 0 else 0
+        stop = string_lengths[i]
+        page_boxes.append(
+            {
+                "index": i,
+                "class": b.boxclass if b.boxclass != "table-fallback" else "table",
+                "bbox": (
+                    math.floor(b.x0),
+                    math.floor(b.y0),
+                    math.ceil(b.x1),
+                    math.ceil(b.y1),
+                ),
+                "pos": (start, stop),
+            }
         )
-        for b in page.boxes
-    ]
+    chunk["page_boxes"] = page_boxes
     chunk["text"] = text
     return chunk
 
@@ -658,6 +668,7 @@ class ParsedDocument:
             this_iterator = self.pages
         for page in this_iterator:
             md_string = ""
+            string_lengths = []
             # Make a mapping: box number -> list item hierarchy level
             list_item_levels = create_list_item_levels(page.boxes)
 
@@ -667,8 +678,10 @@ class ParsedDocument:
 
                 # skip headers/footers if requested
                 if btype == "page-header" and header is False:
+                    string_lengths.append(len(md_string))
                     continue
                 if btype == "page-footer" and footer is False:
+                    string_lengths.append(len(md_string))
                     continue
 
                 # pictures and formulas: either write image file or embed
@@ -697,6 +710,7 @@ class ParsedDocument:
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
+                    string_lengths.append(len(md_string))
                     continue
                 if btype == "table":
                     table_text = box.table["markdown"]
@@ -704,32 +718,35 @@ class ParsedDocument:
                         # remove code style if page was OCR'd
                         table_text = table_text.replace("`", "")
                     md_string += table_text + "\n\n"
+                    string_lengths.append(len(md_string))
                     continue
                 if not hasattr(box, "textlines"):
                     print(f"Warning: box {btype} has no textlines")
+                    string_lengths.append(len(md_string))
                     continue
                 if btype == "title":
                     md_string += title_to_md(box.textlines)
+                    string_lengths.append(len(md_string))
                 elif btype == "section-header":
                     md_string += section_hdr_to_md(box.textlines)
+                    string_lengths.append(len(md_string))
                 elif btype == "list-item":
                     md_string += list_item_to_md(box.textlines, list_item_levels[i])
+                    string_lengths.append(len(md_string))
                 elif btype == "footnote":
                     md_string += footnote_to_md(box.textlines)
-                elif not header and btype == "page-header":
-                    continue
-                elif not footer and btype == "page-footer":
-                    continue
+                    string_lengths.append(len(md_string))
                 else:  # treat as normal MD text
                     md_string += text_to_md(
                         box.textlines, ignore_code=ignore_code or page.full_ocred
                     )
+                    string_lengths.append(len(md_string))
             if page_separators:
                 md_string += f"--- end of {page.page_number=} ---\n\n"
             if not page_chunks:
                 document_output += md_string
             else:
-                chunk = make_page_chunk(self, page, md_string)
+                chunk = make_page_chunk(self, page, md_string, string_lengths)
                 document_output.append(chunk)
         return document_output
 
@@ -786,13 +803,16 @@ class ParsedDocument:
             this_iterator = self.pages
         for page in this_iterator:
             text_string = ""
+            string_lengths = []
             list_item_levels = create_list_item_levels(page.boxes)
             for i, box in enumerate(page.boxes):
                 clip = pymupdf.IRect(box.x0, box.y0, box.x1, box.y1)
                 btype = box.boxclass
                 if btype == "page-header" and header is False:
+                    string_lengths.append(len(text_string))
                     continue
                 if btype == "page-footer" and footer is False:
+                    string_lengths.append(len(text_string))
                     continue
                 if btype in ("picture", "formula", "table-fallback"):
                     text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
@@ -809,27 +829,33 @@ class ParsedDocument:
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
                             )
-                    continue
-                if btype == "table":
+                    string_lengths.append(len(text_string))
+
+                elif btype == "table":
                     text_string += (
                         tabulate.tabulate(box.table["extract"], tablefmt=table_format)
                         + "\n\n"
                     )
-                    continue
-                if btype == "list-item":
+                    string_lengths.append(len(text_string))
+
+                elif btype == "list-item":
                     text_string += list_item_to_text(box.textlines, list_item_levels[i])
-                    continue
-                if btype == "footnote":
+                    string_lengths.append(len(text_string))
+
+                elif btype == "footnote":
                     text_string += footnote_to_text(box.textlines)
-                    continue
-                text_string += text_to_text(
-                    box.textlines, ignore_code=ignore_code or page.full_ocred
-                )
+                    string_lengths.append(len(text_string))
+
+                else:  # handle other cases as normal text
+                    text_string += text_to_text(
+                        box.textlines, ignore_code=ignore_code or page.full_ocred
+                    )
+                    string_lengths.append(len(text_string))
 
             if not page_chunks:
                 document_output += text_string
             else:
-                chunk = make_page_chunk(self, page, text_string)
+                chunk = make_page_chunk(self, page, text_string, string_lengths)
                 document_output.append(chunk)
         return document_output
 
@@ -847,6 +873,7 @@ def parse_document(
     write_images=False,
     force_text=False,
     use_ocr=True,
+    ocr_language="eng",
 ) -> ParsedDocument:
     if isinstance(doc, pymupdf.Document):
         mydoc = doc
@@ -854,11 +881,13 @@ def parse_document(
         mydoc = pymupdf.open(doc)
 
     if mydoc.is_pdf:
-        # remove StructTreeRoot to avoid possible performance degradation
+        # Remove StructTreeRoot to avoid possible performance degradation.
+        # We will not use the structure tree anyway.
         mypdf = pymupdf._as_pdf_document(mydoc)
         root = mupdf.pdf_dict_get(mupdf.pdf_trailer(mypdf), pymupdf.PDF_NAME("Root"))
         root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
 
+    TESSDATA = None
     document = ParsedDocument()
     document.filename = mydoc.name if mydoc.name else filename
     document.toc = mydoc.get_toc(simple=True)
@@ -873,12 +902,13 @@ def parse_document(
         raise ValueError("Cannot both embed and write images.")
     document.embed_images = embed_images
     document.write_images = write_images
+
     if use_ocr:
         try:
             reason = "OpenCV not installed"
             assert cv2 is not None
             reason = "Tesseract language data not found"
-            assert pymupdf.get_tessdata()
+            TESSDATA = pymupdf.get_tessdata()
             document.use_ocr = True
         except Exception as e:
             print(f"OCR disabled because {reason}.")
@@ -934,7 +964,10 @@ def parse_document(
                     file=INFO_MESSAGES,
                 )
                 pix = decision["pixmap"]  # retrieve the Pixmap
-                pdf_data = pix.pdfocr_tobytes()  # OCR it
+                pdf_data = pix.pdfocr_tobytes(
+                    language=ocr_language,
+                    tessdata=TESSDATA,
+                )  # OCR it
                 ocr_pdf = pymupdf.open("pdf", pdf_data)  # get the OCR'd PDF
                 ocr_page = ocr_pdf[0]  # this is its OCR'd page
                 # remove everything except the text
@@ -960,25 +993,30 @@ def parse_document(
                 page_text_ocred = True
 
         page.get_layout()
+        # Determine if any tables are present. If False, we skip any table-related efforts.
+        tables_exist = any(b for b in page.layout_information if b[4] == "table")
         if not page_full_ocred:
             utils.clean_pictures(page, blocks)
             utils.add_image_orphans(page, blocks)
-            utils.clean_tables(page, blocks)
+            if tables_exist:
+                utils.clean_tables(page, blocks)
         page.layout_information = utils.find_reading_order(
             page.rect, blocks, page.layout_information
         )
 
         # identify vector graphics to help find tables
-        if not page_full_ocred:
+        if tables_exist and not page_full_ocred:
             all_lines, all_boxes = utils.complete_table_structure(page)
         else:
             all_lines, all_boxes = [], []
-
-        tbf = page.find_tables(
-            strategy="lines_strict", add_lines=all_lines, add_boxes=all_boxes
-        )
+        if tables_exist:
+            tbf = page.find_tables(
+                strategy="lines_strict", add_lines=all_lines, add_boxes=all_boxes
+            )
+        else:
+            tbf = None
         fulltext = [b for b in blocks if b["type"] == 0]
-        if [b for b in page.layout_information if b[4] == "table"]:
+        if tables_exist:
             # tables are present on page:
             if not (page_full_ocred or page_text_ocred):
                 # we need the by-character extraction if no OCR
@@ -1010,15 +1048,19 @@ def parse_document(
             if layoutbox.boxclass in ("picture", "formula"):
                 if document.embed_images or document.write_images:
                     pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
-                    if document.embed_images:
-                        layoutbox.image = pix.tobytes(document.image_format)
-                    elif document.write_images:
-                        img_filename = f"{document.filename}-{page.number+1:04d}-{len(pagelayout.boxes):02d}.{document.image_format}"
-                        img_filename = img_filename.replace(" ", "_")
-                        layoutbox.image = os.path.join(
-                            document.image_path, img_filename
-                        )
-                        pix.save(layoutbox.image)
+                    irect = pymupdf.IRect(pix.irect)  # guard against empty images
+                    if not irect.is_empty:
+                        if document.embed_images:
+                            layoutbox.image = pix.tobytes(document.image_format)
+                        elif document.write_images:
+                            img_filename = f"{document.filename}-{page.number+1:04d}-{len(pagelayout.boxes):02d}.{document.image_format}"
+                            md_filename, save_img_filename = utils.md_path(
+                                document.image_path, img_filename
+                            )
+                            layoutbox.image = md_filename
+                            pix.save(save_img_filename)
+                    else:
+                        layoutbox.image = None
                 else:
                     layoutbox.image = None
                 if layoutbox.boxclass == "picture" and document.force_text:
@@ -1084,10 +1126,11 @@ def parse_document(
                             layoutbox.image = pix.tobytes(document.image_format)
                         elif document.write_images:
                             img_filename = f"{document.filename}-{page.number+1:04d}-{len(pagelayout.boxes):02d}.{document.image_format}"
-                            layoutbox.image = os.path.join(
+                            md_filename, save_img_filename = utils.md_path(
                                 document.image_path, img_filename
                             )
-                            pix.save(layoutbox.image)
+                            layoutbox.image = md_filename
+                            pix.save(save_img_filename)
                     else:
                         layoutbox.image = None
                     layoutbox.textlines = [
@@ -1099,6 +1142,12 @@ def parse_document(
                             ignore_invisible=not pagelayout.full_ocred,
                         )
                     ]
+                    if layoutbox.textlines and (
+                        len(layoutbox.textlines) == 1
+                        or max(len(l["spans"]) for l in layoutbox.textlines) < 2
+                    ):
+                        # treat as text if only one line or only one span per line:
+                        layoutbox.boxclass = "text"
             else:
                 # Handle text-like box classes:
                 # Extract text line information within the box.
@@ -1118,8 +1167,9 @@ def parse_document(
         mydoc.close()
     msg_text = INFO_MESSAGES.getvalue()
     if msg_text:
-        print("=== Document parser messages ===")
-        print(msg_text)
+        pymupdf.message("=== Document parser messages ===")
+        pymupdf.message(msg_text)
+        INFO_MESSAGES.truncate(0)  # empty the file-like object
     return document
 
 

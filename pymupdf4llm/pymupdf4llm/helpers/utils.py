@@ -1,4 +1,5 @@
 import pymupdf
+from pathlib import Path
 
 WHITE_CHARS = set(
     [chr(i) for i in range(33)]
@@ -22,6 +23,7 @@ WHITE_CHARS = set(
 )
 
 REPLACEMENT_CHARACTER = chr(0xFFFD)
+TYPE3_FONT_NAME = "Unnamed-T3"
 
 BULLETS = tuple(
     {
@@ -60,6 +62,47 @@ FLAGS = (
 )
 
 
+def md_path(folder: str, filename: str) -> str:
+    """
+    Normalize a folder path ("" = script folder), ensure it exists,
+    and return a Markdown-safe file reference using forward slashes.
+    Prefers relative paths to avoid Windows drive-letter issues.
+    """
+    # 1. Use current working directory as script dir.
+    script_dir = Path.cwd()
+
+    if folder.strip() == "":
+        base = script_dir
+    else:
+        base = Path(folder).expanduser().resolve()
+
+    # 2. Create folder if it doesn't exist
+    base.mkdir(parents=True, exist_ok=True)
+
+    # 3. Build full file path
+    full_path = base / filename
+
+    # 4. Try to compute a relative path (best for Markdown)
+    try:
+        rel = full_path.relative_to(script_dir)
+        md_ref = rel.as_posix()
+    except ValueError:
+        # Not relative → fall back to POSIX path
+        md_ref = full_path.as_posix()
+    save_safe_path = md_ref
+    # 5. Escape Markdown-sensitive characters
+    md_ref = (
+        md_ref.replace("(", r"\(")
+        .replace(")", r"\)")
+        .replace("[", r"\[")
+        .replace("]", r"\]")
+    )
+    # Escaping bracket is for MD references only, not for actual file saving.
+    # The first item is the MD-safe form,
+    # the second is the actual path to use in pixmap saving.
+    return md_ref, save_safe_path
+
+
 def startswith_bullet(text):
     if not text:
         return False
@@ -75,6 +118,83 @@ def startswith_bullet(text):
 def is_white(text):
     """Identify white text."""
     return WHITE_CHARS.issuperset(text)
+
+
+def bbox_is_empty(bbox):
+    return bbox[0] >= bbox[2] or bbox[1] >= bbox[3]
+
+
+def intersect_rects(r1, r2, bbox_only=False):
+    bbox = (max(r1[0], r2[0]), max(r1[1], r2[1]), min(r1[2], r2[2]), min(r1[3], r2[3]))
+    return bbox if bbox_only else pymupdf.Rect(*bbox)
+
+
+def join_rects(rects, bbox_only=False):
+    """Join a list of rectangles into their bounding rectangle."""
+    if not rects:
+        return tuple(pymupdf.EMPTY_RECT()) if bbox_only else pymupdf.EMPTY_RECT()
+    x0 = min(r[0] for r in rects)
+    y0 = min(r[1] for r in rects)
+    x1 = max(r[2] for r in rects)
+    y1 = max(r[3] for r in rects)
+    return (x0, y0, x1, y1) if bbox_only else pymupdf.Rect(x0, y0, x1, y1)
+
+
+def almost_in_bbox(bbox, clip, portion=0.8):
+    intersect = [
+        max(bbox[0], clip[0]),
+        max(bbox[1], clip[1]),
+        min(bbox[2], clip[2]),
+        min(bbox[3], clip[3]),
+    ]
+    inter_area = max(0, intersect[2] - intersect[0]) * max(
+        0, intersect[3] - intersect[1]
+    )
+    box_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+    if inter_area > box_area * portion:
+        return True
+    return False
+
+
+def outside_bbox(bbox, cell, strict=False):
+    if not strict:
+        return (
+            0
+            or bbox[0] >= cell[2]
+            or bbox[2] <= cell[0]
+            or bbox[1] >= cell[3]
+            or bbox[3] <= cell[1]
+        )
+    else:
+        return (
+            0
+            or bbox[0] > cell[2]
+            or bbox[2] < cell[0]
+            or bbox[1] > cell[3]
+            or bbox[3] < cell[1]
+        )
+
+
+def bbox_in_bbox(inner, outer) -> bool:
+    """Check if 'inner' rectangle is contained within 'outer' rectangle."""
+    return (
+        1
+        and outer[0] <= inner[0]
+        and outer[1] <= inner[1]
+        and outer[2] >= inner[2]
+        and outer[3] >= inner[3]
+    )
+
+
+def expand_bbox_by_points(bbox, points):
+    """Expand 'bbox' to include all 'points'."""
+    if not points:
+        return bbox
+    x0 = min(min(p[0] for p in points), bbox[0])
+    y0 = min(min(p[1] for p in points), bbox[1])
+    x1 = max(max(p[0] for p in points), bbox[2])
+    y1 = max(max(p[1] for p in points), bbox[3])
+    return (x0, y0, x1, y1)
 
 
 def analyze_page(page, blocks=None) -> dict:
@@ -117,7 +237,7 @@ def analyze_page(page, blocks=None) -> dict:
         # Intersect each block bbox with the page rectangle.
         # Note that this has no effect on text because of the clipping flags,
         # which causes that we will not see ANY clipped text.
-        bbox = page.rect & b["bbox"]
+        bbox = intersect_rects(page.rect, b["bbox"])
         area = bbox.width * bbox.height
         if not area:  # skip any empty block
             continue
@@ -125,12 +245,16 @@ def analyze_page(page, blocks=None) -> dict:
             img_rect |= bbox
             img_area += area
         elif b["type"] == 0:  # Text block
+            if bbox_is_empty(b["bbox"]):
+                continue
             for l in b["lines"]:
+                if bbox_is_empty(l["bbox"]):
+                    continue
                 for s in l["spans"]:
                     if is_white(s["text"]):
                         continue
-                    sr = page.rect & s["bbox"]
-                    if sr.is_empty or sr.is_infinite:
+                    sr = intersect_rects(page.rect, s["bbox"])
+                    if bbox_is_empty(sr):
                         continue
                     if (
                         0
@@ -148,10 +272,10 @@ def analyze_page(page, blocks=None) -> dict:
                     txt_area += sr.width * sr.height
         elif (
             1
-            and b["type"] == 3  # vector block
-            and b["stroked"]  # has been stroked
-            and bbox.width <= 20  # width limit for typical characters
-            and bbox.height <= 20  # height limit for typical characters
+            and b["type"] == 3
+            and b["stroked"]  # vector block
+            and 2 < bbox.width <= 20  # width limit for typical characters
+            and 2 < bbox.height <= 20  # height limit for typical characters
             and not b["isrect"]  # contains curves
         ):
             # potential character-like vector block
@@ -313,7 +437,7 @@ def clean_pictures(page, blocks):
             if b["type"] not in (0, 1, 3):
                 continue
             block_bbox = pymupdf.IRect(b["bbox"])
-            if b["type"] == 3 and block_bbox.is_empty:
+            if b["type"] == 3 and bbox_is_empty(block_bbox):
                 block_bbox += (-1, -1, 1, 1)
             if bbox.intersects(block_bbox) and not any(
                 bb.intersects(block_bbox) for j, bb in enumerate(all_bboxes) if j != i
@@ -331,18 +455,21 @@ def add_image_orphans(page, blocks):
     all_bboxes = [pymupdf.Rect(b[:4]) for b in page.layout_information]
     area_limit = abs(page.rect) * 0.9
     images = []
-    for img in page.get_image_info():
-        r = page.rect & img["bbox"]
+    for b in blocks:
+        if b["type"] != 1:
+            continue
+        r = intersect_rects(page.rect, b["bbox"])
+        # skip line-like, empty and too large images
         if r.width <= 3 or r.height <= 3:
             continue
-        if r.is_empty or abs(r) >= area_limit:
+        if bbox_is_empty(r) or abs(r) >= area_limit:
             continue
         images.append(r)
 
     paths = []
     vectors = sorted(
         [
-            page.rect & b["bbox"]
+            intersect_rects(page.rect, b["bbox"])
             for b in blocks
             if b["type"] == 3
             and b["bbox"][3] - b["bbox"][1] > 3
@@ -351,6 +478,7 @@ def add_image_orphans(page, blocks):
         key=lambda v: abs(v),
         reverse=True,
     )
+    # only ever look at the 500 largest vectors
     vectors = vectors[:500]
 
     for r in vectors:
@@ -360,10 +488,13 @@ def add_image_orphans(page, blocks):
         r_hi_limit = 0.8 * abs(r)
 
         # ignore vectors that significantly overlap layout bboxes
-        if any(abs(r & bb) > min(r_low_limit, abs(bb) * 0.1) for bb in all_bboxes):
+        if any(
+            abs(intersect_rects(r, bb)) > min(r_low_limit, abs(bb) * 0.1)
+            for bb in all_bboxes
+        ):
             continue
         # ignore vectors that are mostly covered by images
-        if any(abs(r & i) > r_hi_limit for i in images):
+        if any(abs(intersect_rects(r, i)) > r_hi_limit for i in images):
             continue
         paths.append({"rect": r})
 
@@ -376,12 +507,16 @@ def add_image_orphans(page, blocks):
     imgs = imgs[:500]
     filtered_imgs = []
     for r in imgs:
-        if not any(r in fr for fr in filtered_imgs):
+        if not any(bbox_in_bbox(r, fr) for fr in filtered_imgs):
             filtered_imgs.append(r)
 
     for r in filtered_imgs:
         # add picture orphans that do not significantly overlap layout boxes
-        if not any(abs(r & bbox) > 0.1 * min(abs(r), abs(bbox)) for bbox in all_bboxes):
+        abs_r = abs(r)
+        if not any(
+            abs(intersect_rects(r, bbox)) > 0.1 * min(abs_r, abs(bbox))
+            for bbox in all_bboxes
+        ):
             page.layout_information.append(list(r) + ["picture"])
             all_bboxes.append(r)
     return
@@ -603,7 +738,7 @@ def find_reading_order(page_rect, blocks, boxes, vertical_gap: float = 12) -> li
         )
 
     # extract vectors contained in the TextPage
-    if not joined_boxes.is_empty:
+    if not bbox_is_empty(joined_boxes):
         min_bbox_height = min(b[3] - b[1] for b in body_boxes)
         vectors = [
             pymupdf.Rect(b["bbox"])
@@ -718,7 +853,7 @@ def find_virtual_lines(page, table_bbox, words, vectors, link_rects):
         vbbox = pymupdf.Rect(v["bbox"]).normalize()
         vbbox += (0, -0.5, 0, 0.5)  # expand vertically a bit
         vbbox &= table_bbox
-        if vbbox.is_empty:
+        if bbox_is_empty(vbbox):
             continue
         if not v["stroked"] and vbbox.height >= 5 and vbbox.width > 20:
             all_lines.append((vbbox.tl, vbbox.tr))
@@ -790,28 +925,19 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
             Format is either "dict" or "rawdict" depending on ocrpage.
         cell: A tuple (x0, y0, x1, y1) defining the cell's bbox.
         markdown: If True, return text formatted for Markdown.
-        ocrpage: If True, text is written with GlyphLessFont. In this case,
-            table_blocks is in format "dict".
+        ocrpage: If True, text is OCR-detected. In this case, table_blocks
+        is in format "dict" (no char-level info available).
 
     Returns:
         A string with the text extracted from the cell.
     """
 
-    def outside_cell(bbox, cell):
-        return (
-            0
-            or bbox[0] >= cell[2]
-            or bbox[2] <= cell[0]
-            or bbox[1] >= cell[3]
-            or bbox[3] <= cell[1]
-        )
-
     text = ""
     for block in table_blocks:
-        if outside_cell(block["bbox"], cell):
+        if outside_bbox(block["bbox"], cell):
             continue
         for line in block["lines"]:
-            if outside_cell(line["bbox"], cell):
+            if outside_bbox(line["bbox"], cell):
                 continue
             if text:  # this line is new in the cell
                 text += "<br>" if markdown else "\n"
@@ -820,7 +946,7 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
             horizontal = line["dir"] == (0, 1) or line["dir"] == (1, 0)
 
             for span in line["spans"]:
-                if outside_cell(span["bbox"], cell):
+                if outside_bbox(span["bbox"], cell):
                     continue
                 if ocrpage:
                     span_text = span["text"]
@@ -830,8 +956,7 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     span_text = ""
                     for char in span["chars"]:
                         this_char = char["c"]
-                        bbox = pymupdf.Rect(char["bbox"])
-                        if abs(bbox & cell) > 0.5 * abs(bbox):
+                        if almost_in_bbox(char["bbox"], cell, portion=0.5):
                             span_text += this_char
                         elif this_char in WHITE_CHARS:
                             span_text += " "
@@ -868,7 +993,7 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     if not span_text.strip():
                         text += " "
                     else:
-                        text += prefix + span_text.rstrip() + suffix
+                        text += prefix + span_text.strip() + suffix
     text = (
         text.replace("$<br>", "$ ")
         .replace(" $ <br>", "$ ")

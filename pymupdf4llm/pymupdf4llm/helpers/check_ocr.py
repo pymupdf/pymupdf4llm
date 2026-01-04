@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import pymupdf  # PyMuPDF
-from pymupdf4llm.helpers.utils import WHITE_CHARS, analyze_page
+from pymupdf4llm.helpers.utils import WHITE_CHARS, analyze_page, bbox_is_empty
 
 FLAGS = (
     0
@@ -295,7 +295,7 @@ def should_ocr_page(
     analysis = analyze_page(page, blocks=blocks)
 
     # return if page is completely blank
-    if analysis["covered"].is_empty:
+    if bbox_is_empty(analysis["covered"]):
         decision["should_ocr"] = False
         return decision
 

@@ -11,7 +11,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-version = "0.2.7"
+version = "0.2.8"
 pymupdf_version = "1.26.6"
 pymupdf_version_tuple = tuple(int(x) for x in pymupdf_version.split("."))
 requires = [f"pymupdf>={pymupdf_version}", "tabulate"]
