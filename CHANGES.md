@@ -1,5 +1,30 @@
 # Change Log
 
+## Changes in version 0.2.8
+
+### Fixes:
+
+* [349](https://github.com/pymupdf/pymupdf4llm/discussions/349) - Is it possible to change the OCR language when using -layout?
+* [352](https://github.com/pymupdf/pymupdf4llm/issues/352) - Does not respect the image_path keyword argument when write_images=True
+* [353](https://github.com/pymupdf/pymupdf4llm/issues/353) - How do I filter out pixmap with non-empty size but empty in value
+
+### Other Changes:
+
+* Support new parameter `ocr_language`. This is a string which is passed through to Tesseract-OCR, so the user is responsible for its format.
+
+* Changed the format of the page chunk dictionary: the new dictionary key "page_boxes" in layout mode is now a **_list of dictionaries_** (was a list of lists). The dictionaries have the following keys / values:
+
+    - "index": 0-based integer enumerating the layout boxes in reading order
+
+    - "class": a string denoting the bbox class ("table", "list-item", "section-header", etc.)
+
+    - "bbox": pymupdf.IRect of the layout boundary box
+
+    - "pos": tuple `(start, stop)` of integers denoting the text substring of the bboxes text in this chunk's text ("text" key of the chunk). The values are in slice format and can be used to extract the bbox text like this `bbox_text = chunk["text"][start : stop]`.
+
+* Implemented multiple performance improvements, primarily around rectangle containment checks.
+------
+
 ## Changes in version 0.2.7
 
 ### Fixes:

@@ -61,7 +61,12 @@ License GNU Affero GPL 3.0
 """
 
 import pymupdf
-from pymupdf4llm.helpers.utils import WHITE_CHARS
+from pymupdf4llm.helpers.utils import (
+    WHITE_CHARS,
+    outside_bbox,
+    intersect_rects,
+    bbox_is_empty,
+)
 
 pymupdf.TOOLS.unset_quad_corrections(True)
 
@@ -118,10 +123,7 @@ def column_boxes(
 
     def intersects_bboxes(bb, bboxes):
         """Return True if a bbox touches bb, else return False."""
-        for bbox in bboxes:
-            if not (bb & bbox).is_valid:
-                return True
-        return False
+        return any(not outside_bbox(bb, bbox, strict=True) for bbox in bboxes)
 
     def can_extend(temp, bb, bboxlist, vert_bboxes):
         """Determines whether rectangle 'temp' can be extended by 'bb'
@@ -135,7 +137,9 @@ def column_boxes(
         """
         for b in bboxlist:
             if not intersects_bboxes(temp, vert_bboxes) and (
-                b is None or b == bb or (temp & b).is_empty
+                b is None
+                or b == bb
+                or bbox_is_empty(intersect_rects(temp, b, bbox_only=True))
             ):
                 continue
             return False

@@ -15,9 +15,13 @@ License GNU Affero GPL 3.0
 import sys
 
 import pymupdf
-from pymupdf4llm.helpers.utils import is_white
-
-TYPE3_FONT_NAME = "Unnamed-T3"
+from pymupdf4llm.helpers.utils import (
+    is_white,
+    almost_in_bbox,
+    outside_bbox,
+    bbox_is_empty,
+    TYPE3_FONT_NAME,
+)
 
 
 def get_raw_lines(
@@ -115,18 +119,21 @@ def get_raw_lines(
         blocks = [
             b
             for b in textpage.extractDICT()["blocks"]
-            if b["type"] == 0 and not pymupdf.Rect(b["bbox"]).is_empty
+            if b["type"] == 0 and not bbox_is_empty(b["bbox"])
         ]
     spans = []  # all spans in TextPage here
     for bno, b in enumerate(blocks):  # the numbered blocks
+        if outside_bbox(b["bbox"], clip):
+            continue
         for lno, line in enumerate(b["lines"]):  # the numbered lines
+            if outside_bbox(line["bbox"], clip):
+                continue
             line_dir = line["dir"]
             if (
                 only_horizontal and abs(1 - line_dir[0]) > 1e-3
             ):  # only accept horizontal text
                 continue
             for sno, s in enumerate(line["spans"]):  # the numered spans
-                sbbox = pymupdf.Rect(s["bbox"])  # span bbox as a Rect
                 if is_white(s["text"]):
                     # ignore white text if not a Type3 font
                     continue
@@ -137,8 +144,9 @@ def get_raw_lines(
                     and ignore_invisible
                 ):
                     continue
-                if abs(sbbox & clip) < abs(sbbox) * 0.8:  # if not in clip
+                if not almost_in_bbox(s["bbox"], clip):  # if not in clip
                     continue
+                sbbox = pymupdf.Rect(s["bbox"])  # span bbox as a Rect
                 if s["flags"] & 1:  # if a superscript, modify bbox
                     # with that of the preceding or following span
                     i = 1 if sno == 0 else sno - 1
