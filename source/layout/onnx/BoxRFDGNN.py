@@ -45,6 +45,10 @@ def get_rf_features(custom_feature, rf_names):
                 f.append(1.0)
             else:
                 f.append(0.0)
+        # Temporarily workaround removed features.
+        # This enables us to keep testing without needing to retrain.
+        elif f_name == 'char_space_n':
+                f.append(0.0)
         else:
             if f_name not in custom_feature:
                 raise Exception(f"'{f_name}' does not exist in 'custom_features'")
