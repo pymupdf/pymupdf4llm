@@ -580,8 +580,10 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 {
 	fz_feature_stats *stats = &features->stats;
 	float last_baseline;
-
 	int first_line = 1;
+
+	assert(is_header == 0 || is_header == 1 || is_header == 2);
+
 	for (; block != NULL; block = block->next)
 	{
 		fz_stext_line *line;
@@ -1081,6 +1083,10 @@ gather_region_stats(fz_context *ctx, fz_stext_block *block, fz_rect region, fz_f
 	state.first_char = 1;
 
 	gather_region_stats_aux(ctx, block, region, features, &state, 0);
+
+	if (features->stats.is_header == -1)
+		features->stats.is_header = 0;
+
 	gather_region_stats2_aux(ctx, block, region, features, &state);
 
 	features->stats.num_fonts_in_region = features->region_fonts.len;
