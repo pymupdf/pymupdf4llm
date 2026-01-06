@@ -1315,8 +1315,6 @@ process_global_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 		stats->char_space /= stats->char_space_n;
 
 	stats->ratio = features->num_chars / ((region.x1-region.x0) * (region.y1-region.y0));
-	if (features->font_size_n)
-		stats->font_size /= features->font_size_n;
 
 	font_freq_common(ctx, &features->fonts, 0.5);
 	font_freq_common(ctx, &features->linespaces, 0.5);
@@ -1333,6 +1331,8 @@ process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 	font_freq_common(ctx, &features->region_fonts, 0.5);
 	font_freq_common(ctx, &features->region_linespaces, 0.5);
 
+	if (features->font_size_n)
+		stats->font_size /= features->font_size_n;
 	stats->fonts_offset = 0;
 	if (features->fonts_mode != -1)
 	{
@@ -1488,6 +1488,7 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 	features->nearest_nonaligned_down = max_h;
 	features->nearest_nonaligned_left = max_w;
 	features->nearest_nonaligned_right = max_w;
+	features->font_size_n = 0;
 
 	/* Now collect for the region itself. */
 	gather_region_stats(ctx, page->first_block, region, features);
