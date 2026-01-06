@@ -5,15 +5,11 @@ on:
     branches: [master]
 
   workflow_dispatch:
-    inputs:
-      args:
-        default: ''
-        description: 'Arguments to be passed to scripts/test_push.py.'
 
 jobs:
 
   test:
-    name: Test
+    name: test push
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -34,17 +30,55 @@ jobs:
         with:
           python-version: 3.13
 
-      - name: test
+      - name: test push
+        
+        env:
+          # This allows us to clone the aptest repository.
+          ARTIFEX_SOFTWARE_SSH_KEY: ${{secrets.ARTIFEX_SOFTWARE_SSH_KEY}}
+        
+        shell: python
         run: |
-          pip install pytest
-
-          # Use current pymupdf release.
-          pip install -v pymupdf
-
-          # Use latest pymupdf and mupdf in git.
-          #git clone https://github.com/pymupdf/PyMuPDF.git
-          #'PYMUPDF_SETUP_MUPDF_BUILD=git:--branch master' pip install -v ./PyMuPDF
-
-          # Build, install and test local pymupdf_layout.
-          pip install -v ./
-          python -m pytest -v tests
+          import os
+          import platform
+          import subprocess
+          
+          def fs_write_key(path, data):
+              '''
+              Writes <data> to <path>, ensuring that <path> is created with appropriate
+              permissions.
+              Copied from pipcl.py.
+              '''
+              if platform.system() == 'Windows':
+                  # For unknown reasons, the code below for non-Windows does not work
+                  # on Windows.
+                  #
+                  # Also for unknown reasons, using backslashes in
+                  # path doesn't work - we write the file but it
+                  # doesn't appear in the filesystem.
+                  path = path.replace('\\', '/')
+                  with open(path, 'wb') as f:
+                      f.write(data.encode('utf8').replace(b'\r', b''))
+              else:
+                  # Need to create file as read/write for current user only, so we have
+                  # to use `os.open()` instead of `open()`.
+                  #
+                  fd = os.open(path, os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_EXCL, 0o600)
+                  try:
+                      os.write(fd, data.encode('utf8'))
+                  finally:
+                      os.close(fd)
+          
+          # Write key to file so it can be used with GIT_SSH_COMMAND
+          ARTIFEX_SOFTWARE_SSH_KEY = os.environ['ARTIFEX_SOFTWARE_SSH_KEY']
+          key_path = '.tmpkey'
+          fs_write_key(key_path, ARTIFEX_SOFTWARE_SSH_KEY)
+          
+          # Clone aptest.
+          try:
+              os.environ['GIT_SSH_COMMAND'] = f'ssh -i {key_path} -o StrictHostKeyChecking=no'
+              subprocess.run(f'git clone git@github.com:ArtifexSoftware/aptest.git', shell=1, check=1)
+          finally:
+              os.remove(key_path)
+          
+          # Do build+test using aptest.
+          subprocess.run('python aptest/aptest.py -p pip: --layout . build test -t -p', shell=1, check=1)
