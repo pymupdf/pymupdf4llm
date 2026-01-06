@@ -41,7 +41,7 @@ typedef struct
 	float smargin_r;
 	float smargin_b;
 	int dodgy_paragraph_breaks;
-	int char_space_n;
+	int char_space_n; /* UNUSED - delete me */
 	fz_rect last_char_rect;
 	int is_header;
 	float context_above_font_size;

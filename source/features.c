@@ -55,6 +55,7 @@ struct fz_features
 	fz_stext_page *page;
 	int num_chars;
 	int font_size_n;
+	int char_space_n;
 	int fonts_mode;
 	int linespaces_mode;
 	int rfonts_mode;
@@ -854,7 +855,7 @@ gather_region_stats_aux(fz_context *ctx, fz_stext_block *block, fz_rect region, 
 					features->num_chars++;
 					if (!state->first_char)
 					{
-						stats->char_space_n++;
+						features->char_space_n++;
 						if (stats->last_char_rect.x1 < char_rect.x0)
 							stats->char_space += char_rect.x0 - stats->last_char_rect.x1;
 					}
@@ -1311,9 +1312,6 @@ process_global_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 {
 	fz_feature_stats *stats = &features->stats;
 
-	if (stats->char_space_n)
-		stats->char_space /= stats->char_space_n;
-
 	stats->ratio = features->num_chars / ((region.x1-region.x0) * (region.y1-region.y0));
 
 	font_freq_common(ctx, &features->fonts, 0.5);
@@ -1333,6 +1331,8 @@ process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 
 	if (features->font_size_n)
 		stats->font_size /= features->font_size_n;
+	if (features->char_space_n)
+		stats->char_space /= features->char_space_n;
 	stats->fonts_offset = 0;
 	if (features->fonts_mode != -1)
 	{
@@ -1489,6 +1489,7 @@ fz_features_for_region(fz_context *ctx, fz_features *features, fz_rect region, i
 	features->nearest_nonaligned_left = max_w;
 	features->nearest_nonaligned_right = max_w;
 	features->font_size_n = 0;
+	features->char_space_n = 0;
 
 	/* Now collect for the region itself. */
 	gather_region_stats(ctx, page->first_block, region, features);
