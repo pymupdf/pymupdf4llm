@@ -1318,8 +1318,6 @@ process_global_font_stats(fz_context *ctx, fz_rect region, fz_features *features
 {
 	fz_feature_stats *stats = &features->stats;
 
-	stats->ratio = features->num_chars / ((region.x1-region.x0) * (region.y1-region.y0));
-
 	font_freq_common(ctx, &features->fonts, 0.5);
 	font_freq_common(ctx, &features->linespaces, 0.5);
 
@@ -1331,6 +1329,14 @@ static void
 process_region_font_stats(fz_context *ctx, fz_rect region, fz_features *features)
 {
 	fz_feature_stats *stats = &features->stats;
+
+	{
+		float area = ((region.x1-region.x0) * (region.y1-region.y0));
+		/* Using 1 for area being empty is slightly hacky, but the most
+		 * common case for this is for a region that just contains a single
+		 * 'space' character (with 0 height), so 1 is the right answer. */
+		stats->ratio = (area < 0.001) ? 1 : (features->num_chars / area);
+	}
 
 	font_freq_common(ctx, &features->region_fonts, 0.5);
 	font_freq_common(ctx, &features->region_linespaces, 0.5);
