@@ -241,7 +241,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\csv.h" />
-    <ClInclude Include="..\source\features.h" />
+    <ClInclude Include="..\source\features_decls.h" />
     <ClInclude Include="..\source\utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
