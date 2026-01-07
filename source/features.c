@@ -1196,6 +1196,68 @@ find_line_below_region(fz_context *ctx, fz_stext_block *block, fz_rect region, b
 	}
 }
 
+int
+fz_is_unicode_space_equivalent(int c)
+{
+	switch (c)
+	{
+	case 0xa0:	/* NO-BREAK-SPACE */
+	case 0x1680:	/* OGHAM SPACE MARK */
+	case 0x2000:	/* EN QUAD */
+	case 0x2001:	/* EM QUAD */
+	case 0x2002:	/* EN SPACE */
+	case 0x2003:	/* EM SPACE */
+	case 0x2004:	/* THREE-PER-EM-SPACE */
+	case 0x2005:	/* FOUR-PER-EM-SPACE */
+	case 0x2006:	/* SIX-PER-EM-SPACE */
+	case 0x2007:	/* FIGURE-SPACE */
+	case 0x2008:	/* PUNCTUATION-SPACE */
+	case 0x2009:	/* THIN-SPACE */
+	case 0x200A:	/* HAIR-SPACE */
+	case 0x202F:	/* NARROW-NO-BREAK-SPACE */
+	case 0x205F:	/* MEDIUM-MATHEMATICAL-SPACE */
+	case 0x3000:	/* IDEOGRAPHIC-SPACE */
+		return 1;
+	}
+
+	return 0;
+}
+
+static int my_isspace(int ch)
+{
+	/* \t, \n, \v, \f, \r, space */
+	return (ch == 9 || ch == 10 || ch == 11 || ch == 12 || ch == 13 || ch == 32);
+}
+
+/* Stolen from MuPDF 1.27.0 fz_is_unicode_whitespace.
+ * Update this to use the MuPDF version when we have a published
+ * version of PyMuPDF built on that. */
+static int is_unicode_whitespace(int c)
+{
+	if (fz_is_unicode_space_equivalent(c))
+		return 1;
+	if (c == 0x2028)
+		return 1; /* Line separator */
+	if (c == 0x2029)
+		return 1; /* Paragraph separator */
+	if (c > 0 && c < 256 && my_isspace(c))
+		return 1;
+
+	return 0;
+}
+
+static int
+line_is_all_spaces(fz_stext_line *line)
+{
+	fz_stext_char *ch;
+
+	for (ch = line->first_char; ch; ch = ch->next)
+		if (!is_unicode_whitespace(ch->c))
+			return 0;
+
+	return 1;
+}
+
 static fz_rect
 gather_line(fz_context *ctx, best_line *best, fz_rect region)
 {
@@ -1208,8 +1270,10 @@ gather_line(fz_context *ctx, best_line *best, fz_rect region)
 		fz_stext_line *prev = start->prev;
 		if (prev->bbox.y0 >= best->line->bbox.y1 || prev->bbox.y1 <= best->line->bbox.y0)
 			break;
-		//if (prev->bbox.x1 < region.x0 || prev->bbox.x0 > region.x1 )
-		//	break;
+		if (line_is_all_spaces(prev))
+			break;
+		if (prev->bbox.x1 < region.x0 || prev->bbox.x0 > region.x1 )
+			break;
 		start = prev;
 		bbox = fz_union_rect(bbox, start->bbox);
 	}
@@ -1218,8 +1282,10 @@ gather_line(fz_context *ctx, best_line *best, fz_rect region)
 		fz_stext_line *next = end->next;
 		if (next->bbox.y0 >= best->line->bbox.y1 || next->bbox.y1 <= best->line->bbox.y0)
 			break;
-		//if (next->bbox.x1 < region.x0 || next->bbox.x0 > region.x1 )
-		//	break;
+		if (line_is_all_spaces(next))
+			break;
+		if (next->bbox.x1 < region.x0 || next->bbox.x0 > region.x1 )
+			break;
 		end = next;
 		bbox = fz_union_rect(bbox, end->bbox);
 	}
