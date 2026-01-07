@@ -1196,8 +1196,8 @@ find_line_below_region(fz_context *ctx, fz_stext_block *block, fz_rect region, b
 	}
 }
 
-int
-fz_is_unicode_space_equivalent(int c)
+static int
+is_unicode_space_equivalent(int c)
 {
 	switch (c)
 	{
@@ -1234,7 +1234,7 @@ static int my_isspace(int ch)
  * version of PyMuPDF built on that. */
 static int is_unicode_whitespace(int c)
 {
-	if (fz_is_unicode_space_equivalent(c))
+	if (is_unicode_space_equivalent(c))
 		return 1;
 	if (c == 0x2028)
 		return 1; /* Line separator */
