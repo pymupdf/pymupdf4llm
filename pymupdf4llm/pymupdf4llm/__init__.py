@@ -178,6 +178,25 @@ else:
         )
 
 
+def get_key_values(doc, xrefs=False, **kwargs):
+    from .helpers import utils
+
+    if kwargs:
+        print(f"Warning: keyword arguments ignored: {set(kwargs.keys())}")
+    if isinstance(doc, pymupdf.Document):
+        mydoc = doc
+    else:
+        mydoc = pymupdf.open(doc)
+    if mydoc.is_form_pdf:
+        rc = utils.extract_form_fields_with_pages(mydoc, xrefs=xrefs)
+    else:
+        rc = {}
+
+    if mydoc != doc:
+        mydoc.close()
+    return rc
+
+
 def LlamaMarkdownReader(*args, **kwargs):
     from .llama import pdf_markdown_reader
 

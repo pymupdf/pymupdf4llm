@@ -1,5 +1,18 @@
 # Change Log
 
+## Changes in version 0.2.9
+
+### Fixes:
+
+* [356](https://github.com/pymupdf/pymupdf4llm/discussions/356) - Page Chunk Output under to_text() may fail for erroneous layout bboxes
+* [355](https://github.com/pymupdf/pymupdf4llm/issues/355) - Image saving fails if the document filename contains folder specifications
+
+### Other Changes:
+
+* Added new top-level function `get_key_values()` to extract the field name and their values if the document is a "Form PDF". This is always available, whether or not PyMuPDF-Layout is avtive.
+
+------
+
 ## Changes in version 0.2.8
 
 ### Fixes:

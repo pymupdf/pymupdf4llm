@@ -215,10 +215,12 @@ def get_plain_text(spans):
     return output
 
 
-def list_item_to_text(textlines, level):
+def list_item_to_text(textlines, level) -> str:
     """
     Convert "list-item" bboxes to text.
     """
+    if not textlines:
+        return ""
     indent = "   " * (level - 1)  # indentation based on level
     output = indent
     line = textlines[0]
@@ -250,10 +252,12 @@ def list_item_to_text(textlines, level):
     return output.rstrip() + "\n\n"
 
 
-def footnote_to_text(textlines):
+def footnote_to_text(textlines) -> str:
     """
     Convert "footnote" bboxes to text.
     """
+    if not textlines:
+        return ""
     # we render footnotes as blockquotes
     output = "> "
     line = textlines[0]
@@ -888,18 +892,19 @@ def parse_document(
         root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
 
     TESSDATA = None
+    if embed_images and write_images:
+        raise ValueError("Cannot both embed and write images.")
     document = ParsedDocument()
     document.filename = mydoc.name if mydoc.name else filename
     document.toc = mydoc.get_toc(simple=True)
     document.page_count = mydoc.page_count
     document.metadata = mydoc.metadata
+    document.form_fields = utils.extract_form_fields_with_pages(mydoc)
     document.image_dpi = image_dpi
     document.image_format = image_format
     document.image_path = image_path
     document.pages = []
     document.force_text = force_text
-    if embed_images and write_images:
-        raise ValueError("Cannot both embed and write images.")
     document.embed_images = embed_images
     document.write_images = write_images
 
