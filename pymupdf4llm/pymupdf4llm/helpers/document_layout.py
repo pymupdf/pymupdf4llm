@@ -11,22 +11,14 @@ from typing import Dict, List, Optional, Union
 import pymupdf
 import tabulate
 from pymupdf import mupdf
-from pymupdf4llm.helpers import utils
+from pymupdf4llm.helpers import utils, check_ocr
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+
 
 try:
     from tqdm import tqdm as ProgressBar
 except ImportError:
     from pymupdf4llm.helpers.progress import ProgressBar
-try:
-    import cv2
-
-    if hasattr(cv2, "Canny"):
-        from pymupdf4llm.helpers import check_ocr
-    else:
-        cv2 = None
-except ImportError:
-    cv2 = None
 
 pymupdf.TOOLS.unset_quad_corrections(True)
 
@@ -910,8 +902,6 @@ def parse_document(
 
     if use_ocr:
         try:
-            reason = "OpenCV not installed"
-            assert cv2 is not None
             reason = "Tesseract language data not found"
             TESSDATA = pymupdf.get_tessdata()
             document.use_ocr = True

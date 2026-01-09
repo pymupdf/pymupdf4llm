@@ -10,6 +10,7 @@
 ### Other Changes:
 
 * Added new top-level function `get_key_values()` to extract the field name and their values if the document is a "Form PDF". This is always available, whether or not PyMuPDF-Layout is avtive.
+* **_Removed_** OpenCV dependency. Previously, this was used to determine whether a page is worthwhile to be OCR'd. We now use numpy for these checks.
 
 ------
 
