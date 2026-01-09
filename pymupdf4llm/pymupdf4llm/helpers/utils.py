@@ -1,4 +1,5 @@
 import pymupdf
+from pymupdf import mupdf
 from pathlib import Path
 
 WHITE_CHARS = set(
@@ -62,6 +63,85 @@ FLAGS = (
 )
 
 
+def extract_form_fields_with_pages(doc, xrefs=False):
+    """
+    Traverse /AcroForm/Fields hierarchy and return a dict:
+    fully qualified field name -> {"value": ..., "pages": [...]}
+    Optionally, the xref of the field is included.
+    """
+    result = {}
+
+    # Access the AcroForm dictionary.
+    # Fast exit if not present or empty.
+    pdfdoc = pymupdf._as_pdf_document(doc)
+    fields = mupdf.pdf_dict_getl(
+        mupdf.pdf_trailer(pdfdoc),
+        pymupdf.PDF_NAME("Root"),
+        pymupdf.PDF_NAME("AcroForm"),
+        pymupdf.PDF_NAME("Fields"),
+    )
+    if not fields.pdf_array_len():
+        # "Fields" array not present or empty.
+        return result
+
+    # Backreference: page xref -> page number
+    page_xrefs = {page.xref: page.number for page in doc}
+
+    def walk_field(field, prefix=""):
+        # /T is the partial field name
+        field_xref = field.pdf_to_num()
+        name_x = field.pdf_dict_get(pymupdf.PDF_NAME("T"))
+        name = name_x.pdf_to_text_string()
+        if not name:
+            return
+        fq_name = f"{prefix}.{name}" if prefix else name
+
+        # /V is the value (may be None)
+        value_x = field.pdf_dict_get(pymupdf.PDF_NAME("V"))
+        if value_x.pdf_is_name():
+            value = value_x.pdf_to_name()
+        else:
+            value = value_x.pdf_to_text_string()
+
+        # Collect page numbers from widget annotations
+        pages = []
+        kids = field.pdf_dict_get(pymupdf.PDF_NAME("Kids"))
+        if kids.pdf_is_array():
+            for i in range(kids.pdf_array_len()):
+                kid = kids.pdf_array_get(i)
+                field_xref = kid.pdf_to_num()
+                # Each kid is a widget annotation dictionary
+                page_xref_x = kid.pdf_dict_get(
+                    pymupdf.PDF_NAME("P")
+                )  # reference to page object
+                page_xref = page_xref_x.pdf_to_num()  # xref of page
+
+                if page_xref:
+                    pages.append(page_xrefs.get(page_xref))
+
+                # Recurse into nested kids
+                walk_field(kid, fq_name)
+
+        # If no kids, check if this field itself has a page reference
+        if not kids.pdf_array_len():
+            page_ref_x = field.pdf_dict_get(pymupdf.PDF_NAME("P"))
+            page_xref = page_ref_x.pdf_to_num()
+            if page_xref:
+                pages.append(page_xrefs.get(page_xref))
+
+        # Store result
+        value_dict = {"value": value, "pages": sorted(set(pages))}
+        if xrefs:
+            value_dict["xref"] = field_xref
+        result[fq_name] = value_dict
+
+    for i in range(fields.pdf_array_len()):
+        field = fields.pdf_array_get(i)
+        walk_field(field)
+
+    return result
+
+
 def md_path(folder: str, filename: str) -> str:
     """
     Normalize a folder path ("" = script folder), ensure it exists,
@@ -80,7 +160,7 @@ def md_path(folder: str, filename: str) -> str:
     base.mkdir(parents=True, exist_ok=True)
 
     # 3. Build full file path
-    full_path = base / filename
+    full_path = base / Path(filename).name
 
     # 4. Try to compute a relative path (best for Markdown)
     try:
@@ -89,18 +169,14 @@ def md_path(folder: str, filename: str) -> str:
     except ValueError:
         # Not relative → fall back to POSIX path
         md_ref = full_path.as_posix()
-    save_safe_path = md_ref
     # 5. Escape Markdown-sensitive characters
     md_ref = (
-        md_ref.replace("(", r"\(")
-        .replace(")", r"\)")
-        .replace("[", r"\[")
-        .replace("]", r"\]")
+        md_ref.replace("(", "-").replace(")", "-").replace("[", "-").replace("]", "-")
     )
     # Escaping bracket is for MD references only, not for actual file saving.
     # The first item is the MD-safe form,
     # the second is the actual path to use in pixmap saving.
-    return md_ref, save_safe_path
+    return md_ref, md_ref
 
 
 def startswith_bullet(text):

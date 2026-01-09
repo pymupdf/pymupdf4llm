@@ -11,12 +11,11 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-version = "0.2.8"
+version = "0.2.9"
 pymupdf_version = "1.26.6"
 pymupdf_version_tuple = tuple(int(x) for x in pymupdf_version.split("."))
 requires = [f"pymupdf>={pymupdf_version}", "tabulate"]
 extras_require = {
-    "ocr": ["opencv-python"],
     "layout": [f"pymupdf-layout>={pymupdf_version}"],
 }
 

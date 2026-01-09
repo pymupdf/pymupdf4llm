@@ -11,22 +11,14 @@ from typing import Dict, List, Optional, Union
 import pymupdf
 import tabulate
 from pymupdf import mupdf
-from pymupdf4llm.helpers import utils
+from pymupdf4llm.helpers import utils, check_ocr
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+
 
 try:
     from tqdm import tqdm as ProgressBar
 except ImportError:
     from pymupdf4llm.helpers.progress import ProgressBar
-try:
-    import cv2
-
-    if hasattr(cv2, "Canny"):
-        from pymupdf4llm.helpers import check_ocr
-    else:
-        cv2 = None
-except ImportError:
-    cv2 = None
 
 pymupdf.TOOLS.unset_quad_corrections(True)
 
@@ -215,10 +207,12 @@ def get_plain_text(spans):
     return output
 
 
-def list_item_to_text(textlines, level):
+def list_item_to_text(textlines, level) -> str:
     """
     Convert "list-item" bboxes to text.
     """
+    if not textlines:
+        return ""
     indent = "   " * (level - 1)  # indentation based on level
     output = indent
     line = textlines[0]
@@ -250,10 +244,12 @@ def list_item_to_text(textlines, level):
     return output.rstrip() + "\n\n"
 
 
-def footnote_to_text(textlines):
+def footnote_to_text(textlines) -> str:
     """
     Convert "footnote" bboxes to text.
     """
+    if not textlines:
+        return ""
     # we render footnotes as blockquotes
     output = "> "
     line = textlines[0]
@@ -888,25 +884,24 @@ def parse_document(
         root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
 
     TESSDATA = None
+    if embed_images and write_images:
+        raise ValueError("Cannot both embed and write images.")
     document = ParsedDocument()
     document.filename = mydoc.name if mydoc.name else filename
     document.toc = mydoc.get_toc(simple=True)
     document.page_count = mydoc.page_count
     document.metadata = mydoc.metadata
+    document.form_fields = utils.extract_form_fields_with_pages(mydoc)
     document.image_dpi = image_dpi
     document.image_format = image_format
     document.image_path = image_path
     document.pages = []
     document.force_text = force_text
-    if embed_images and write_images:
-        raise ValueError("Cannot both embed and write images.")
     document.embed_images = embed_images
     document.write_images = write_images
 
     if use_ocr:
         try:
-            reason = "OpenCV not installed"
-            assert cv2 is not None
             reason = "Tesseract language data not found"
             TESSDATA = pymupdf.get_tessdata()
             document.use_ocr = True
