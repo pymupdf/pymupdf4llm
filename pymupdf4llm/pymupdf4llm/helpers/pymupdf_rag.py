@@ -464,14 +464,56 @@ def to_markdown(
             None or a string representing the link in MD format.
         """
         bbox = pymupdf.Rect(span["bbox"])  # span bbox
-        # a link should overlap at least 70% of the span
+        text = span["text"].strip()
+
+        # Calculate the average width per character
+        bbox_width = bbox.width
+        text_length = len(text)
+        avg_char_width = bbox_width / text_length if text_length > 0 else 0
+
         for link in links:
+            print(link)
             hot = link["from"]  # the hot area of the link
-            middle = (hot.tl + hot.br) / 2  # middle point of hot area
+            middle = (hot.tl + hot.br) / 2  # middle point of the hot area
+
+            # Check if the middle point of the link intersects with the span's bounding box
             if not middle in bbox:
                 continue  # does not touch the bbox
-            text = f'[{span["text"].strip()}]({link["uri"]})'
-            return text
+
+            # Calculate the character indices corresponding to the link's bounding box
+            link_x_min = hot.tl.x - bbox.x0  # adjust for bbox origin
+            link_x_max = hot.br.x - bbox.x0   # adjust for bbox origin
+
+            # Calculate character indices
+            char_index_min = int(link_x_min / avg_char_width)
+            char_index_max = int(link_x_max / avg_char_width)
+
+            # Ensure the indices are within the bounds of the text
+            char_index_min = max(0, char_index_min)
+            char_index_max = min(text_length, char_index_max)
+
+            # Handle some corner cases.
+            # - Single letter link
+            # - Check if the link starts at the very beginning.
+            if char_index_min == char_index_max == 0:
+                return f'[{span["text"].strip()}]({link["uri"]})'
+            if char_index_min != 0:
+                # Adjust char_index_min to ensure it lands exactly at the beginning of the link text
+                while char_index_min < char_index_max and (char_index_min > 0 and text[char_index_min-1] != ' '):
+                    char_index_min += 1
+
+            # Adjust char_index_max to ensure it captures the entire link text and stops at the next space
+            while char_index_max < text_length and text[char_index_max] != ' ':
+                char_index_max -= 1
+
+            # Extract the substring corresponding to the link
+            link_text = text[char_index_min:char_index_max].strip()
+            # Format the text as a Markdown link
+            markdown_link = f'[{link_text}]({link["uri"]})'
+            # Replace the link text in the original text with the Markdown link
+            surrounding_text = text[:char_index_min] + markdown_link + text[char_index_max:]
+            return surrounding_text  # Return the text with the Markdown link included
+        return None
 
     def save_image(parms, rect, i):
         """Optionally render the rect part of a page.
