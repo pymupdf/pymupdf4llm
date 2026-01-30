@@ -3,19 +3,22 @@
 '''
 Environment variables:
 
-    PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF
+    PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF
         If set to none-empty string, we expect PyMuPDF to be already installed
         and we don't return it from get_requires_for_build_wheel().
     
-    PYMUPDF_LAYOUT_SETUP_SWIG
+    PYMUPDF_4LLM_SETUP_SWIG
         If set, we use this instead of `swig`.
     
-    PYMUPDF_LAYOUT_SETUP_BUILD_TYPE
+    PYMUPDF_4LLM_SETUP_BUILD_TYPE
         We do a debug build if set to 'debug'.
     
-    PYMUPDF_LAYOUT_SETUP_VSGRADE
+    PYMUPDF_4LLM_SETUP_VSGRADE
         Specific Visual Studio, must be one of 'Community', 'Professional',
         'Enterprise'.
+    
+    PYMUPDF4LLM_INCLUDE_LAYOUT
+        If 0, we don't include layout.
 '''
 
 import pipcl
@@ -67,39 +70,39 @@ if PYMUPDF_SETUP_VERSION:
     log(f'Overriding g_pymupdf_version from {g_pymupdf_version=} to {PYMUPDF_SETUP_VERSION=}.')
     g_pymupdf_version = PYMUPDF_SETUP_VERSION
 
-PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF = os.environ.get('PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF')
-if PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF:
+PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF = os.environ.get('PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF')
+if PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF:
     # We are building with custom pymupdf, so don't list a pymupdf version as a
     # buildtime or runtime prerequisite.
-    log(f'Setting g_pymupdf_version=None because {PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF=}.')
+    log(f'Setting g_pymupdf_version=None because {PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF=}.')
     g_pymupdf_version = None
 
-PYMUPDF_LAYOUT_SETUP_SWIG = os.environ.get('PYMUPDF_LAYOUT_SETUP_SWIG')
+PYMUPDF_4LLM_SETUP_SWIG = os.environ.get('PYMUPDF_4LLM_SETUP_SWIG')
 
 def build():
 
     root = os.path.normpath(f'{__file__}/..')
     root = pipcl.relpath(root, allow_up=0)
     
-    swig = PYMUPDF_LAYOUT_SETUP_SWIG or 'swig'
+    swig = PYMUPDF_4LLM_SETUP_SWIG or 'swig'
     run(f'{swig} -version')
     
-    PYMUPDF_LAYOUT_SETUP_BUILD_TYPE = os.environ.get('PYMUPDF_LAYOUT_SETUP_BUILD_TYPE')
+    PYMUPDF_4LLM_SETUP_BUILD_TYPE = os.environ.get('PYMUPDF_4LLM_SETUP_BUILD_TYPE')
     
-    PYMUPDF_LAYOUT_SETUP_VSGRADE = os.environ.get('PYMUPDF_LAYOUT_SETUP_VSGRADE')
-    if PYMUPDF_LAYOUT_SETUP_VSGRADE is not None:
-        assert PYMUPDF_LAYOUT_SETUP_VSGRADE in ('Community', 'Professional', 'Enterprise'), \
-            f'{PYMUPDF_LAYOUT_SETUP_VSGRADE=} should undefined or one of Community, Professional, Enterprise.'
+    PYMUPDF_4LLM_SETUP_VSGRADE = os.environ.get('PYMUPDF_4LLM_SETUP_VSGRADE')
+    if PYMUPDF_4LLM_SETUP_VSGRADE is not None:
+        assert PYMUPDF_4LLM_SETUP_VSGRADE in ('Community', 'Professional', 'Enterprise'), \
+            f'{PYMUPDF_4LLM_SETUP_VSGRADE=} should undefined or one of Community, Professional, Enterprise.'
     
-    if PYMUPDF_LAYOUT_SETUP_VSGRADE is None:
+    if PYMUPDF_4LLM_SETUP_VSGRADE is None:
         GITHUB_ACTIONS = os.environ.get('GITHUB_ACTIONS')
         if GITHUB_ACTIONS=='true':  
             # We are running as a Github action, which has VS Enterprise.
-            PYMUPDF_LAYOUT_SETUP_VSGRADE = 'Enterprise'
-            log(f'{GITHUB_ACTIONS=} so defaulting to {PYMUPDF_LAYOUT_SETUP_VSGRADE=}.')
+            PYMUPDF_4LLM_SETUP_VSGRADE = 'Enterprise'
+            log(f'{GITHUB_ACTIONS=} so defaulting to {PYMUPDF_4LLM_SETUP_VSGRADE=}.')
         else:
-            PYMUPDF_LAYOUT_SETUP_VSGRADE = 'Professional'
-            log(f'Defaulting to {PYMUPDF_LAYOUT_SETUP_VSGRADE=}.')
+            PYMUPDF_4LLM_SETUP_VSGRADE = 'Professional'
+            log(f'Defaulting to {PYMUPDF_4LLM_SETUP_VSGRADE=}.')
     
     # We use the installed PyMuPDF's embedded MuPDF include and lib
     # directories.
@@ -126,10 +129,10 @@ def build():
             log(f'{i}:')
             log(f'{vs.description_ml("    ")}')
     
-        vs = pipcl.wdev.windows_vs_multiple(year=2022, grade=PYMUPDF_LAYOUT_SETUP_VSGRADE)
+        vs = pipcl.wdev.windows_vs_multiple(year=2022, grade=PYMUPDF_4LLM_SETUP_VSGRADE)
         if not vs:
-            log(f'Warning, could not find Visual Studio 2022 matching {PYMUPDF_LAYOUT_SETUP_VSGRADE=}.')
-            log(f'Consider setting PYMUPDF_LAYOUT_SETUP_VSGRADE to a match in the above list.')
+            log(f'Warning, could not find Visual Studio 2022 matching {PYMUPDF_4LLM_SETUP_VSGRADE=}.')
+            log(f'Consider setting PYMUPDF_4LLM_SETUP_VSGRADE to a match in the above list.')
     
     # Build sce module.
     #
@@ -155,9 +158,9 @@ def build():
             libs=libs,
             linker_extra=linker_extra,
             py_limited_api=1,
-            debug=(PYMUPDF_LAYOUT_SETUP_BUILD_TYPE == 'debug'),
-            optimise=(PYMUPDF_LAYOUT_SETUP_BUILD_TYPE != 'debug'),
-            swig=PYMUPDF_LAYOUT_SETUP_SWIG,
+            debug=(PYMUPDF_4LLM_SETUP_BUILD_TYPE == 'debug'),
+            optimise=(PYMUPDF_4LLM_SETUP_BUILD_TYPE != 'debug'),
+            swig=PYMUPDF_4LLM_SETUP_SWIG,
             )
     
     # Create text for _layout_build.py with build-time information.
@@ -180,7 +183,7 @@ def build():
     
     # We returns source/destination files to install or put into a wheel.
     #
-    to_dir = 'pymupdf/'
+    to_dir = 'pymupdf4llm/_layout/'
     ret = [
             (f'{build_dir}/features.py', to_dir),
             (f'{build_dir}/{sharedlibrary_leaf}', to_dir),
@@ -188,6 +191,13 @@ def build():
             ]
     for p in pipcl.git_items(f'{g_root}/source/layout'):
         ret.append( (f'{g_root}/source/layout/{p}', f'{to_dir}layout/{p}'))
+    
+    # Add pymupdf4llm files.
+    PYMUPDF4LLM_INCLUDE_LAYOUT = os.environ.get('PYMUPDF4LLM_INCLUDE_LAYOUT')
+    if PYMUPDF4LLM_INCLUDE_LAYOUT != '0':
+        to_dir = 'pymupdf4llm/'
+        for p in pipcl.git_items(f'{g_root}/source/4llm'):
+            ret.append( (f'{g_root}/source/4llm/{p}', f'{to_dir}/{p}'))
     
     for f, t in ret:
         log(f'    {f=} {t=}')
@@ -197,7 +207,7 @@ def build():
 # Define PyMuPDF-layout package.
 #
 p = pipcl.Package(
-        'pymupdf-layout',
+        'pymupdf4llm',
         g_version,
         requires_dist = [
                 f'PyMuPDF=={g_pymupdf_version}' if g_pymupdf_version else None,
@@ -211,7 +221,8 @@ p = pipcl.Package(
         description_content_type = 'text/markdown',
         license = 'Dual Licensed - Polyform Noncommercial or Artifex Commercial License',
         project_url = [
-                ('Documentation, https://pymupdf.readthedocs.io/en/latest/pymupdf-layout/')
+                ('Documentation, https://pymupdf.readthedocs.io/en/latest/pymupdf-layout/'),
+                ('Tracker, https://github.com/pymupdf/pymupdf4llm/issues/'),
                 ],
         classifier = [
                 'Development Status :: 5 - Production/Stable',
@@ -243,11 +254,11 @@ build_sdist = p.build_sdist
 
 def get_requires_for_build_wheel(config_settings=None):
     ret = list()
-    if PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF:
-        log(f'Not requiring default pymupdf=={g_pymupdf_version} because {PYMUPDF_LAYOUT_SETUP_BUILD_PYMUPDF=}.')
+    if PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF:
+        log(f'Not requiring default pymupdf=={g_pymupdf_version} because {PYMUPDF_4LLM_SETUP_BUILD_PYMUPDF=}.')
     else:
         ret.append(f'pymupdf=={g_pymupdf_version}')
-    if PYMUPDF_LAYOUT_SETUP_SWIG:
+    if PYMUPDF_4LLM_SETUP_SWIG:
         pass
     elif pipcl.darwin():
         # 2025-10-27: new swig-4.4.0 fails badly at runtime.
