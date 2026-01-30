@@ -17,7 +17,6 @@ import sys
 import time
 from pathlib import Path
 
-import pymupdf.layout
 import pymupdf4llm
 from pyinstrument import Profiler, renderers
 from tqdm import tqdm

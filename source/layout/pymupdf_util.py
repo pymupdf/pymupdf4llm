@@ -7,7 +7,7 @@ import tempfile
 import subprocess
 
 import pymupdf
-import pymupdf.features as rf_features
+import pymupdf4llm._layout.features as rf_features
 
 from .common_util import compute_iou, resize_image, to_gray, extract_bboxes_from_segmentation
 

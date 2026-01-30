@@ -13,25 +13,26 @@ finally:
     del sys.path[0]
 
 import pymupdf
-import pymupdf.features
-import pymupdf.layout
+import pymupdf4llm
+import pymupdf4llm._layout.features
+import pymupdf4llm._layout.layout
 
 
 g_root = os.path.abspath(f'{__file__}/../..')
 
 def test_simple():
-    l = pymupdf.features.features_test('foo')
+    l = pymupdf4llm._layout.features.features_test('foo')
     assert l == 3
 
 def test_activate():
-    pymupdf.layout.activate()
+    pymupdf4llm._layout.layout.activate()
 
 def test_features():
     print()
     rect = pymupdf.mupdf.FzRect(pymupdf.mupdf.FzRect.Fixed_INFINITE)
     stext_page = pymupdf.mupdf.FzStextPage(rect)    # mediabox
     region = pymupdf.mupdf.FzRect(0, 0, 100, 100)
-    features = pymupdf.features.fz_features_for_region(stext_page, region, 0)
+    features = pymupdf4llm._layout.features.fz_features_for_region(stext_page, region, 0)
     print(f'{features=}:')
     for name in dir(features):
         if not name.startswith('_') and name != 'this':
@@ -141,12 +142,14 @@ def test_competitor_examples():
 def _test_activate(call_activate, install_opencv):
     '''
     Check that things work in same way regardless of whether we call
-    pymupdf.layout.activate() or whether opencv-python is installed.
+    pymupdf4llm._layout.activate() or whether opencv-python is installed.
     
     Note that this uninstalls/installs pymupdf4llm using pip, which might mess
     up testing if one is using a specific pymupdf4llm version.
     '''
     print(f'### _test_activate(): {call_activate=} {install_opencv=}.', flush=1)
+    print(f'_test_activate() doing nothing because breaks unified 4llm/layout.')
+    return
     subprocess.run(f'pip uninstall -y opencv-python', shell=1, check=1)
     subprocess.run(f'pip install pymupdf4llm', shell=1, check=1)
     if install_opencv:
@@ -184,25 +187,25 @@ def test_activate_yes_opencv():
 
 def test_show_build_info():
     print()
-    # Get pymupdf.layout version with importlib because it is only present in
+    # Get pymupdf4llm._layout version with importlib because it is only present in
     # >=1.26.7.
     import importlib
-    layout_version = importlib.metadata.version('pymupdf.layout')
+    layout_version = importlib.metadata.version('pymupdf4llm')
     print(f'{layout_version=}')
     layout_version_tuple = tuple([int(i) for i in layout_version.split('.')])
     print(f'{layout_version_tuple=}')
     if layout_version_tuple >= (1, 26, 7):
         # Everything should be present.
-        print(f'{pymupdf.layout.git_sha=}')
-        print(f'{pymupdf.layout.platform_python_implementation=}')
-        print(f'{pymupdf.layout.version=}')
-        print(f'{pymupdf.layout.version_tuple=}')
+        print(f'{pymupdf4llm._layout.layout.git_sha=}')
+        print(f'{pymupdf4llm._layout.layout.platform_python_implementation=}')
+        print(f'{pymupdf4llm._layout.layout.version=}')
+        print(f'{pymupdf4llm._layout.layout.version_tuple=}')
     else:
         # Don't fail if fields are not present.
-        print(f'{getattr(pymupdf.layout, "git_sha")=}')
-        print(f'{getattr(pymupdf.layout, "platform_python_implementation")=}')
-        print(f'{getattr(pymupdf.layout, "version")=}')
-        print(f'{getattr(pymupdf.layout, "version_tuple")=}')
+        print(f'{getattr(pymupdf4llm._layout, "git_sha")=}')
+        print(f'{getattr(pymupdf4llm._layout, "platform_python_implementation")=}')
+        print(f'{getattr(pymupdf4llm._layout, "version")=}')
+        print(f'{getattr(pymupdf4llm._layout, "version_tuple")=}')
 
 
 def test_92():

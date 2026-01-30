@@ -5,7 +5,7 @@ import base64
 from io import BytesIO
 import threading
 
-import pymupdf.layout.DocumentLayoutAnalyzer as DocumentLayoutAnalyzer
+import pymupdf4llm._layout.DocumentLayoutAnalyzer as DocumentLayoutAnalyzer
 
 # -----------------------------------------------------------
 #  Model Singleton Class
@@ -90,7 +90,7 @@ def get_layout_result(doc, page_no, da_type, return_bbox=False):
         from train.infer.pymupdf_util import create_input_data_from_page
         data_dict = create_input_data_from_page(doc[page_no])
     elif da_type == 'cur':
-        from pymupdf.layout.pymupdf_util import create_input_data_from_page
+        from pymupdf4llm._layout.pymupdf_util import create_input_data_from_page
         data_dict = create_input_data_from_page(doc[page_no])
     else:
         # Should not happen if ModelManager is working correctly

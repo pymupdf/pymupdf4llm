@@ -2,7 +2,7 @@ import argparse
 
 import json
 
-import pymupdf.layout
+import pymupdf4llm._layout
 import pymupdf4llm
 from eval_util import evaluate_detection, print_eval_result
 
