@@ -73,7 +73,10 @@ def extract_form_fields_with_pages(doc, xrefs=False):
 
     # Access the AcroForm dictionary.
     # Fast exit if not present or empty.
-    pdfdoc = pymupdf._as_pdf_document(doc)
+    try:
+        pdfdoc = pymupdf._as_pdf_document(doc)
+    except Exception as e:
+        return result
     fields = mupdf.pdf_dict_getl(
         mupdf.pdf_trailer(pdfdoc),
         pymupdf.PDF_NAME("Root"),
@@ -169,13 +172,21 @@ def md_path(folder: str, filename: str) -> str:
     except ValueError:
         # Not relative → fall back to POSIX path
         md_ref = full_path.as_posix()
-    # 5. Escape Markdown-sensitive characters
+    # 5. Replace unwanted characters
     md_ref = (
-        md_ref.replace("(", "-").replace(")", "-").replace("[", "-").replace("]", "-")
+        md_ref.replace("(", "-")
+        .replace(")", "-")
+        .replace("[", "-")
+        .replace("]", "-")
+        .replace(" ", "_")
+        .replace(chr(0x2010), "-")
+        .replace(chr(0x2011), "-")
+        .replace(chr(0x2012), "-")
+        .replace(chr(0x2013), "-")
+        .replace(chr(0x2014), "-")
+        .replace(chr(0x2015), "-")
+        .replace(chr(0x2212), "-")
     )
-    # Escaping bracket is for MD references only, not for actual file saving.
-    # The first item is the MD-safe form,
-    # the second is the actual path to use in pixmap saving.
     return md_ref, md_ref
 
 
@@ -614,6 +625,8 @@ def cluster_stripes(boxes, joined_boxes, vectors, vertical_gap=12):
 
     Args:
         boxes (list): List of bounding boxes.
+        joined_boxes: rectangle containing all boxes
+        vectors: boxes of significant vector graphics
         vertical_gap (float): Minimum vertical gap to separate stripes.
 
     Returns:
@@ -623,6 +636,7 @@ def cluster_stripes(boxes, joined_boxes, vectors, vertical_gap=12):
     def is_multi_column_layout(boxes):
         """Check if the boxes have a clean multi-column layout.
 
+        If False, the boxes represent only 1 column
         Used to early exit from stripe clustering.
         """
         sorted_boxes = sorted(boxes, key=lambda b: b[0])
@@ -630,7 +644,7 @@ def cluster_stripes(boxes, joined_boxes, vectors, vertical_gap=12):
         current_column = [sorted_boxes[0]]
         for box in sorted_boxes[1:]:
             prev_right = max([b[2] for b in current_column])
-            if box[0] - prev_right > 3:
+            if box[0] - prev_right > 3:  # box is located in new column
                 columns.append(current_column)
                 current_column = [box]
             else:
@@ -639,44 +653,51 @@ def cluster_stripes(boxes, joined_boxes, vectors, vertical_gap=12):
         return len(columns) > 1
 
     def divider(y, box, vertical_gap):
-        """Create a rectangle of box width and vertical_gap height below y."""
+        """Create a rectangle of full box width.
+
+        Its height equals vertical_gap and its top equals y.
+        """
         r = pymupdf.Rect(box[0], y, box[2], y + vertical_gap)
         return r
+
+    # exit if no boxes at all
+    if not boxes:
+        return boxes
 
     # Sort top to bottom
     sorted_boxes = sorted(boxes, key=lambda b: b[3])
     stripes = []
 
-    # exit if no boxes
-    if not sorted_boxes:
-        return stripes
-
-    # Exit if clean multi-column layout: treat full page as single stripe.
+    # Exit if clean multi-column layout: treat full page as a single stripe.
+    # This will cause processing column by column.
+    # For example, a page with a mix of 2 and 3 column areas, or having items
+    # which break a clear column structure, will return False here.
     if is_multi_column_layout(boxes):
         return [boxes]
 
     # y-borders of horizontal stripes
-    y_values = {joined_boxes.y1}
+    y_values = {joined_boxes.y1}  # start with the bottom value
     for box in sorted_boxes:
         # find empty horizontal dividers of minimum height 'vertical_gap'
-        y = box[3]
+        y = box[3]  # bottom of this box
         if y >= joined_boxes.y1:
             continue
+        # create a full-width horizontal divider rectangle
         div = divider(y, joined_boxes, vertical_gap)
         if not any(div.intersects(pymupdf.Rect(b[:4])) for b in boxes):
-            # look for next bbox below the divider
+            # this is a divider: look for next bbox below
             y0 = min(b[1] for b in sorted_boxes if b[1] >= div.y1)
             div.y1 = y0  # divider has this bottom now
-            inter_count = 0  # counts intersections with vectors
 
+            inter_count = 0  # counts intersections with vectors
             # if divider is fully contained in more than one vector's stripe
             # we don't consider it.
             for vr in vectors:
                 if div.intersects(vr) and vr.y0 <= div.y0 and div.y1 <= vr.y1:
                     inter_count += 1
-            if inter_count <= 1:
+            if inter_count <= 1:  # contained in at most one vector stripe
                 y_values.add(div.y1)
-    y_values = sorted(y_values)
+    y_values = sorted(y_values)  # list of horizontal divider y-values
     current_stripe = []
     for y in y_values:
         while sorted_boxes and sorted_boxes[0][3] <= y:
@@ -700,21 +721,61 @@ def cluster_columns_in_stripe(stripe):
         list: List of columns, each column is a list of boxes.
     """
     HORIZONTAL_GAP = 1  # allowable gap to start a new column
-    # Sort left to right
-    sorted_boxes = sorted(stripe, key=lambda b: b[0])
-    columns = []
-    current_column = [sorted_boxes[0]]
 
-    for box in sorted_boxes[1:]:
-        prev_right = max([b[2] for b in current_column])
-        if box[0] - prev_right > HORIZONTAL_GAP:
-            columns.append(sorted(current_column, key=lambda b: b[1]))
-            current_column = [box]
-        else:
-            current_column.append(box)
+    def cluster_substripe(substripe):
+        # Sort left to right
+        columns = []
+        if not substripe:
+            return substripe
+        sorted_boxes = sorted(substripe, key=lambda b: b[0])
+        current_column = [sorted_boxes[0]]
 
-    columns.append(sorted(current_column, key=lambda b: b[1]))
-    return columns
+        for box in sorted_boxes[1:]:
+            prev_right = max([b[2] for b in current_column])
+            if box[0] - prev_right > HORIZONTAL_GAP:
+                columns.append(sorted(current_column, key=lambda b: b[1]))
+                current_column = [box]
+            else:
+                current_column.append(box)
+
+        columns.append(sorted(current_column, key=lambda b: b[1]))
+        return columns
+
+    # bbox of the stripe
+    x0 = min(b[0] for b in stripe)
+    y0 = min(b[1] for b in stripe)
+    x1 = max(b[2] for b in stripe)
+    y1 = max(b[3] for b in stripe)
+
+    def expanded(b):
+        # expand b to full-width of the stripe
+        return [x0, b[1], x1, b[3], b[4]]
+
+    # find boxes that do not horizontally overlap with others
+    # will use them to split the stripe in horizontal sub-stripes
+    solitaries = [
+        b for b in stripe if all(outside_bbox(r, expanded(b)) for r in stripe if r != b)
+    ]
+
+    # no solitaries → single substripe
+    if not solitaries:
+        return cluster_substripe(stripe)
+
+    # sort solitaries top to bottom
+    solitaries.sort(key=lambda b: b[1])
+
+    # store final bboxes here
+    finalists = []
+    s0 = y0  # first bottom = top of stripe
+    for sol in solitaries:
+        # bboxes above this and below the previous solitary
+        sstripe = [b for b in stripe if b[3] <= sol[1] and b[1] >= s0]
+        columns = cluster_substripe(sstripe)  # order substripe
+        finalists.extend(columns)
+        s0 = sol[3]  # new bottom
+        finalists.append([sol])
+    finalists.append([b for b in stripe if b[1] >= solitaries[-1][3]])
+    return finalists
 
 
 def compute_reading_order(boxes, joined_boxes, vectors, vertical_gap=12):

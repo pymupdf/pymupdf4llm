@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+import textwrap
 
 import pymupdf
 import tabulate
@@ -34,6 +35,38 @@ FLAGS = (
     | pymupdf.TEXT_MEDIABOX_CLIP
 )
 BULLETS = tuple(utils.BULLETS)
+
+
+def wrap_table_for_tabulate(table, max_width=100, min_col_width=10):
+    """
+    Pre-wraps a table (List[List[str]]) so that tabulate cannot produce
+    absurdly wide tables. Each column gets a width budget based on max_width.
+    """
+    if not table:
+        return table
+
+    # Number of columns
+    num_cols = max(len(row) for row in table)
+
+    # Distribute width evenly
+    base_width = max(min_col_width, max_width // num_cols)
+    col_widths = [base_width] * num_cols
+
+    wrapped_table = []
+
+    for row in table:
+        new_row = []
+        for col_idx, cell in enumerate(row):
+            cell = cell or ""
+            width = col_widths[col_idx]
+
+            # Wrap the cell text
+            lines = textwrap.wrap(cell, width=width) or [""]
+            new_row.append("\n".join(lines))
+
+        wrapped_table.append(new_row)
+
+    return wrapped_table
 
 
 def make_page_chunk(doc, page, text, string_lengths) -> Dict:
@@ -483,6 +516,8 @@ def footnote_to_md(textlines):
     This post-layout heuristics helps cover cases where more than
     one list item is contained in a single bbox.
     """
+    if not textlines:
+        return ""
     line = textlines[0]
     spans = line["spans"]
     output = "> "
@@ -767,7 +802,7 @@ class ParsedDocument:
                     return s.__dict__
                 return self.super().default(s)
 
-        js = json.dumps(self, cls=LayoutEncoder, indent=1)
+        js = json.dumps(self, cls=LayoutEncoder, ensure_ascii=False)
         return js
 
     def to_text(
@@ -778,6 +813,8 @@ class ParsedDocument:
         show_progress: bool = False,
         page_chunks: bool = False,
         table_format: str = "grid",
+        table_max_width: int = 100,
+        table_min_col_width: int = 10,
         **kwargs,
     ) -> Union[str, List[Dict]]:
         """
@@ -828,9 +865,13 @@ class ParsedDocument:
                     string_lengths.append(len(text_string))
 
                 elif btype == "table":
+                    wrapped_table = wrap_table_for_tabulate(
+                        box.table["extract"],
+                        max_width=table_max_width,
+                        min_col_width=table_min_col_width,
+                    )
                     text_string += (
-                        tabulate.tabulate(box.table["extract"], tablefmt=table_format)
-                        + "\n\n"
+                        tabulate.tabulate(wrapped_table, tablefmt=table_format) + "\n\n"
                     )
                     string_lengths.append(len(text_string))
 
@@ -860,7 +901,7 @@ def parse_document(
     doc,
     filename="",
     image_dpi=150,
-    ocr_dpi=400,
+    ocr_dpi=300,
     image_format="png",
     image_path="",
     pages=None,
@@ -869,7 +910,9 @@ def parse_document(
     write_images=False,
     force_text=False,
     use_ocr=True,
+    force_ocr=False,
     ocr_language="eng",
+    ocr_function=None,
 ) -> ParsedDocument:
     if isinstance(doc, pymupdf.Document):
         mydoc = doc
@@ -901,15 +944,19 @@ def parse_document(
     document.write_images = write_images
 
     if use_ocr:
-        try:
-            reason = "Tesseract language data not found"
-            TESSDATA = pymupdf.get_tessdata()
+        if callable(ocr_function):
             document.use_ocr = True
-        except Exception as e:
-            print(f"OCR disabled because {reason}.")
-            document.use_ocr = False
+        else:
+            try:
+                reason = "Tesseract language data not found"
+                TESSDATA = pymupdf.get_tessdata()
+                document.use_ocr = True
+            except Exception as e:
+                print(f"OCR disabled because {reason}.")
+                document.use_ocr = False
     else:
         document.use_ocr = False
+
     if pages is None:
         page_filter = range(mydoc.page_count)
     elif isinstance(pages, int):
@@ -927,55 +974,73 @@ def parse_document(
         raise ValueError(
             f"'pages' parameter must be None, int, or a sequence of ints less than {mydoc.page_count}."
         )
+
     if show_progress and len(page_filter) > 5:
         print(f"Parsing {len(page_filter)} pages of '{document.filename}'...")
         page_filter = ProgressBar(page_filter)
+
     for pno in page_filter:
         page = mydoc.load_page(pno)
-        textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
-        blocks = textpage.extractDICT()["blocks"]
+        page.remove_rotation()
         page_full_ocred = False
         page_text_ocred = False
-        # check if this page should be OCR'd
-        if document.use_ocr:
-            decision = check_ocr.should_ocr_page(
-                page,
-                dpi=ocr_dpi,
-                blocks=blocks,
-            )
-        else:
-            decision = {"should_ocr": False}
-            page_analysis = utils.analyze_page(page, blocks)
-            decision["has_ocr_text"] = page_analysis["ocr_spans"] > 0
 
-        if decision["has_ocr_text"]:  # prevent MD styling if already OCR'd
+        if force_ocr:
+            ocr_function(page, dpi=ocr_dpi)
+            # do not OCR again and indicate presence of OCR text
+            decision = {"should_ocr": False, "has_ocr_text": True}
+            page_full_ocred = True
+
+        textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
+        blocks = textpage.extractDICT()["blocks"]
+
+        if not force_ocr:
+            # check if this page should be OCR'd
+            if document.use_ocr:
+                decision = check_ocr.should_ocr_page(
+                    page,
+                    dpi=ocr_dpi,
+                    blocks=blocks,
+                )
+            else:
+                decision = {"should_ocr": False}
+                page_analysis = utils.analyze_page(page, blocks)
+                decision["has_ocr_text"] = page_analysis["ocr_spans"] > 0
+
+        if decision["has_ocr_text"]:  # prevent MD styling if OCR'd
             page_full_ocred = True
 
         if decision["should_ocr"]:
             # We should be OCR: check full-page vs. text-only
             if decision.get("pixmap"):
+                pix = decision["pixmap"]  # retrieve the Pixmap
+                if not callable(ocr_function):
+                    # use built-in OCR
+                    pdf_data = pix.pdfocr_tobytes(
+                        language=ocr_language,
+                        tessdata=TESSDATA,
+                    )  # OCR it
+                    ocr_pdf = pymupdf.open("pdf", pdf_data)  # get the OCR'd PDF
+                    ocr_page = ocr_pdf[0]  # this is its OCR'd page
+                    # remove everything except the text
+                    ocr_page.add_redact_annot(ocr_page.rect)
+                    ocr_page.apply_redactions(
+                        images=pymupdf.PDF_REDACT_IMAGE_REMOVE,
+                        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+                        text=pymupdf.PDF_REDACT_TEXT_NONE,
+                    )
+                    # copy text over to original page
+                    page.show_pdf_page(page.rect, ocr_pdf, 0)
+                    ocr_pdf.close()  # discard temporary OCR PDF
+                    del ocr_pdf
+                else:
+                    # custom OCR function: will directly modify the page
+                    ocr_function(page, pixmap=pix)
+
                 print(
                     f"Full-page OCR on {page.number=}/{page.number+1}.",
                     file=INFO_MESSAGES,
                 )
-                pix = decision["pixmap"]  # retrieve the Pixmap
-                pdf_data = pix.pdfocr_tobytes(
-                    language=ocr_language,
-                    tessdata=TESSDATA,
-                )  # OCR it
-                ocr_pdf = pymupdf.open("pdf", pdf_data)  # get the OCR'd PDF
-                ocr_page = ocr_pdf[0]  # this is its OCR'd page
-                # remove everything except the text
-                ocr_page.add_redact_annot(ocr_page.rect)
-                ocr_page.apply_redactions(
-                    images=pymupdf.PDF_REDACT_IMAGE_REMOVE,
-                    graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-                    text=pymupdf.PDF_REDACT_TEXT_NONE,
-                )
-                # copy text over to original page
-                page.show_pdf_page(page.rect, ocr_pdf, 0)
-                ocr_pdf.close()  # discard temporary OCR PDF
-                del ocr_pdf
                 textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
                 blocks = textpage.extractDICT()["blocks"]
                 page_full_ocred = True

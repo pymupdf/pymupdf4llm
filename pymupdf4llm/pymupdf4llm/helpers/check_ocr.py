@@ -34,9 +34,9 @@ def get_span_ocr(page, bbox, dpi=300):
 
 
 def repair_blocks(input_blocks, page, dpi=300):
-    """Repair text blocks with missing glyphs using OCR.
+    """Repair text blocks with missing glyphs using Tesseract OCR.
 
-    TODO: Support non-linear block structure.
+    TODO: Support non-linear / nested TextPage block structure.
     """
     repaired_blocks = []
     for block in input_blocks:
