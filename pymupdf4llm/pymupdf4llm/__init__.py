@@ -31,13 +31,15 @@ else:
         image_dpi=150,
         image_format="png",
         image_path="",
-        ocr_dpi=400,
+        ocr_dpi=300,
         pages=None,
         write_images=False,
         embed_images=False,
         show_progress=False,
         force_text=True,
         use_ocr=True,
+        force_ocr=False,
+        ocr_function=None,
         ocr_language="eng",
     ):
         return document_layout.parse_document(
@@ -53,6 +55,8 @@ else:
             show_progress=show_progress,
             force_text=force_text,
             use_ocr=use_ocr,
+            force_ocr=force_ocr,
+            ocr_function=ocr_function,
             ocr_language=ocr_language,
         )
 
@@ -71,13 +75,15 @@ else:
         page_chunks=False,
         page_separators=False,
         dpi=150,
-        ocr_dpi=400,
+        ocr_dpi=300,
         page_width=612,
         page_height=None,
         ignore_code=False,
         show_progress=False,
         use_ocr=True,
         ocr_language="eng",
+        force_ocr=False,
+        ocr_function=None,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -96,7 +102,9 @@ else:
             show_progress=show_progress,
             force_text=force_text,
             use_ocr=use_ocr,
+            force_ocr=force_ocr,
             ocr_language=ocr_language,
+            ocr_function=ocr_function,
         )
         return parsed_doc.to_markdown(
             header=header,
@@ -115,13 +123,15 @@ else:
         image_format="png",
         image_path="",
         pages=None,
-        ocr_dpi=400,
+        ocr_dpi=300,
         write_images=False,
         embed_images=False,
         show_progress=False,
         force_text=True,
         use_ocr=True,
+        force_ocr=False,
         ocr_language="eng",
+        ocr_function=None,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -136,7 +146,9 @@ else:
             show_progress=show_progress,
             force_text=force_text,
             use_ocr=use_ocr,
+            force_ocr=force_ocr,
             ocr_language=ocr_language,
+            ocr_function=ocr_function,
         )
         return parsed_doc.to_json()
 
@@ -149,10 +161,14 @@ else:
         ignore_code=False,
         show_progress=False,
         force_text=True,
-        ocr_dpi=400,
+        ocr_dpi=300,
         use_ocr=True,
+        force_ocr=False,
         ocr_language="eng",
+        ocr_function=None,
         table_format="grid",
+        table_max_width=100,
+        table_min_col_width=10,
         page_chunks=False,
         # unsupported options for pymupdf layout:
         **kwargs,
@@ -166,7 +182,9 @@ else:
             show_progress=show_progress,
             force_text=force_text,
             use_ocr=use_ocr,
+            force_ocr=force_ocr,
             ocr_language=ocr_language,
+            ocr_function=ocr_function,
         )
         return parsed_doc.to_text(
             header=header,
@@ -174,6 +192,8 @@ else:
             ignore_code=ignore_code,
             show_progress=show_progress,
             table_format=table_format,
+            table_max_width=table_max_width,
+            table_min_col_width=table_min_col_width,
             page_chunks=page_chunks,
         )
 

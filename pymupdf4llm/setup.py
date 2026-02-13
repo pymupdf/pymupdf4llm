@@ -11,8 +11,8 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-version = "0.2.9"
-pymupdf_version = "1.26.6"
+version = "0.3.3"
+pymupdf_version = "1.27.1"
 pymupdf_version_tuple = tuple(int(x) for x in pymupdf_version.split("."))
 requires = [f"pymupdf>={pymupdf_version}", "tabulate"]
 extras_require = {
@@ -35,16 +35,16 @@ setuptools.setup(
     extras_require=extras_require,
     python_requires=">=3.10",
     license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
-    url="https://github.com/pymupdf/RAG",
+    url="https://github.com/pymupdf/pymupdf4llm",
     classifiers=classifiers,
     package_data={
-        "pymupdf4llm": ["helpers/*.py", "llama/*.py"],
+        "pymupdf4llm": ["helpers/*.py", "llama/*.py", "ocr/*.py"],
     },
     project_urls={
         "Documentation": "https://pymupdf.readthedocs.io/",
-        "Source": "https://github.com/pymupdf/RAG/tree/main/pymupdf4llm/pymupdf4llm",
-        "Tracker": "https://github.com/pymupdf/RAG/issues",
-        "Changelog": "https://github.com/pymupdf/RAG/blob/main/CHANGES.md",
-        "License": "https://github.com/pymupdf/RAG/blob/main/LICENSE",
+        "Source": "https://github.com/pymupdf/pymupdf4llm/tree/main/pymupdf4llm",
+        "Tracker": "https://github.com/pymupdf/pymupdf4llm/issues",
+        "Changelog": "https://github.com/pymupdf/pymupdf4llm/blob/main/CHANGES.md",
+        "License": "https://github.com/pymupdf/pymupdf4llm/blob/main/LICENSE",
     },
 )

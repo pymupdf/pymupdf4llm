@@ -1,21 +1,31 @@
+"""
+This module provides functions to assess various properties of a grayscale
+image. Its main purpose is to provide an assesment whether or not it probably
+contains text making it worthwhile to run OCR on it.
+
+Previously we have used OpenCV for this purpose but finally determined that
+this sole functionality does not justify the heavy-weight dependency.
+Therefore, we re-implemented the necessary functions using only NumPy.
+"""
+
 import numpy as np
 from collections import deque
 
 
 # ============================================================
-# Hilfsfunktionen: Resize, Faltungen, Filter
+# Helper Functions: Resize, Convolutions, Filters
 # ============================================================
 
 
 def resize_bilinear(img: np.ndarray, new_h: int, new_w: int) -> np.ndarray:
     """
-    Bilineares Resize (ähnlich OpenCV INTER_LINEAR), vektorisiert.
+    Bilinear resize (similar to OpenCV INTER_LINEAR), vectorized.
     img: 2D uint8/float32, shape (H, W)
     """
     img = img.astype(np.float32)
     h, w = img.shape
 
-    # Zielkoordinaten
+    # Target coordinates
     ys = (np.arange(new_h) + 0.5) * (h / new_h) - 0.5
     xs = (np.arange(new_w) + 0.5) * (w / new_w) - 0.5
 
@@ -30,7 +40,7 @@ def resize_bilinear(img: np.ndarray, new_h: int, new_w: int) -> np.ndarray:
     wy = (ys - y0)[..., None]  # (new_h, 1)
     wx = (xs - x0)[None, ...]  # (1, new_w)
 
-    # Vier Eckwerte via fancy indexing
+    # Four corner values via fancy indexing
     Ia = img[y0[:, None], x0[None, :]]  # top-left
     Ib = img[y0[:, None], x1[None, :]]  # top-right
     Ic = img[y1[:, None], x0[None, :]]  # bottom-left
@@ -45,8 +55,8 @@ def resize_bilinear(img: np.ndarray, new_h: int, new_w: int) -> np.ndarray:
 
 def convolve2d(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """
-    2D-Faltung (Cross-Correlation) mit reflect-Padding.
-    Vektorisiert über Kernel (keine Pixel-Schleifen).
+    2D convolution (cross-correlation) with reflect padding.
+    Vectorized over kernel (no pixel loops).
     """
     img = img.astype(np.float32)
     kernel = kernel.astype(np.float32)
@@ -59,7 +69,7 @@ def convolve2d(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     H, W = img.shape
     out = np.zeros_like(img, dtype=np.float32)
 
-    # Schleife nur über Kernel-Offsets, nicht über Pixel
+    # Loop only over kernel offsets, not over pixels
     for i in range(kh):
         for j in range(kw):
             out += kernel[i, j] * padded[i : i + H, j : j + W]
@@ -69,7 +79,7 @@ def convolve2d(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 
 def gaussian_kernel_1d(size: int = 5, sigma: float = 1.0) -> np.ndarray:
     """
-    1D-Gausskern, normalisiert.
+    1D Gaussian kernel, normalized.
     """
     ax = np.arange(size) - size // 2
     kernel = np.exp(-0.5 * (ax / sigma) ** 2)
@@ -79,7 +89,7 @@ def gaussian_kernel_1d(size: int = 5, sigma: float = 1.0) -> np.ndarray:
 
 def gaussian_blur(img: np.ndarray, ksize: int = 5, sigma: float = 1.0) -> np.ndarray:
     """
-    Separable Gaussian Blur: erst horizontal, dann vertikal.
+    Separable Gaussian Blur: first horizontal, then vertical.
     """
     img = img.astype(np.float32)
     kernel = gaussian_kernel_1d(ksize, sigma)
@@ -103,7 +113,7 @@ def gaussian_blur(img: np.ndarray, ksize: int = 5, sigma: float = 1.0) -> np.nda
 
 def sobel_gradients(img: np.ndarray):
     """
-    Sobel-Gradienten in x/y, Magnitude und Winkel.
+    Sobel gradients in x/y, magnitude and angle.
     """
     Kx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
     Ky = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
@@ -115,14 +125,10 @@ def sobel_gradients(img: np.ndarray):
     return mag, ang
 
 
-# ============================================================
-# Entropy
-# ============================================================
-
-
 def entropy_check(img: np.ndarray, threshold: float = 5.0):
     """
-    Shannon-Entropie über 256-Bin-Histogramm.
+    ENTROPY CHECK
+    Shannon entropy via 256-bin histogram.
     """
     hist = np.bincount(img.ravel(), minlength=256).astype(np.float32)
     p = hist / hist.sum()
@@ -132,15 +138,11 @@ def entropy_check(img: np.ndarray, threshold: float = 5.0):
     return entropy, passed
 
 
-# ============================================================
-# FFT-Ratio
-# ============================================================
-
-
 def fft_check(img_gray: np.ndarray, threshold: float = 0.15):
     """
-    Low-Frequency-Ratio im FFT-Spektrum.
-    Erwartet beliebige Größe; intern auf 128x128 rescaled.
+    FFT-Ratio Check:
+    Low-Frequency-Ratio in FFT spectrum.
+    Expects arbitrary size; internally rescaled to 128x128.
     """
     small = resize_bilinear(img_gray, 128, 128)
 
@@ -155,14 +157,10 @@ def fft_check(img_gray: np.ndarray, threshold: float = 0.15):
     return ratio, passed
 
 
-# ============================================================
-# Otsu Threshold
-# ============================================================
-
-
 def otsu_threshold(img: np.ndarray) -> np.ndarray:
     """
-    Otsu-Thresholding, NumPy-only.
+    Otsu Threshold
+    Otsu thresholding, NumPy-only.
     """
     hist = np.bincount(img.ravel(), minlength=256).astype(np.float64)
     total = img.size
@@ -194,21 +192,17 @@ def otsu_threshold(img: np.ndarray) -> np.ndarray:
     return binary
 
 
-# ============================================================
-# Connected Components (Union-Find)
-# ============================================================
-
-
 def components_check(binary_img: np.ndarray, threshold: int = 10):
     """
-    8-connectivity Connected Components, Union-Find-basierter Zwei-Pass-Ansatz.
-    binary_img: 0 Hintergrund, !=0 Vordergrund.
+    Connected Components (Union-Find)
+    8-connectivity Connected Components, Union-Find-based two-pass approach.
+    binary_img: 0 background, !=0 foreground.
     """
     img = binary_img != 0
     h, w = img.shape
     labels = np.zeros((h, w), dtype=np.int32)
 
-    # Union-Find Strukturen
+    # Union-Find structures
     max_labels = h * w // 2 + 1
     parent = np.arange(max_labels, dtype=np.int32)
     rank = np.zeros(max_labels, dtype=np.int32)
@@ -233,14 +227,14 @@ def components_check(binary_img: np.ndarray, threshold: int = 10):
             parent[rb] = ra
             rank[ra] += 1
 
-    # Erster Pass
+    # First pass
     for y in range(h):
         for x in range(w):
             if not img[y, x]:
                 continue
 
             neighbors = []
-            # 8er-Nachbarn links/oben
+            # 8-neighbors left/top
             for dy, dx in [(-1, -1), (-1, 0), (-1, 1), (0, -1)]:
                 ny, nx = y + dy, x + dx
                 if 0 <= ny < h and 0 <= nx < w:
@@ -274,14 +268,9 @@ def components_check(binary_img: np.ndarray, threshold: int = 10):
     return components, passed
 
 
-# ============================================================
-# Canny (vektorisierte NMS + Hysteresis)
-# ============================================================
-
-
 def nonmax_suppression(mag: np.ndarray, ang: np.ndarray) -> np.ndarray:
     """
-    Non-Maximum Suppression, größtenteils vektorisiert.
+    Non-Maximum Suppression, mostly vectorized.
     """
     H, W = mag.shape
     Z = np.zeros((H, W), dtype=np.float32)
@@ -289,15 +278,15 @@ def nonmax_suppression(mag: np.ndarray, ang: np.ndarray) -> np.ndarray:
     ang_deg = ang * 180.0 / np.pi
     ang_deg[ang_deg < 0] += 180
 
-    # Richtungs-Quantisierung
+    # Direction Quantization
     # 0°, 45°, 90°, 135°
-    # Masken
+    # Masks for each direction
     dir0 = ((0 <= ang_deg) & (ang_deg < 22.5)) | ((157.5 <= ang_deg) & (ang_deg <= 180))
     dir45 = (22.5 <= ang_deg) & (ang_deg < 67.5)
     dir90 = (67.5 <= ang_deg) & (ang_deg < 112.5)
     dir135 = (112.5 <= ang_deg) & (ang_deg < 157.5)
 
-    # Hilfsfunktion: vergleicht mit zwei Nachbarn in gegebener Richtung
+    # Helper function: compares with two neighbors in given direction
     def suppress(mask, dy1, dx1, dy2, dx2):
         yy, xx = np.where(mask)
         y1 = np.clip(yy + dy1, 0, H - 1)
@@ -322,7 +311,7 @@ def nonmax_suppression(mag: np.ndarray, ang: np.ndarray) -> np.ndarray:
 
 def hysteresis_thresholding(img: np.ndarray, low: float, high: float) -> np.ndarray:
     """
-    Hysteresis mit iterativer Nachbarschaftsaktivierung, vektorisiert.
+    Hysteresis with iterative neighborhood activation, vectorized.
     """
     strong_val = 255
     weak_val = 50
@@ -340,10 +329,10 @@ def hysteresis_thresholding(img: np.ndarray, low: float, high: float) -> np.ndar
     while changed:
         changed = False
 
-        # Nachbarschaft eines strong-Pixels:
+        # Neighborhood of a strong pixel:
         strong_mask = result == strong_val
 
-        # 8er-Nachbarschaft via Shifts
+        # 8-er neighborhood via shifts
         neigh = np.zeros_like(strong_mask, dtype=bool)
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
@@ -365,7 +354,7 @@ def hysteresis_thresholding(img: np.ndarray, low: float, high: float) -> np.ndar
                 shifted[yd, xd] = strong_mask[ys, xs]
                 neigh |= shifted
 
-        # Weak-Pixel, die an strong angrenzen, werden zu strong
+        # weak pixels adjacent to strong pixels are promoted to strong
         promote = (result == weak_val) & neigh
         if np.any(promote):
             result[promote] = strong_val
@@ -377,7 +366,7 @@ def hysteresis_thresholding(img: np.ndarray, low: float, high: float) -> np.ndar
 
 def canny_numpy(img: np.ndarray, low: float = 50.0, high: float = 100.0) -> np.ndarray:
     """
-    Vollständiger Canny-Edge-Detector, NumPy-only.
+    Complete Canny edge detector, NumPy-only.
     """
     blur = gaussian_blur(img, ksize=5, sigma=1.0)
     mag, ang = sobel_gradients(blur)
@@ -386,29 +375,19 @@ def canny_numpy(img: np.ndarray, low: float = 50.0, high: float = 100.0) -> np.n
     return edges
 
 
-# ============================================================
-# Edge-Dichte
-# ============================================================
-
-
 def edge_density_check(edges: np.ndarray, threshold: float = 0.2):
     """
-    Edge-Dichte: mean(edges)/255.0, erwartet 0/255-Bild.
+    Edge density: mean(edges)/255.0, expects 0/255 image.
     """
     density = float(edges.mean() / 255.0)
     passed = density >= threshold
     return density, passed
 
 
-# ============================================================
-# Gesamtanalyse mit Gewichtung
-# ============================================================
-
-
 def analyze_image(img_gray: np.ndarray):
     """
-    Führt alle vier Checks durch und berechnet den gewichteten Score.
-    img_gray: 2D uint8-Array.
+    Carry out all four checks and calculate the weighted score.
+    img_gray: 2D uint8 array.
     """
     # 1) Entropy
     entropy_val, entropy_ok = entropy_check(img_gray)
@@ -424,7 +403,7 @@ def analyze_image(img_gray: np.ndarray):
     edges = canny_numpy(img_gray)
     edge_density, edges_ok = edge_density_check(edges)
 
-    # Gewichteter Score
+    # Weighted Score, max 6 points.
     score = 0
     if components_ok:
         score += 2
@@ -435,6 +414,9 @@ def analyze_image(img_gray: np.ndarray):
     if fft_ok:
         score += 1
 
+    # The "score" value can be used for deciding about OCR processing.
+    # A score of 3 or higher indicates a good chance of text presence.
+    # Other dictionary values provide details for debugging only.
     return {
         "entropy": (entropy_val, entropy_ok),
         "fft_ratio": (fft_ratio, fft_ok),

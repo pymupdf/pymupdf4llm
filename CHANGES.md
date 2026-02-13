@@ -1,5 +1,21 @@
 # Change Log
 
+## Changes in version 0.3.3
+
+### Fixes:
+
+* [356](https://github.com/pymupdf/pymupdf4llm/discussions/356) - Page Chunk Output under to_text() may fail for erroneous layout bboxes
+
+### Other Changes:
+
+* Added support for RapidOCR via a callable plugin.
+* Added support for improved OCR via a combination of RapidOCR and Tesseract-OCR.
+* Changed default DPI for OCR to 300 (was 400).
+* Added new parameter `ocr_function=None`. If not `None` it must be a callable, which is expected to OCR the page giving it a text layer.
+* Added new parameter `force_ocr=False` to all extraction functions. Requires to also provide a callable via `ocr_function`. If `True`, `ocr_function` is called for every page, thus skipping the otherwise executed "OCR worthiness" check.
+
+------
+
 ## Changes in version 0.2.9
 
 ### Fixes:
