@@ -774,7 +774,10 @@ def cluster_columns_in_stripe(stripe):
         finalists.extend(columns)
         s0 = sol[3]  # new bottom
         finalists.append([sol])
-    finalists.append([b for b in stripe if b[1] >= solitaries[-1][3]])
+    sstripe = [b for b in stripe if b[1] >= solitaries[-1][3]]
+    if sstripe:
+        columns = cluster_substripe(sstripe)  # order last substripe
+        finalists.extend(columns)
     return finalists
 
 
