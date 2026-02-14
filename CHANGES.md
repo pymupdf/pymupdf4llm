@@ -1,6 +1,6 @@
 # Change Log
 
-## Changes in version 0.3.3
+## Changes in version 0.3.4
 
 ### Fixes:
 
