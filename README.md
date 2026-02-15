@@ -27,7 +27,7 @@ PyMuPDF4LLM is a specialized extension of PyMuPDF designed specifically for extr
 The Python package on PyPI [pymupdf4llm](https://pypi.org/project/pymupdf4llm/) (there also is an alias [pdf4llm](https://pypi.org/project/pdf4llm/)) is capable of converting PDF pages into **_text strings in Markdown format_** (GitHub compatible). This includes **standard text** as well as **table-based text** in a consistent and integrated view - a feature particularly important in RAG settings.
 
 ```bash
-$ pip install -U pymupdf4llm
+pip install -U pymupdf4llm
 ```
 
 > This command will automatically install or upgrade [PyMuPDF](https://github.com/pymupdf/PyMuPDF) if required.
@@ -52,6 +52,20 @@ To create small **chunks of text** - as opposed to generating one large string f
 
 Also new in version 0.0.2 is the optional **extraction of images** and vector graphics: use of parameter `write_images=True`. The will store PNG images in the document's folder, and the Markdown text will appropriately refer to them. The images are named like `"input.pdf-page_number-index.png"`.
 
+## Command Line Interface
+
+You can also use PyMuPDF4LLM directly from the command line:
+
+```bash
+python -m pymupdf4llm input.pdf -o output.md
+```
+
+The CLI supports various options for output format and features. For a full list of options, run:
+
+```bash
+python -m pymupdf4llm --help
+```
+
 ## Documentation and API
 
 [Documentation](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html)
@@ -64,15 +78,16 @@ While PDF is by far the most important document format worldwide, it is worthwhi
 
 So for an XPS document or an eBook, simply provide the filename for instance as `"input.mobi"` and everything else will work as before.
 
-
 ## About PyMuPDF
+
 **PyMuPDF** adds **Python** bindings and abstractions to [MuPDF](https://mupdf.com/), a lightweight **PDF**, **XPS**, and **eBook** viewer, renderer, and toolkit. Both **PyMuPDF** and **MuPDF** are maintained and developed by [Artifex Software, Inc](https://artifex.com).
 
 PyMuPDF's homepage is located on [GitHub](https://github.com/pymupdf/PyMuPDF).
 
 ## Community
+
 Join us on **Discord** here: [#pymupdf](https://discord.gg/TSpYGBW4eq).
 
 ## License and Copyright
-**PyMuPDF** is available under [open-source AGPL](https://www.gnu.org/licenses/agpl-3.0.html) and commercial license agreements. If you determine you cannot meet the requirements of the **AGPL**, please contact [Artifex](https://artifex.com/contact/pymupdf-inquiry.php) for more information regarding a commercial license.
 
+**PyMuPDF** is available under [open-source AGPL](https://www.gnu.org/licenses/agpl-3.0.html) and commercial license agreements. If you determine you cannot meet the requirements of the **AGPL**, please contact [Artifex](https://artifex.com/contact/pymupdf-inquiry.php) for more information regarding a commercial license.

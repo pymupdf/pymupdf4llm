@@ -6,7 +6,7 @@ setup_py_cwd = os.path.dirname(__file__)
 with open(os.path.join(setup_py_cwd, "README.md"), encoding="utf-8") as f:
     readme = f.read()
 
-version = "0.3.4"  # must always equal the pymupdf4llm version
+version = "0.3.5"  # must always equal the pymupdf4llm version
 
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -39,5 +39,10 @@ setuptools.setup(
         "Tracker": "https://github.com/pymupdf/RAG/issues",
         "Changelog": "https://github.com/pymupdf/RAG/blob/main/CHANGES.md",
         "License": "https://github.com/pymupdf/RAG/blob/main/LICENSE",
+    },
+    entry_points={
+        "console_scripts": [
+            "pdf4llm = pymupdf4llm.__main__:main",
+        ],
     },
 )
