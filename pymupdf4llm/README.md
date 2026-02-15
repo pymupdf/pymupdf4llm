@@ -21,7 +21,7 @@ Layout mode is activated with a simple modification of the import statements - f
 # Installation
 
 ```bash
-$ pip install -U pymupdf4llm
+pip install -U pymupdf4llm
 ```
 
 > This command will automatically install or upgrade [PyMuPDF](https://github.com/pymupdf/PyMuPDF) as required.
@@ -29,13 +29,15 @@ $ pip install -U pymupdf4llm
 To install all Python packages for full support of the layout feature and automatic OCR, you can use the following command version:
 
 ```bash
-$ pip install -U pymupdf4llm[ocr,layout]
+pip install -U pymupdf4llm[ocr,layout]
 ```
 
 This will install opencv-python and pymupdf-layout in addition to pymupdf4llm and pymupdf.
 
 # Execution
+
 ## Legacy Mode
+
 For **_standard (legacy) markdown extraction_**, use the following simple script
 
 ```python
@@ -53,6 +55,7 @@ Instead of the filename string as above, one can also provide a PyMuPDF `Documen
 By default, all pages in the PDF will be processed. If desired, the parameter `pages=<sequence>` can be used to provide a sequence of zero-based page numbers to consider.
 
 ## Layout Mode
+
 To **_activate layout mode_**, use the following
 
 ```python
@@ -95,7 +98,6 @@ import pathlib
 pathlib.Path("output.txt").write_bytes(plain_text.encode())
 ```
 
-
 **Feature Overview:**
 
 * Support for pages with **_multiple text columns_**.
@@ -107,6 +109,22 @@ pathlib.Path("output.txt").write_bytes(plain_text.encode())
     4. Any standard text written in image areas will become a visible part of the generated image and otherwise be ignored. This behavior can be changed via `force_text=True` which causes the text to also become part of the output.
 
 * Support for **page chunks**: Instead of returning one large string for the whole document, a list of dictionaries can be generated: one for each page. Specify `data = pymupdf4llm.to_markdown("input.pdf", page_chunks=True)`. Then, for instance the first item, `data[0]` will contain a dictionary for the first page with its text and some metadata.
+
+## Command Line Interface
+
+You can also use PyMuPDF4LLM directly from the command line:
+
+```bash
+python -m pymupdf4llm input.pdf -o output.md
+```
+
+The CLI supports various options for output format and features. For a full list of options, run:
+
+```bash
+python -m pymupdf4llm --help
+```
+
+> **Note:** Since version 0.3.5, the CLI has been refactored to remove redundant default values. It now defers to the library's internal defaults for all optional parameters, ensuring consistent behavior across both API and CLI usage.
 
 * As a first example for directly supporting LLM / RAG consumers, this version can output **LlamaIndex documents**:
 
@@ -120,7 +138,6 @@ pathlib.Path("output.txt").write_bytes(plain_text.encode())
     # Every list item contains metadata and the markdown text of 1 page.
     ```
 
-    * A LlamaIndex document essentially corresponds to Python dictionary, where the markdown text of the page is one of the dictionary values. For instance the text of the first page is the value of `data[0].to_dict().["text"]`.
-    * For details, please consult LlamaIndex documentation.
-    * Upon creation of the `LlamaMarkdownReader` all necessary LlamaIndex-related imports are executed. Required related package installations must have been done independently and will not be checked during pymupdf4llm installation.
-    
+  * A LlamaIndex document essentially corresponds to Python dictionary, where the markdown text of the page is one of the dictionary values. For instance the text of the first page is the value of `data[0].to_dict().["text"]`.
+  * For details, please consult LlamaIndex documentation.
+  * Upon creation of the `LlamaMarkdownReader` all necessary LlamaIndex-related imports are executed. Required related package installations must have been done independently and will not be checked during pymupdf4llm installation.

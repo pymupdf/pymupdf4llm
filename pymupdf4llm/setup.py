@@ -11,7 +11,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-version = "0.3.4"
+version = "0.3.5"
 pymupdf_version = "1.27.1"
 pymupdf_version_tuple = tuple(int(x) for x in pymupdf_version.split("."))
 requires = [f"pymupdf>={pymupdf_version}", "tabulate"]
@@ -46,5 +46,10 @@ setuptools.setup(
         "Tracker": "https://github.com/pymupdf/pymupdf4llm/issues",
         "Changelog": "https://github.com/pymupdf/pymupdf4llm/blob/main/CHANGES.md",
         "License": "https://github.com/pymupdf/pymupdf4llm/blob/main/LICENSE",
+    },
+    entry_points={
+        "console_scripts": [
+            "pymupdf4llm = pymupdf4llm.__main__:main",
+        ],
     },
 )

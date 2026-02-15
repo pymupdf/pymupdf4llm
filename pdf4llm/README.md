@@ -10,11 +10,10 @@ Bold, italic, mono-spaced text and code blocks are detected and formatted accord
 
 By default, all document pages are processed. If desired, a subset of pages can be specified by providing a list of 0-based page numbers.
 
-
-# Installation
+## Installation
 
 ```bash
-$ pip install -U pdf4llm
+pip install -U pdf4llm
 ```
 
 > This command will automatically install [PyMuPDF](https://github.com/pymupdf/PyMuPDF) if required.
@@ -45,6 +44,20 @@ Instead of the filename string as above, one can also provide a PyMuPDF `Documen
 
 * Support for **page chunks**: Instead of returning one large string for the whole document, a list of dictionaries can be generated: one for each page. Specify `data = pdf4llm.to_markdown("input.pdf", page_chunks=True)`. Then, for instance the first item, `data[0]` will contain a dictionary for the first page with the text and some metadata.
 
+## Command Line Interface
+
+You can also use pdf4llm (the alias for PyMuPDF4LLM) directly from the command line:
+
+```bash
+python -m pdf4llm input.pdf -o output.md
+```
+
+The CLI supports various options for output format and features. For a full list of options, run:
+
+```bash
+python -m pdf4llm --help
+```
+
 * As a first example for directly supporting LLM / RAG consumers, this version can output **LlamaIndex documents**:
 
     ```python
@@ -57,6 +70,6 @@ Instead of the filename string as above, one can also provide a PyMuPDF `Documen
     # Every list item contains metadata and the markdown text of 1 page.
     ```
 
-    * A LlamaIndex document essentially corresponds to Python dictionary, where the markdown text of the page is one of the dictionary values. For instance the text of the first page is the the value of `data[0].to_dict().["text"]`.
-    * For details, please consult LlamaIndex documentation.
-    * Upon creation of the `LlamaMarkdownReader` all necessary LlamaIndex-related imports are executed. Required related package installations must have been done independently and will not be checked during pdf4llm installation.
+  * A LlamaIndex document essentially corresponds to Python dictionary, where the markdown text of the page is one of the dictionary values. For instance the text of the first page is the the value of `data[0].to_dict().["text"]`.
+  * For details, please consult LlamaIndex documentation.
+  * Upon creation of the `LlamaMarkdownReader` all necessary LlamaIndex-related imports are executed. Required related package installations must have been done independently and will not be checked during pdf4llm installation.
