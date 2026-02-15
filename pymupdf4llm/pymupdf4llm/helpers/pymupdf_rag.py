@@ -1058,6 +1058,10 @@ def to_markdown(
         else:
             tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
             for t in tabs.tables:
+                # Skip tables with no valid cells (would cause bbox calculation to fail)
+                if not any(c is not None for c in t.cells):
+                    continue
+
                 # remove tables with too few rows or columns
                 if t.row_count < 2 or t.col_count < 2:
                     omitted_table_rects.append(pymupdf.Rect(t.bbox))
