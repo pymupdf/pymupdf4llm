@@ -1058,11 +1058,14 @@ def to_markdown(
         else:
             tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
             for t in tabs.tables:
-                # remove tables with too few rows or columns
-                if t.row_count < 2 or t.col_count < 2:
-                    omitted_table_rects.append(pymupdf.Rect(t.bbox))
-                    continue
-                parms.tabs.append(t)
+                try:
+                    # remove tables with too few rows or columns
+                    if t.row_count < 2 or t.col_count < 2:
+                        omitted_table_rects.append(pymupdf.Rect(t.bbox))
+                        continue
+                    parms.tabs.append(t)
+                except:
+                    pass
             parms.tabs.sort(key=lambda t: (t.bbox[0], t.bbox[1]))
 
         # Make a list of table boundary boxes.
