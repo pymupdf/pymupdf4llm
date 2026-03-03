@@ -1,10 +1,12 @@
 import pymupdf
 
-from .versions_file import MINIMUM_PYMUPDF_VERSION, VERSION
+from .versions_file import VERSION, VERSION_TUPLE
 
-if tuple(map(int, pymupdf.__version__.split("."))) < MINIMUM_PYMUPDF_VERSION:
+pvt = tuple(map(int, pymupdf.__version__.split(".")))
+
+if pvt != VERSION_TUPLE:
     raise ImportError(
-        f"Requires PyMuPDF v. {MINIMUM_PYMUPDF_VERSION}, but you have {pymupdf.__version__}"
+        f"Requires PyMuPDF {VERSION=} {VERSION_TUPLE=}, but you have {pymupdf.__version__=} {pvt=}"
     )
 
 __version__ = VERSION
