@@ -1019,6 +1019,7 @@ def to_markdown(
     show_progress=False,
     use_glyphs=False,
     ignore_alpha=False,
+    table_format="ascii",
     **kwargs,
 ) -> str:
     """Process the document and return the text of the selected pages.
@@ -1077,6 +1078,9 @@ def to_markdown(
     IGNORE_IMAGES = ignore_images
     IGNORE_GRAPHICS = ignore_graphics
     DETECT_BG_COLOR = detect_bg_color
+    if table_format not in ("ascii", "markdown"):
+        print(f"Warning: invalid table_format '{table_format}', using 'ascii'.")
+        table_format = "ascii"
     if doc.is_form_pdf or (doc.is_pdf and doc.has_annots()):
         doc.bake()
 
@@ -2618,12 +2622,19 @@ def to_markdown(
             IGNORE_GRAPHICS,
         )
         if page_chunks is False:
-            document_output.append(parms.md_string)
+            if table_format == "ascii":
+                document_output.append(parms.md_string_ascii)
+            else:
+                document_output.append(parms.md_string)
         else:
             # build subet of TOC for this page
             page_tocs = [t for t in toc if t[-1] == pno + 1]
 
             metadata = get_metadata(doc, pno)
+            if table_format == "ascii":
+                page_text = parms.md_string_ascii
+            else:
+                page_text = parms.md_string
             document_output.append(
                 {
                     "metadata": metadata,
@@ -2631,7 +2642,8 @@ def to_markdown(
                     "tables": parms.tables,
                     "images": parms.images,
                     "graphics": parms.graphics,
-                    "text": parms.md_string,
+                    "text": page_text,
+                    "text_markdown": parms.md_string,
                     "text_ascii": parms.md_string_ascii,
                     "words": parms.words,
                 }

@@ -84,6 +84,7 @@ else:
         ocr_language="eng",
         force_ocr=False,
         ocr_function=None,
+        table_format="ascii",
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
@@ -115,6 +116,7 @@ else:
             show_progress=show_progress,
             page_separators=page_separators,
             page_chunks=page_chunks,
+            table_format=table_format,
         )
 
     def to_json(

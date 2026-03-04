@@ -1,4 +1,4 @@
-import sys
+'''import sys
 import time
 from pathlib import Path
 
@@ -91,3 +91,11 @@ if __name__ == "__main__":
     elapsed = time.perf_counter() - start_time
     print(f"Done! Results in: {out_file} (elapsed: {elapsed:.2f}s)")
 
+'''
+
+import pymupdf4llm as llm
+
+text = llm.to_markdown("Finerenona_Hinye.pdf", show_progress=True)
+
+with open("documento.txt", "w", encoding="utf-8") as file:
+    file.write(text)

@@ -3,6 +3,7 @@ import io
 import json
 import os
 import math
+import re
 from dataclasses import dataclass
 from collections import defaultdict
 from pathlib import Path
@@ -14,6 +15,7 @@ import tabulate
 from pymupdf import mupdf
 from pymupdf4llm.helpers import utils, check_ocr
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+from pymupdf4llm.helpers.pymupdf_rag import matrix_to_ascii
 
 
 try:
@@ -67,6 +69,32 @@ def wrap_table_for_tabulate(table, max_width=100, min_col_width=10):
         wrapped_table.append(new_row)
 
     return wrapped_table
+
+
+def _markdown_table_to_ascii(markdown: str) -> str:
+    """Convert a markdown table string into an ASCII table."""
+    if not markdown:
+        return ""
+    md_lines = [l for l in markdown.splitlines() if l.strip()]
+    sep_idx = None
+    for j in range(len(md_lines) - 1):
+        if re.match(r"^\|?[-:\s|]+\|?$", md_lines[j + 1]):
+            sep_idx = j + 1
+            break
+    if sep_idx is None:
+        return ""
+    header_line = md_lines[sep_idx - 1] if sep_idx > 0 else ""
+    data_lines = md_lines[sep_idx + 1 :]
+    parsed_rows = []
+    if header_line:
+        header_parts = [p.strip() for p in header_line.strip().strip("|").split("|")]
+        parsed_rows.append(header_parts)
+    for dl in data_lines:
+        parts = [p.strip() for p in dl.strip().strip("|").split("|")]
+        parsed_rows.append(parts)
+    if not parsed_rows:
+        return ""
+    return matrix_to_ascii(parsed_rows)
 
 
 def make_page_chunk(doc, page, text, string_lengths) -> Dict:
@@ -682,6 +710,7 @@ class ParsedDocument:
         show_progress: bool = False,
         page_separators: bool = False,
         page_chunks: bool = False,
+        table_format: str = "ascii",
         **kwargs,
     ) -> Union[str, List[Dict]]:
         """
@@ -744,10 +773,20 @@ class ParsedDocument:
                     string_lengths.append(len(md_string))
                     continue
                 if btype == "table":
-                    table_text = box.table["markdown"]
-                    if page.full_ocred:
-                        # remove code style if page was OCR'd
-                        table_text = table_text.replace("`", "")
+                    if table_format not in ("ascii", "markdown"):
+                        print(
+                            f"Warning: invalid table_format '{table_format}', using 'ascii'."
+                        )
+                        table_format = "ascii"
+                    if table_format == "ascii":
+                        table_text = box.table.get("matrix_ascii") or box.table.get(
+                            "markdown", ""
+                        )
+                    else:
+                        table_text = box.table.get("markdown", "")
+                        if page.full_ocred:
+                            # remove code style if page was OCR'd
+                            table_text = table_text.replace("`", "")
                     md_string += table_text + "\n\n"
                     string_lengths.append(len(md_string))
                     continue
@@ -1175,6 +1214,13 @@ def parse_document(
                         ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
                         markdown=True,
                     )
+                    layoutbox.table["matrix_ascii"] = matrix_to_ascii(
+                        layoutbox.table["extract"]
+                    )
+                    if not layoutbox.table["matrix_ascii"]:
+                        layoutbox.table["matrix_ascii"] = _markdown_table_to_ascii(
+                            layoutbox.table.get("markdown", "")
+                        )
 
                 except Exception as e:
                     # print(f"table detection error '{e}' on page {page.number+1}")
