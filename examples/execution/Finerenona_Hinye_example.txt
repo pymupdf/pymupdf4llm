@@ -1,0 +1,140 @@
+Page 16
+**Drug** **Master** **File** **of** **Finerenone** 
+
+Document: YA2304-Quality Version: 001 Date:Sep. 2024 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+|2974.23, 2953.02, 28 35.36         |υCH       |-CH -CH -C 3, 2, H         |Carbon hydrogen stretching vibration       |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|2229.71                            |υC≡N      |-CN                        |Carbon nitrogen triple bond stretching     |
+|                                   |          |                           |vibration                                  |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1683.86                            |υC=O      |-CONH2                     |Carbon oxygen double bond stretching       |
+|                                   |          |                           |vibration                                  |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1660.71                            |υC=C      |-C=C                       |Carbon carbon double bond stretching       |
+|                                   |          |                           |vibration                                  |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1606.70, 1573.91, 14 89.05         |υC=N，υC=C|Pyridine ring, benzene ring|Expansion and contraction vibrations of    |
+|                                   |          |                           |carbon nitro gen and carbon carbon do uble |
+|                                   |          |                           |bonds                                      |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1463.97                            |δCH       |-CH2                       |In-plane shear vibration                   |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1454.33, 1431.18, 14 08.04, 1381.03|δCH       |-CH3                       |Out of plane deformation vibration         |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1267.23, 1257.59                   |υ=C-O-C   |-OCH3,-OCH2                |Asymmetric stretching vibr ation of ether  |
+|                                   |          |                           |bond                                       |
+|-----------------------------------|----------|---------------------------|-------------------------------------------|
+|1138.00, 1031.92                   |υ=C-O-C   |-OCH3,-OCH2                |Symmetric stretching vibrat ion of ether   |
+|                                   |          |                           |bond                                       |
+------------------------------------------------------------------------------------------------------------------------
+
+**Analysis** **and** **results:** 
+
+
+
+
+
+
+
+IR υ cm [-1] (KBr) : 3475.73cm [-1] , 3415.93cm [-1] are the stretching vibration peaks 
+
+
+
+of the primary amide group, 1683.86cm [-1] are the stretching vibration peaks of 
+
+
+
+the carbonyl group in the amide, indicating that the compound contains an 
+
+
+
+amide structure. 3365.78cm [-1] is the nitrogen and hydrogen expansion 
+
+
+
+vibration of secondary amine, indicating that the compound contains a 
+
+
+
+secondary amine structure. 3115.04cm [-1] and 3079.53cm [-1] are the 
+
+
+
+hydrocarbon stretching vibration of pyridine ring and benzene ring, and 
+
+
+
+1606.70cm [-1] , 1573.91cm [-1] and 1489.05cm [-1] are the skeleton vibration of 
+
+
+
+pyridine ring and benzene ring, indicating that the compound contains 
+
+
+
+pyridine ring and benzene ring. 2229.71cm [-1] is cyanogroup stretching 
+
+
+
+vibration, indicating that the compound contains a cyanogroup. 2974.23cm [-1] , 
+
+
+
+2953.02cm [-1] , 2835.36cm [-1] and 2964.59cm [-1] are the hydrocarbon stretching 
+
+
+
+vibrations of multiple methyl and methylene groups, and 1463.97cm [-1] , 
+
+
+
+1454.33cm [-1] , 1431.18, 1408.04 and 1381.03 are bending vibrations. 
+
+
+
+Finerenone Confidential Hinye Pharmaceutical Co., Ltd. 
+
+
+
+Page 16 of 542 
+
+
+
