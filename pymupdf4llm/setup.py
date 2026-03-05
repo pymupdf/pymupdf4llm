@@ -11,7 +11,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-VERSION = "1.27.1"
+VERSION = "1.27.2"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 requires = [
         f"pymupdf=={VERSION}",
