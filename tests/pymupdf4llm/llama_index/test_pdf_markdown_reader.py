@@ -11,6 +11,10 @@ try:
 except ImportError:
     raise NotImplementedError("Please install 'llama_index' is needed.")
 
+import pymupdf4llm
+
+# We need to disable layout.
+pymupdf4llm.use_layout(False)
 
 from pymupdf4llm.llama.pdf_markdown_reader import PDFMarkdownReader
 
