@@ -1,3 +1,4 @@
+import os
 import setuptools
 from pathlib import Path
 
@@ -13,11 +14,17 @@ classifiers = [
 
 VERSION = "1.27.2"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
-requires = [
-        f"pymupdf=={VERSION}",
-        f"pymupdf_layout=={VERSION}",
-        "tabulate",
-        ]
+
+PYMUPDF_SETUP_VERSION = os.environ.get('PYMUPDF_SETUP_VERSION')
+if PYMUPDF_SETUP_VERSION:
+    # Allow testing with non-matching pymupdf/layout versions.
+    requires = ["tabulate"]
+else:
+    requires = [
+            f"pymupdf=={VERSION}",
+            f"pymupdf_layout=={VERSION}",
+            "tabulate",
+            ]
 
 text = f"# Generated file - do not edit.\n{VERSION=}\n{VERSION_TUPLE=}\n"
 Path("pymupdf4llm/versions_file.py").write_text(text)
