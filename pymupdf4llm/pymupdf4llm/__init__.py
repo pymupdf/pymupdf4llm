@@ -2,6 +2,9 @@ import pymupdf
 
 from .versions_file import VERSION, VERSION_TUPLE
 
+import pymupdf4llm.helpers.pymupdf_rag
+
+
 pvt = tuple(map(int, pymupdf.__version__.split(".")))
 
 if pvt != VERSION_TUPLE:
@@ -13,85 +16,68 @@ __version__ = VERSION
 version = VERSION
 version_tuple = tuple(map(int, version.split(".")))
 
-if pymupdf._get_layout is None:
-    from .helpers.pymupdf_rag import (
-        IdentifyHeaders,
-        TocHeaders,
-        to_markdown,
-        to_json,
-        to_text,
-    )
 
-    pymupdf._warn_layout_once()  # recommend pymupdf_layout
+def use_layout(yes):
+    global _use_layout
+    global IdentifyHeaders
+    global TocHeaders
+    
+    _use_layout = yes
+    
+    if _use_layout:
+        # IdentifyHeaders and TocHeaders are not available.
+        try:    del IdentifyHeaders
+        except Exception:   pass
+        try:    del TocHeaders
+        except Exception:   pass
+        import pymupdf.layout
+        pymupdf.layout.activate()
+    else:
+        IdentifyHeaders = pymupdf4llm.helpers.pymupdf_rag.IdentifyHeaders
+        TocHeaders = pymupdf4llm.helpers.pymupdf_rag.TocHeaders
+        import pymupdf
+        pymupdf._get_layout = None
+            
 
+# Always attempt to use Layout by default.
+try:
+    import pymupdf.layout
+except ImportError:
+    use_layout(False)
 else:
-    from .helpers import document_layout
+    use_layout(True)
 
-    def parse_document(
-        doc,
-        filename="",
-        image_dpi=150,
-        image_format="png",
-        image_path="",
-        ocr_dpi=300,
-        pages=None,
-        write_images=False,
-        embed_images=False,
-        show_progress=False,
-        force_text=True,
-        use_ocr=True,
-        force_ocr=False,
-        ocr_function=None,
-        ocr_language="eng",
-    ):
-        return document_layout.parse_document(
-            doc,
-            filename=filename,
-            image_dpi=image_dpi,
-            image_format=image_format,
-            image_path=image_path,
-            pages=pages,
-            ocr_dpi=ocr_dpi,
-            write_images=write_images,
-            embed_images=embed_images,
-            show_progress=show_progress,
-            force_text=force_text,
-            use_ocr=use_ocr,
-            force_ocr=force_ocr,
-            ocr_function=ocr_function,
-            ocr_language=ocr_language,
-        )
 
-    def to_markdown(
+def _layout_to_markdown(
         doc,
         *,
-        header=True,
-        footer=True,
-        pages=None,
-        write_images=False,
-        embed_images=False,
-        image_path="",
-        image_format="png",
-        filename="",
-        force_text=True,
-        page_chunks=False,
-        page_separators=False,
         dpi=150,
-        ocr_dpi=300,
-        page_width=612,
-        page_height=None,
+        embed_images=False,
+        filename="",
+        footer=True,
+        force_ocr=False,
+        force_text=True,
+        header=True,
         ignore_code=False,
+        image_format="png",
+        image_path="",
+        ocr_dpi=300,
+        ocr_function=None,
+        ocr_language="eng",
+        page_chunks=False,
+        page_height=None,
+        page_separators=False,
+        pages=None,
+        page_width=612,
         show_progress=False,
         use_ocr=True,
-        ocr_language="eng",
-        force_ocr=False,
-        ocr_function=None,
+        write_images=False,
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
-        if write_images and embed_images:
-            raise ValueError("Cannot both write_images and embed_images")
-        parsed_doc = parse_document(
+    if write_images and embed_images:
+        raise ValueError("Cannot both write_images and embed_images")
+    parsed_doc = document_layout.parse_document(
             doc,
             filename=filename,
             image_dpi=dpi,
@@ -108,7 +94,7 @@ else:
             ocr_language=ocr_language,
             ocr_function=ocr_function,
         )
-        return parsed_doc.to_markdown(
+    return parsed_doc.to_markdown(
             header=header,
             footer=footer,
             write_images=write_images,
@@ -119,7 +105,7 @@ else:
             page_chunks=page_chunks,
         )
 
-    def to_json(
+def _layout_to_json(
         doc,
         image_dpi=150,
         image_format="png",
@@ -137,7 +123,7 @@ else:
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
-        parsed_doc = parse_document(
+    parsed_doc = document_layout.parse_document(
             doc,
             image_dpi=image_dpi,
             image_format=image_format,
@@ -152,9 +138,9 @@ else:
             ocr_language=ocr_language,
             ocr_function=ocr_function,
         )
-        return parsed_doc.to_json()
+    return parsed_doc.to_json()
 
-    def to_text(
+def _layout_to_text(
         doc,
         filename="",
         header=True,
@@ -175,7 +161,7 @@ else:
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
-        parsed_doc = parse_document(
+    parsed_doc = document_layout.parse_document(
             doc,
             filename=filename,
             pages=pages,
@@ -188,7 +174,7 @@ else:
             ocr_language=ocr_language,
             ocr_function=ocr_function,
         )
-        return parsed_doc.to_text(
+    return parsed_doc.to_text(
             header=header,
             footer=footer,
             ignore_code=ignore_code,
@@ -198,6 +184,27 @@ else:
             table_min_col_width=table_min_col_width,
             page_chunks=page_chunks,
         )
+
+
+def to_markdown(*args, **kwargs):
+    if _use_layout:
+        return _layout_to_markdown(*args, **kwargs)
+    else:
+        return pymupdf4llm.helpers.pymupdf_rag.to_markdown(*args, **kwargs)
+
+
+def to_json(*args, **kwargs):
+    if _use_layout:
+        return _layout_to_json(*args, **kwargs)
+    else:
+        return pymupdf4llm.helpers.pymupdf_rag.to_json(*args, **kwargs)
+
+
+def to_text(*args, **kwargs):
+    if _use_layout:
+        return _layout_to_text(*args, **kwargs)
+    else:
+        return pymupdf4llm.helpers.pymupdf_rag.to_text(*args, **kwargs)
 
 
 def get_key_values(doc, xrefs=False, **kwargs):
