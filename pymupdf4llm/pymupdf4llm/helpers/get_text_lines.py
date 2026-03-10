@@ -18,7 +18,7 @@ import pymupdf
 from pymupdf4llm.helpers.utils import (
     is_white,
     almost_in_bbox,
-    outside_bbox,
+    are_disjoint,
     bbox_is_empty,
     TYPE3_FONT_NAME,
 )
@@ -123,10 +123,10 @@ def get_raw_lines(
         ]
     spans = []  # all spans in TextPage here
     for bno, b in enumerate(blocks):  # the numbered blocks
-        if outside_bbox(b["bbox"], clip):
+        if are_disjoint(b["bbox"], clip):
             continue
         for lno, line in enumerate(b["lines"]):  # the numbered lines
-            if outside_bbox(line["bbox"], clip):
+            if are_disjoint(line["bbox"], clip):
                 continue
             line_dir = line["dir"]
             if (

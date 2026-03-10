@@ -52,7 +52,7 @@ from pymupdf4llm.helpers.utils import (
     is_white,
     bbox_is_empty,
     almost_in_bbox,
-    outside_bbox,
+    are_disjoint,
     bbox_in_bbox,
     intersect_rects,
 )
@@ -757,7 +757,7 @@ def to_markdown(
 
     def outside_all_bboxes(rect, rect_list):
         """Check if rect is outside all rects in the list."""
-        return all(outside_bbox(rect, r) for r in rect_list)
+        return all(are_disjoint(rect, r) for r in rect_list)
 
     def almost_in_any_bbox(rect, rect_list):
         """Check if middle of rect is contained in a rect of the list."""
