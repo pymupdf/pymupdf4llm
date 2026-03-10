@@ -3,11 +3,11 @@ import pymupdf
 from .versions_file import VERSION, VERSION_TUPLE
 
 import pymupdf4llm.helpers.pymupdf_rag
-
+import pymupdf4llm.helpers.document_layout
 
 pvt = tuple(map(int, pymupdf.__version__.split(".")))
 
-if pvt != VERSION_TUPLE:
+if pvt != (1, 27, 2):
     raise ImportError(
         f"Requires PyMuPDF {VERSION=} {VERSION_TUPLE=}, but you have {pymupdf.__version__=} {pvt=}"
     )
@@ -42,7 +42,7 @@ def use_layout(yes):
 # Always attempt to use Layout by default.
 try:
     import pymupdf.layout
-except ImportError:
+except ImportError as e:
     use_layout(False)
 else:
     use_layout(True)
@@ -77,7 +77,7 @@ def _layout_to_markdown(
     ):
     if write_images and embed_images:
         raise ValueError("Cannot both write_images and embed_images")
-    parsed_doc = document_layout.parse_document(
+    parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
             doc,
             filename=filename,
             image_dpi=dpi,
@@ -123,7 +123,7 @@ def _layout_to_json(
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
-    parsed_doc = document_layout.parse_document(
+    parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
             doc,
             image_dpi=image_dpi,
             image_format=image_format,
@@ -161,7 +161,7 @@ def _layout_to_text(
         # unsupported options for pymupdf layout:
         **kwargs,
     ):
-    parsed_doc = document_layout.parse_document(
+    parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
             doc,
             filename=filename,
             pages=pages,

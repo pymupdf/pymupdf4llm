@@ -12,7 +12,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-VERSION = "1.27.2"
+VERSION = "1.27.2.1"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 
 PYMUPDF_SETUP_VERSION = os.environ.get('PYMUPDF_SETUP_VERSION')
@@ -21,8 +21,8 @@ if PYMUPDF_SETUP_VERSION:
     requires = ["tabulate"]
 else:
     requires = [
-            f"pymupdf=={VERSION}",
-            f"pymupdf_layout=={VERSION}",
+            f"pymupdf==1.27.2",
+            f"pymupdf_layout==1.27.2",
             "tabulate",
             ]
 
