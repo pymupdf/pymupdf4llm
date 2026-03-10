@@ -63,7 +63,7 @@ License GNU Affero GPL 3.0
 import pymupdf
 from pymupdf4llm.helpers.utils import (
     WHITE_CHARS,
-    outside_bbox,
+    are_disjoint,
     intersect_rects,
     bbox_is_empty,
 )
@@ -123,7 +123,7 @@ def column_boxes(
 
     def intersects_bboxes(bb, bboxes):
         """Return True if a bbox touches bb, else return False."""
-        return any(not outside_bbox(bb, bbox, strict=True) for bbox in bboxes)
+        return any(not are_disjoint(bb, bbox, strict=True) for bbox in bboxes)
 
     def can_extend(temp, bb, bboxlist, vert_bboxes):
         """Determines whether rectangle 'temp' can be extended by 'bb'

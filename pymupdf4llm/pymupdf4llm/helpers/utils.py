@@ -25,6 +25,7 @@ WHITE_CHARS = set(
 
 REPLACEMENT_CHARACTER = chr(0xFFFD)
 TYPE3_FONT_NAME = "Unnamed-T3"
+TESSERACT_FONT_NAME = "GlyphLessFont"
 
 BULLETS = tuple(
     {
@@ -60,6 +61,7 @@ FLAGS = (
     | pymupdf.TEXT_PRESERVE_IMAGES
     | pymupdf.TEXT_ACCURATE_BBOXES
     | pymupdf.TEXT_MEDIABOX_CLIP
+    | pymupdf.TEXT_IGNORE_ACTUALTEXT
 )
 
 
@@ -191,9 +193,8 @@ def md_path(folder: str, filename: str) -> str:
 
 
 def startswith_bullet(text):
-    if not text:
-        return False
-    if not text.startswith(BULLETS):
+    """Check if text starts with a bullet character."""
+    if not text or not text.startswith(BULLETS):
         return False
     if len(text) == 1:
         return True
@@ -202,12 +203,31 @@ def startswith_bullet(text):
     return False
 
 
-def is_white(text):
+def is_ocr_text(span) -> bool:
+    """Check if text span was created by some OCR engine.
+
+    This is a simplified check: We actually return whether the text was neither
+    stroked nor filled. This corresponds to PDF text rendering mode 3, which
+    is typically used for OCR text layers. Strictly speaking it can also be
+    used for other purposes than OCR. In rare cases some OCR engines might
+    use other techniques to ensure the generated text layer is invisible.
+    """
+    if span["font"] == TESSERACT_FONT_NAME:
+        # This is a safe bet for OCR
+        return True
+    if (span["char_flags"] & pymupdf.mupdf.FZ_STEXT_STROKED) or (
+        span["char_flags"] & pymupdf.mupdf.FZ_STEXT_FILLED
+    ):
+        return False
+    return True
+
+
+def is_white(text) -> bool:
     """Identify white text."""
     return WHITE_CHARS.issuperset(text)
 
 
-def bbox_is_empty(bbox):
+def bbox_is_empty(bbox) -> bool:
     return bbox[0] >= bbox[2] or bbox[1] >= bbox[3]
 
 
@@ -243,8 +263,10 @@ def almost_in_bbox(bbox, clip, portion=0.8):
     return False
 
 
-def outside_bbox(bbox, cell, strict=False):
+def are_disjoint(bbox, cell, strict=False) -> bool:
+    """Check if 'bbox' is outside 'cell'."""
     if not strict:
+        # consider common edges to still being outside
         return (
             0
             or bbox[0] >= cell[2]
@@ -303,8 +325,41 @@ def analyze_page(page, blocks=None) -> dict:
         "chars_total": int, count of visible characters
         "chars_bad": int, count of Replacement Unicode characters
         "ocr_spans": int, count: text spans with ignored text (render mode 3)
-
+        "img_var": float, area-weighted image variance
+        "img_edges": float, area-weighted image edge energy
+        "vec_suspicious": int, count of suspected vector-based glyphs
+        "needs_ocr": bool, final decision
     """
+    # Thresholds for image variance and edge energy
+    IMG_VAR_THRESHOLD_LOW = 5.0  # "practically unicolor"
+    IMG_VAR_THRESHOLD_HIGH = 50.0  # "clearly structured content / scan"
+    IMG_EDGE_THRESHOLD_LOW = 3.0
+    IMG_EDGE_THRESHOLD_HIGH = 20.0
+    BAD_CHAR_THRESHOLD = 0.1  # 10% or more bad chars suggests OCR
+    VEC_AREA_THRESHOLD = 0.05  # 5% or more area covered by suspicious vectors
+
+    FLAGS = (
+        pymupdf.TEXT_PRESERVE_LIGATURES
+        | pymupdf.TEXT_PRESERVE_WHITESPACE
+        | pymupdf.TEXT_PRESERVE_IMAGES
+        | pymupdf.TEXT_COLLECT_VECTORS
+    )
+
+    def _pixmap_stats(page, bbox, dpi=72):
+        """Very cheap image characterization: variance + rough edge energy."""
+        pix = page.get_pixmap(clip=bbox, dpi=dpi)
+        if pix.n < 1 or pix.width * pix.height == 0:
+            return 0.0, 0.0
+        samples = memoryview(pix.samples)
+        # simple variance across all channels
+        n = len(samples)
+        mean = sum(samples) / n
+        var = sum((v - mean) * (v - mean) for v in samples) / n
+        # rough "edge energy": sum of absolute differences of neighboring pixels
+        # (only 1D approximation, sufficient as text-vs-photo indicator)
+        edge = sum(abs(samples[i] - samples[i - 1]) for i in range(1, n)) / n
+        return var, edge
+
     chars_total = 0
     chars_bad = 0
     if blocks is None:
@@ -313,24 +368,32 @@ def analyze_page(page, blocks=None) -> dict:
             flags=FLAGS,
             clip=pymupdf.INFINITE_RECT(),
         )["blocks"]
+
     img_rect = pymupdf.EMPTY_RECT()
     txt_rect = +img_rect
     vec_rect = +img_rect
-    img_area = 0
-    txt_area = 0
-    vec_area = 0
+    img_area = 0.0
+    txt_area = 0.0
+    vec_area = 0.0
     ocr_spans = 0
+    vec_suspicious = 0
+
+    img_var_weighted = 0.0
+    img_edge_weighted = 0.0
+
     for b in blocks:
-        # Intersect each block bbox with the page rectangle.
-        # Note that this has no effect on text because of the clipping flags,
-        # which causes that we will not see ANY clipped text.
         bbox = intersect_rects(page.rect, b["bbox"])
         area = bbox.width * bbox.height
-        if not area:  # skip any empty block
+        if not area:
             continue
+
         if b["type"] == 1:  # Image block
             img_rect |= bbox
             img_area += area
+            var, edge = _pixmap_stats(page, bbox, dpi=72)
+            img_var_weighted += var * area
+            img_edge_weighted += edge * area
+
         elif b["type"] == 0:  # Text block
             if bbox_is_empty(b["bbox"]):
                 continue
@@ -338,53 +401,98 @@ def analyze_page(page, blocks=None) -> dict:
                 if bbox_is_empty(l["bbox"]):
                     continue
                 for s in l["spans"]:
-                    if is_white(s["text"]):
+                    if not s["text"] or s["text"].isspace():
                         continue
                     sr = intersect_rects(page.rect, s["bbox"])
-                    if bbox_is_empty(sr):
+                    sr_area = sr.width * sr.height
+                    if not sr_area:
                         continue
-                    if (
-                        0
-                        or s["font"] == "GlyphLessFont"
-                        or (s["char_flags"] & 8 == 0 and s["char_flags"] & 16 == 0)
+                    # OCR layer / invisible text
+                    if s["font"] == "GlyphLessFont" or (
+                        s["char_flags"] & 8 == 0 and s["char_flags"] & 16 == 0
                     ):
                         ocr_spans += 1
-                    elif s["alpha"] == 0:
-                        continue  # skip invisible text
-                    chars_total += len(s["text"].strip())
-                    chars_bad += len(
-                        [c for c in s["text"] if c == REPLACEMENT_CHARACTER]
-                    )
+                        continue
+                    # text may be zero alpha for other reasons: ignore
+                    if s.get("alpha", 1) == 0:
+                        continue
+                    text = s["text"]
+                    chars_total += len(text.strip())  # total character count
+                    # bad character count
+                    chars_bad += sum(1 for c in text if c == REPLACEMENT_CHARACTER)
                     txt_rect |= sr
-                    txt_area += sr.width * sr.height
+                    txt_area += sr_area
+
         elif (
-            1
-            and b["type"] == 3
-            and b["stroked"]  # vector block
-            and 2 < bbox.width <= 20  # width limit for typical characters
-            and 2 < bbox.height <= 20  # height limit for typical characters
-            and not b["isrect"]  # contains curves
+            b["type"] == 3  # vector block
+            and 3 <= bbox.width <= 20
+            and 3 <= bbox.height <= 20
+            and not b["isrect"]
         ):
-            # potential character-like vector block
+            # potentially character-like vectors
+            vec_suspicious += 1
             vec_rect |= bbox
             vec_area += area
 
-    # the rectangle on page covered by some content
+        # the rectangle on page covered by some content
     covered = img_rect | txt_rect | vec_rect
-    cover_area = abs(covered)
+    if bbox_is_empty(covered):
+        # no content at all → return early with empty covered area
+        return {
+            "covered": covered,
+            "img_joins": 0.0,
+            "img_area": 0.0,
+            "txt_joins": 0.0,
+            "txt_area": 0.0,
+            "vec_joins": 0.0,
+            "vec_area": 0.0,
+            "chars_total": 0,
+            "chars_bad": 0,
+            "ocr_spans": 0,
+            "img_var": 0.0,
+            "img_edges": 0.0,
+            "vec_suspicious": 0,
+            "needs_ocr": False,
+        }
+
+    cover_area = (covered[2] - covered[0]) * (covered[3] - covered[1])
+    img_var = img_var_weighted / img_area if img_area and cover_area else 0.0
+    img_edges = img_edge_weighted / img_area if img_area and cover_area else 0.0
+
     analysis = {
         "covered": covered,
-        "img_joins": (abs(img_rect) / cover_area) if cover_area else 0,
-        "img_area": img_area / cover_area if cover_area else 0,
-        "txt_joins": (abs(txt_rect) / cover_area) if cover_area else 0,
-        "txt_area": txt_area / cover_area if cover_area else 0,
-        "vec_area": vec_area / cover_area if cover_area else 0,
-        "vec_joins": (abs(vec_rect) / cover_area) if cover_area else 0,
+        "img_joins": (abs(img_rect) / cover_area) if cover_area else 0.0,
+        "img_area": img_area / cover_area if cover_area else 0.0,
+        "txt_joins": (abs(txt_rect) / cover_area) if cover_area else 0.0,
+        "txt_area": txt_area / cover_area if cover_area else 0.0,
+        "vec_area": vec_area / cover_area if cover_area else 0.0,
+        "vec_joins": (abs(vec_rect) / cover_area) if cover_area else 0.0,
         "chars_total": chars_total,
         "chars_bad": chars_bad,
         "ocr_spans": ocr_spans,
+        "img_var": img_var,
+        "img_edges": img_edges,
+        "vec_suspicious": vec_suspicious,
     }
-    return analysis
+
+    # --- final OCR decision ---
+
+    if chars_total > 0 and chars_bad / chars_total > BAD_CHAR_THRESHOLD:
+        return {**analysis, "needs_ocr": True, "reason": "chars_bad"}
+
+    if ocr_spans > 0:
+        return {**analysis, "needs_ocr": True, "reason": "ocr_spans"}
+
+    if vec_suspicious > 3 and vec_area / cover_area >= VEC_AREA_THRESHOLD:
+        return {**analysis, "needs_ocr": True, "reason": "vec_text"}
+
+    if img_area > 0 and (
+        img_var > IMG_VAR_THRESHOLD_HIGH or img_edges > IMG_EDGE_THRESHOLD_HIGH
+    ):
+        return {**analysis, "needs_ocr": True, "reason": "img_text"}
+
+    # Default
+    return {**analysis, "needs_ocr": False, "reason": None}
 
 
 def table_cleaner(page, blocks, tbbox):
@@ -754,7 +862,7 @@ def cluster_columns_in_stripe(stripe):
     # find boxes that do not horizontally overlap with others
     # will use them to split the stripe in horizontal sub-stripes
     solitaries = [
-        b for b in stripe if all(outside_bbox(r, expanded(b)) for r in stripe if r != b)
+        b for b in stripe if all(are_disjoint(r, expanded(b)) for r in stripe if r != b)
     ]
 
     # no solitaries → single substripe
@@ -1074,10 +1182,10 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
 
     text = ""
     for block in table_blocks:
-        if outside_bbox(block["bbox"], cell):
+        if are_disjoint(block["bbox"], cell):
             continue
         for line in block["lines"]:
-            if outside_bbox(line["bbox"], cell):
+            if are_disjoint(line["bbox"], cell):
                 continue
             if text:  # this line is new in the cell
                 text += "<br>" if markdown else "\n"
@@ -1086,7 +1194,7 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
             horizontal = line["dir"] == (0, 1) or line["dir"] == (1, 0)
 
             for span in line["spans"]:
-                if outside_bbox(span["bbox"], cell):
+                if are_disjoint(span["bbox"], cell):
                     continue
                 if ocrpage:
                     span_text = span["text"]
