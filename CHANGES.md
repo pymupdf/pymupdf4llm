@@ -1,5 +1,20 @@
 # Change Log
 
+
+## Changes in version 1.27.2.1
+
+Pymupdf4llm now automatically installs and uses pymupdf_layout.
+
+* Installing the pympdf4llm package automatically installs pymupdf_layout.
+
+  * We now specify an exact versions of pymupdf, instead of (as previously) pymupdf>=1.27.1.
+  * We specify an exact version of pymupdf_layout.
+
+* `import pymupdf4llm` will automatically initialise layout.
+
+* Layout can be disabled by calling `pymupdf4llm.use_layout(False)`.
+
+
 ## Changes in version 0.3.4
 
 ### Fixes:
