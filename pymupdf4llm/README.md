@@ -52,7 +52,7 @@ md_text = pymupdf4llm.to_markdown("input.pdf")
 
 # now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
-pathlib.Path("output.md").write_bytes(md_text.encode())
+pathlib.Path("output.md").write_text(md_text)
 ```
 
 
@@ -65,7 +65,7 @@ json_text = pymupdf4llm.to_json("input.pdf")
 
 # now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
-pathlib.Path("output.json").write_bytes(json_text.encode())
+pathlib.Path("output.json").write_text(json_text)
 ```
 
 ### Plain Text
@@ -77,7 +77,7 @@ plain_text = pymupdf4llm.to_text("input.pdf")
 
 # now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
-pathlib.Path("output.txt").write_bytes(plain_text.encode())
+pathlib.Path("output.txt").write_text(plain_text)
 ```
 
 
@@ -87,7 +87,7 @@ Check out the [PyMuPDF4LLM  documentation](https://pymupdf.readthedocs.io/en/lat
 
 ## Examples
 
-Find our [examples on Github](https://github.com/pymupdf/pymupdf4llm/tree/main/examples).
+Find our [examples on GitHub](https://github.com/pymupdf/pymupdf4llm/tree/main/examples).
 
 ## Integrations
 
@@ -98,7 +98,7 @@ For your AI application development, check out our
 
 You can get support for PyMuPDF4LLM via a number of options:
 
-- [Github Issue Board](https://github.com/pymupdf/pymupdf4llm/issues)
+- [GitHub Issue Board](https://github.com/pymupdf/pymupdf4llm/issues)
 - [Discord](https://discord.gg/7pH3gqcRtg)
 - [MuPDF Forum](https://forum.mupdf.com)
 
