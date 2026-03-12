@@ -1,24 +1,36 @@
-# Using PyMuPDF as a Data Feeder in LLM / RAG Applications
+<p align="center">
+  <a href="https://github.com/pymupdf/pymupdf4llm)">
+    <img loading="lazy" alt="PyMuPDF logo" src="https://pymupdf.readthedocs.io/en/latest/_static/sidebar-logo-light.svg" width="150px" height='auto' />
+  </a>
+</p>
 
-This package converts the pages of a PDF to text in Markdown format using [PyMuPDF](https://pypi.org/project/PyMuPDF/).
+# PyMuPDF4LLM
 
-Standard text and tables are detected, brought in the right reading sequence and then together converted to GitHub-compatible Markdown text.
+[![Docs](https://img.shields.io/badge/docs-live-brightgreen)](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/)
+[![License MIT](https://img.shields.io/badge/license-AGPL-green)](https://artifex.com/licensing/gnu-agpl-v3)
+[![PyPI Downloads](https://static.pepy.tech/badge/pymupdf4llm/month)](https://pepy.tech/projects/pymupdf4llm)
+[![Discord](https://img.shields.io/discord/1460622234811895872?color=6A7EC2&logo=discord&logoColor=ffffff)](https://discord.gg/7pH3gqcRtg)
 
-Header lines are identified via the font size and appropriately prefixed with one or more '#' tags.
 
-Bold, italic, mono-spaced text and code blocks are detected and formatted accordingly. Similar applies to ordered and unordered lists.
+**PyMuPDF4LLM** is a lightweight extension for **PyMuPDF** that turns documents into clean, structured data with minimal setup. It includes layout analysis *without* any GPU requirement.
 
-By default, all document pages are processed. If desired, a subset of pages can be specified by providing a sequence of 0-based page numbers.
 
------
+**PyMuPDF4LLM** makes it easy to extract document content in the format you need for **LLM** & **RAG** environments. It supports structured data extraction to **Markdown**, **JSON** and **TXT** , as well as [LlamaIndex](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#with-llamaindex) and [LangChain](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#with-langchain) integration.
 
-[PyMuPDF-Layout](https://pypi.org/project/pymupdf-layout/) is an optional extension of PyMuPDF. It offers AI-based improved page layout analysis, for instance entailing a much higher table recognition.
 
-Since version 0.2.0, pymupdf4llm fully supports pymupdf-layout. As part of this, output as plain text or a JSON string is also possible. In addition, every page is automatically OCR'd (based on a number of criteria) provided package [opencv-python](https://pypi.org/project/opencv-python/) is installed and Tesseract is available on the platform.
 
-Layout mode is activated with a simple modification of the import statements - for details, please see below.
+## Features
 
-# Installation
+- Parsing of [multiple document formats](https://pymupdf.readthedocs.io/en/latest/about.html#feature-matrix).
+- Export structured data as Markdown, JSON and plain text output formats.
+- Support for multi-column pages.
+- Support for image and vector graphics extraction.
+- Layout analysis for better semantic understanding of document structure.
+- Support for page chunking output.
+- Integration with popular AI frameworks.
+
+
+## Installation
 
 ```bash
 $ pip install -U pymupdf4llm
@@ -26,101 +38,69 @@ $ pip install -U pymupdf4llm
 
 > This command will automatically install or upgrade [PyMuPDF](https://github.com/pymupdf/PyMuPDF) as required.
 
-To install all Python packages for full support of the layout feature and automatic OCR, you can use the following command version:
 
-```bash
-$ pip install -U pymupdf4llm[ocr,layout]
-```
+## Execution
 
-This will install opencv-python and pymupdf-layout in addition to pymupdf4llm and pymupdf.
 
-# Execution
-## Legacy Mode
-For **_standard (legacy) markdown extraction_**, use the following simple script
+### Markdown
 
 ```python
-import pymupdf4llm
-
-md_text = pymupdf4llm.to_markdown("input.pdf")
-
-# now work with the markdown text, e.g. store as a UTF8-encoded file
-import pathlib
-pathlib.Path("output.md").write_bytes(md_text.encode())
-```
-
-Instead of the filename string as above, one can also provide a PyMuPDF `Document`.
-
-By default, all pages in the PDF will be processed. If desired, the parameter `pages=<sequence>` can be used to provide a sequence of zero-based page numbers to consider.
-
-## Layout Mode
-To **_activate layout mode_**, use the following
-
-```python
-import pymupdf.layout  # activate PyMuPDF-Layout in pymupdf
 import pymupdf4llm
 
 # The remainder of the script is unchanged
 md_text = pymupdf4llm.to_markdown("input.pdf")
 
-# now work with the markdown text, e.g. store as a UTF8-encoded file
+# now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
 pathlib.Path("output.md").write_bytes(md_text.encode())
 ```
 
-Here are the JSON and plain text output versions.
 
 ### JSON
 
 ```python
-import pymupdf.layout  # activate PyMuPDF-Layout in pymupdf
 import pymupdf4llm
 
 json_text = pymupdf4llm.to_json("input.pdf")
 
-# now work with the markdown text, e.g. store as a UTF8-encoded file
+# now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
-pathlib.Path("output.json").write_text(json_text)
+pathlib.Path("output.json").write_bytes(json_text.encode())
 ```
 
 ### Plain Text
 
 ```python
-import pymupdf.layout  # activate PyMuPDF-Layout in pymupdf
 import pymupdf4llm
 
 plain_text = pymupdf4llm.to_text("input.pdf")
 
-# now work with the markdown text, e.g. store as a UTF8-encoded file
+# now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
 pathlib.Path("output.txt").write_bytes(plain_text.encode())
 ```
 
 
-**Feature Overview:**
+## Documentation
 
-* Support for pages with **_multiple text columns_**.
-* Support for **_image and vector graphics extraction_**:
+Check out the [PyMuPDF4LLM  documentation](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm), for details on installation, features, sample code and the [full API](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/api.html).
 
-    1. Specify either `write_images=True` or `embed_images=True`. Default is `False`.
-    2. Images and vector graphics on the page will be stored as images named `"input.pdf-pno-index.extension"` in a folder of your choice or be embedded in the markdown text as base64-encoded strings. The image `extension` can be chosen to represent a PyMuPDF-supported image format (for instance "png" or "jpg"),  `pno` is the 0-based page number and `index` is some sequence number.
-    3. The image files will have width and height equal to the values on the page. The desired resolution can be chosen via parameter `dpi` (default: `dpi=150`). So this is not an actual **_extraction_** but rather rendering of the respective page area.
-    4. Any standard text written in image areas will become a visible part of the generated image and otherwise be ignored. This behavior can be changed via `force_text=True` which causes the text to also become part of the output.
+## Examples
 
-* Support for **page chunks**: Instead of returning one large string for the whole document, a list of dictionaries can be generated: one for each page. Specify `data = pymupdf4llm.to_markdown("input.pdf", page_chunks=True)`. Then, for instance the first item, `data[0]` will contain a dictionary for the first page with its text and some metadata.
+Find our [examples on Github](https://github.com/pymupdf/pymupdf4llm/tree/main/examples).
 
-* As a first example for directly supporting LLM / RAG consumers, this version can output **LlamaIndex documents**:
+## Integrations
 
-    ```python
-    import pymupdf4llm
-    
-    md_read = pymupdf4llm.LlamaMarkdownReader()
-    data = md_read.load_data("input.pdf")
+For your AI application development, check out our 
+[integrations](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#integrations) with popular frameworks.
 
-    # The result 'data' is of type List[LlamaIndexDocument]
-    # Every list item contains metadata and the markdown text of 1 page.
-    ```
+## Support
 
-    * A LlamaIndex document essentially corresponds to Python dictionary, where the markdown text of the page is one of the dictionary values. For instance the text of the first page is the value of `data[0].to_dict().["text"]`.
-    * For details, please consult LlamaIndex documentation.
-    * Upon creation of the `LlamaMarkdownReader` all necessary LlamaIndex-related imports are executed. Required related package installations must have been done independently and will not be checked during pymupdf4llm installation.
+You can get support for PyMuPDF4LLM via a number of options:
+
+- [Github Issue Board](https://github.com/pymupdf/pymupdf4llm/issues)
+- [Discord](https://discord.gg/7pH3gqcRtg)
+- [MuPDF Forum](https://forum.mupdf.com)
+
+
     
