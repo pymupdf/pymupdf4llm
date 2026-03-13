@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/pymupdf/pymupdf4llm)">
+  <a href="https://github.com/pymupdf/pymupdf4llm">
     <img loading="lazy" alt="PyMuPDF logo" src="https://pymupdf.readthedocs.io/en/latest/_static/sidebar-logo-light.svg" width="150px" height='auto' />
   </a>
 </p>
