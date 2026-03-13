@@ -3,7 +3,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import pymupdf
 from pymupdf import Document as FitzDocument
-from pymupdf4llm import IdentifyHeaders, to_markdown
+
+import pymupdf4llm.helpers.pymupdf_rag
 
 try:
     from llama_index.core.readers.base import BaseReader
@@ -51,7 +52,7 @@ class PDFMarkdownReader(BaseReader):
             raise TypeError("extra_info must be a dictionary.")
 
         # extract text header information
-        hdr_info = IdentifyHeaders(file_path)
+        hdr_info = pymupdf4llm.helpers.pymupdf_rag.IdentifyHeaders(file_path)
 
         doc: FitzDocument = pymupdf.open(file_path)
         docs = []
@@ -73,7 +74,7 @@ class PDFMarkdownReader(BaseReader):
         extra_info: Dict[str, Any],
         file_path: str,
         page_number: int,
-        hdr_info: IdentifyHeaders,
+        hdr_info: pymupdf4llm.helpers.pymupdf_rag.IdentifyHeaders,
         **load_kwargs: Any,
     ):
         """Processes a single page of a PDF document."""
@@ -82,7 +83,7 @@ class PDFMarkdownReader(BaseReader):
         if self.meta_filter:
             extra_info = self.meta_filter(extra_info)
 
-        text = to_markdown(
+        text = pymupdf4llm.helpers.pymupdf_rag.to_markdown(
             doc,
             pages=[page_number],
             hdr_info=hdr_info,
