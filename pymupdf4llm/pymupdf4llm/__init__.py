@@ -5,11 +5,11 @@ from .versions_file import VERSION, VERSION_TUPLE
 import pymupdf4llm.helpers.pymupdf_rag
 import pymupdf4llm.helpers.document_layout
 
-pvt = tuple(map(int, pymupdf.__version__.split(".")))
+_pvt = tuple(map(int, pymupdf.__version__.split(".")))
 
-if pvt != (1, 27, 2):
+if _pvt != VERSION_TUPLE:
     raise ImportError(
-        f"Requires PyMuPDF {VERSION=} {VERSION_TUPLE=}, but you have {pymupdf.__version__=} {pvt=}"
+        f"Requires PyMuPDF {VERSION=} {VERSION_TUPLE=}, but you have {pymupdf.__version__=} {_pvt=}"
     )
 
 __version__ = VERSION
