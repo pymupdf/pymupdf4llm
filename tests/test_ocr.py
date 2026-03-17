@@ -23,7 +23,7 @@ def test_ocr_1():
     print()
     path = os.path.normpath(f'{g_root}//tests/test_ocr_loremipsum_FFFD.pdf')
     md = pymupdf4llm.to_markdown(path)
-    with open(f'{g_root}/tests/out_test_ocr_1.md', 'w') as f:
+    with open(f'{g_root}/tests/out_test_ocr_1.md', 'w', encoding='utf-8') as f:
         f.write(md)
     if _ocr_available():
         assert REPLACEMENT_UNICODE not in md
@@ -34,7 +34,7 @@ def test_ocr_2():
     print()
     path = os.path.normpath(f'{g_root}/tests/test_ocr_loremipsum_FFFD.pdf')
     md = pymupdf4llm.to_markdown(path, use_ocr=False)
-    with open(f'{g_root}/tests/out_test_ocr_2.md', 'w') as f:
+    with open(f'{g_root}/tests/out_test_ocr_2.md', 'w', encoding='utf-8') as f:
         f.write(md)
     assert REPLACEMENT_UNICODE in md
 
@@ -45,7 +45,7 @@ def test_ocr_3():
     md_no_ocr = pymupdf4llm.to_markdown(path, use_ocr=False)
     with open(f'{g_root}/tests/out_test_ocr_3.md', 'w') as f:
         f.write(md)
-    with open(f'{g_root}/tests/out_test_ocr_3_no_ocr.md', 'w') as f:
+    with open(f'{g_root}/tests/out_test_ocr_3_no_ocr.md', 'w', encoding='utf-8') as f:
         f.write(md_no_ocr)
     if _ocr_available():
         assert len(md_no_ocr) < len(md)
