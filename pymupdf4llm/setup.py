@@ -12,7 +12,18 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-VERSION = "1.27.2.1"
+VERSION = "1.27.2.2"
+
+# We build with, and run with, a particular PyMuPDF version usually, but not
+# always, the same as our version.
+#
+pymupdf_version = VERSION
+
+# We build with, and run with, a particular pymupdf_layout version usually, but
+# not always, the same as our version.
+#
+pymupdf_layout_version = VERSION
+
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 
 PYMUPDF_SETUP_VERSION = os.environ.get('PYMUPDF_SETUP_VERSION')
@@ -21,8 +32,8 @@ if PYMUPDF_SETUP_VERSION:
     requires = ["tabulate"]
 else:
     requires = [
-            f"pymupdf==1.27.2",
-            f"pymupdf_layout==1.27.2",
+            f"pymupdf=={pymupdf_version}",
+            f"pymupdf_layout=={pymupdf_layout_version}",
             "tabulate",
             ]
 
