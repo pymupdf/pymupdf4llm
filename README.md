@@ -1,78 +1,106 @@
+<p align="center">
+  <a href="https://github.com/pymupdf/pymupdf4llm">
+    <img loading="lazy" alt="PyMuPDF logo" src="https://pymupdf.readthedocs.io/en/latest/_static/sidebar-logo-light.svg" width="150px" height='auto' />
+  </a>
+</p>
+
 # PyMuPDF4LLM
 
-PyMuPDF4LLM is a specialized extension of PyMuPDF designed specifically for extracting content from PDFs in a format that's optimized for Large Language Models (LLMs).
+[![Docs](https://img.shields.io/badge/docs-live-brightgreen)](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/)
+[![License MIT](https://img.shields.io/badge/license-AGPL-green)](https://artifex.com/licensing/gnu-agpl-v3)
+[![PyPI Downloads](https://static.pepy.tech/badge/pymupdf4llm/month)](https://pepy.tech/projects/pymupdf4llm)
+[![Discord](https://img.shields.io/discord/1460622234811895872?color=6A7EC2&logo=discord&logoColor=ffffff)](https://discord.gg/7pH3gqcRtg)
 
-## Key Features
 
-1. Markdown Output
+**PyMuPDF4LLM** is a lightweight extension for **PyMuPDF** that turns documents into clean, structured data with minimal setup. It includes layout analysis *without* any GPU requirement.
 
-- Converts PDFs to clean, structured Markdown format
-- Preserves document hierarchy (headers, lists, tables)
-- Makes PDF content easily digestible for LLMs like Claude, GPT, etc.
 
-2. Intelligent Structure Detection
+**PyMuPDF4LLM** makes it easy to extract document content in the format you need for **LLM** & **RAG** environments. It supports structured data extraction to **Markdown**, **JSON** and **TXT** , as well as [LlamaIndex](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#with-llamaindex) and [LangChain](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#with-langchain) integration.
 
-- Automatically identifies headers, paragraphs, tables, and images
-- Maintains document layout and reading order
-- Preserves semantic structure
 
-3. Image Handling
 
-- Extracts images from PDFs
-- Can save images separately or encode them inline
-- Useful for multimodal LLMs that can process images
+## Features
+
+- Parsing of [multiple document formats](https://pymupdf.readthedocs.io/en/latest/about.html#feature-matrix).
+- Export structured data as Markdown, JSON and plain text output formats.
+- Support for multi-column pages.
+- Support for image and vector graphics extraction.
+- Layout analysis for better semantic understanding of document structure.
+- Support for page chunking output.
+- Integration with popular AI frameworks.
+
 
 ## Installation
-
-The Python package on PyPI [pymupdf4llm](https://pypi.org/project/pymupdf4llm/) (there also is an alias [pdf4llm](https://pypi.org/project/pdf4llm/)) is capable of converting PDF pages into **_text strings in Markdown format_** (GitHub compatible). This includes **standard text** as well as **table-based text** in a consistent and integrated view - a feature particularly important in RAG settings.
 
 ```bash
 $ pip install -U pymupdf4llm
 ```
 
-> This command will automatically install or upgrade [PyMuPDF](https://github.com/pymupdf/PyMuPDF) if required.
+> This command will automatically install or upgrade [PyMuPDF](https://github.com/pymupdf/PyMuPDF) as required.
 
-Then in your script do
+
+## Execution
+
+
+### Markdown
 
 ```python
 import pymupdf4llm
 
+# The remainder of the script is unchanged
 md_text = pymupdf4llm.to_markdown("input.pdf")
 
-# now work with the markdown text, e.g. store as a UTF8-encoded file
+# now work with the output data, e.g. store as a UTF8-encoded file
 import pathlib
-pathlib.Path("output.md").write_bytes(md_text.encode())
+pathlib.Path("output.md").write_text(md_text)
 ```
 
-Instead of the filename string as above, one can also provide a PyMuPDF `Document`. By default, all pages in the PDF will be processed. If desired, the parameter `pages=[...]` can be used to provide a list of zero-based page numbers to consider.
 
-Markdown text creation now also processes **multi-column pages**.
+### JSON
 
-To create small **chunks of text** - as opposed to generating one large string for the whole document - the new (v0.0.2) option `page_chunks=True` can be used. The result of `.to_markdown("input.pdf", page_chunks=True)` will be a list of Python dictionaries, one for each page.
+```python
+import pymupdf4llm
 
-Also new in version 0.0.2 is the optional **extraction of images** and vector graphics: use of parameter `write_images=True`. The will store PNG images in the document's folder, and the Markdown text will appropriately refer to them. The images are named like `"input.pdf-page_number-index.png"`.
+json_text = pymupdf4llm.to_json("input.pdf")
 
-## Documentation and API
+# now work with the output data, e.g. store as a UTF8-encoded file
+import pathlib
+pathlib.Path("output.json").write_text(json_text)
+```
 
-[Documentation](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html)
+### Plain Text
 
-[API](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/api.html#pymupdf4llm-api)
+```python
+import pymupdf4llm
 
-## Document Support
+plain_text = pymupdf4llm.to_text("input.pdf")
 
-While PDF is by far the most important document format worldwide, it is worthwhile mentioning that all examples and helper scripts work in the same way and **_without change_** for [all supported file types](https://pymupdf.readthedocs.io/en/latest/how-to-open-a-file.html#supported-file-types).
+# now work with the output data, e.g. store as a UTF8-encoded file
+import pathlib
+pathlib.Path("output.txt").write_text(plain_text)
+```
 
-So for an XPS document or an eBook, simply provide the filename for instance as `"input.mobi"` and everything else will work as before.
+
+## Documentation
+
+Check out the [PyMuPDF4LLM  documentation](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm), for details on installation, features, sample code and the [full API](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/api.html).
+
+## Examples
+
+Find our [examples on GitHub](https://github.com/pymupdf/pymupdf4llm/tree/main/examples).
+
+## Integrations
+
+For your AI application development, check out our 
+[integrations](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#integrations) with popular frameworks.
+
+## Support
+
+You can get support for PyMuPDF4LLM via a number of options:
+
+- [GitHub Issue Board](https://github.com/pymupdf/pymupdf4llm/issues)
+- [Discord](https://discord.gg/7pH3gqcRtg)
+- [MuPDF Forum](https://forum.mupdf.com)
 
 
-## About PyMuPDF
-**PyMuPDF** adds **Python** bindings and abstractions to [MuPDF](https://mupdf.com/), a lightweight **PDF**, **XPS**, and **eBook** viewer, renderer, and toolkit. Both **PyMuPDF** and **MuPDF** are maintained and developed by [Artifex Software, Inc](https://artifex.com).
-
-PyMuPDF's homepage is located on [GitHub](https://github.com/pymupdf/PyMuPDF).
-
-## Community
-Join us on **Discord** here: [#pymupdf](https://discord.gg/TSpYGBW4eq).
-
-## License and Copyright
-**PyMuPDF** is available under [open-source AGPL](https://www.gnu.org/licenses/agpl-3.0.html) and commercial license agreements. If you determine you cannot meet the requirements of the **AGPL**, please contact [Artifex](https://artifex.com/contact/pymupdf-inquiry.php) for more information regarding a commercial license.
-
+    
