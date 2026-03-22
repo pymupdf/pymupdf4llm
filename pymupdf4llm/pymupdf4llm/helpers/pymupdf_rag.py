@@ -213,6 +213,8 @@ class TocHeaders:
         text = span["text"].strip()  # remove leading and trailing whitespace
         for t in my_toc:
             title = t[1].strip()  # title of TOC entry
+            title = title.lstrip("\ufeff")  # remove byte order mark if any
+            title = title.replace("\xa0", " ")  # replace non-breaking spaces
             lvl = t[0]  # level of TOC entry
             if text.startswith(title) or title.startswith(text):
                 # found a match: return the header tag
