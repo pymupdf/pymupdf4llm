@@ -134,6 +134,11 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     # Insert recognized text
     lines = result[0]
     confs = result[1]
+
+    # Safeguard against RapidOCR returning None when no text is detected
+    if not lines:
+        lines = []
+
     for line in lines:
         if not line:
             continue
