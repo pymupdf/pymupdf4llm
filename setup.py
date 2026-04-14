@@ -48,7 +48,11 @@ def build():
     for i in ret:
         print(f'    {i}')
     return ret
-        
+
+
+def sdist():
+    return pipcl.git_items('.')
+
 
 p = pipcl.Package(
         'pymupdf4llm',
@@ -76,6 +80,7 @@ p = pipcl.Package(
                 'Changelog, https://pymupdf.readthedocs.io/en/latest/changes.html',
                 ],
         fn_build = build,
+        fn_sdist = sdist,
         )
         
 build_wheel = p.build_wheel
