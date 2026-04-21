@@ -14,7 +14,7 @@
 [![Docs](https://img.shields.io/badge/docs-live-brightgreen)](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm)
 [![PyPI Version](https://img.shields.io/pypi/v/pymupdf4llm?color=blue&label=PyPI)](https://pypi.org/project/pymupdf4llm)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pymupdf4llm)](https://pypi.org/project/pymupdf4llm/)
-[![License AGPL](https://img.shields.io/github/license/pymupdf/pymupdf4llm)](https://github.com/pymupdf/pymupdf4llm/blob/master/COPYING)
+[![License AGPL](https://img.shields.io/github/license/pymupdf/pymupdf4llm)](https://github.com/pymupdf/pymupdf4llm/blob/master/LICENSE)
 [![PyPI Downloads](https://static.pepy.tech/badge/pymupdf4llm/month)](https://pepy.tech/projects/pymupdf4llm)
 [![Github Stars](https://img.shields.io/github/stars/pymupdf/pymupdf4llm?style=social)](https://github.com/pymupdf/pymupdf4llm/stargazers)
 [![Discord](https://img.shields.io/discord/1460622234811895872?color=6A7EC2&logo=discord&logoColor=ffffff)](https://pymupdf.io/discord/pdf4llm/)
@@ -58,7 +58,7 @@ md = pymupdf4llm.to_markdown("research-paper.pdf")
 pip install pymupdf4llm
 ```
 
-This automatically installs or upgrades PyMuPDF as a dependency. No other mandatory dependencies.
+This automatically installs or upgrades [PyMuPDF](https://pypi.org/project/PyMuPDF/) & [PyMuPDF Layout](https://pypi.org/project/pymupdf-layout/) as a dependency.
 
 
 ### Optional: Office document support (PyMuPDF Pro)
@@ -130,11 +130,11 @@ Path("output.md").write_bytes(md.encode())
 |---|---|
 | **Layout analysis** | Reconstructs natural reading order across single and multi-column pages |
 | **Table detection** | Finds and converts tables to GitHub-compatible Markdown |
-| **Header detection** | Maps font sizes to `#` heading levels; customisable via `IdentifyHeaders` or `TocHeaders` |
+| **Header detection** | Maps font sizes to `#` heading levels; custom header detection via `IdentifyHeaders` or `TocHeaders` is available in legacy mode after `pymupdf4llm.use_layout(False)` |
 | **Inline formatting** | Detects and preserves **bold**, *italic*, `monospace`, and code blocks |
 | **Image extraction** | Extracts embedded images and inlines references in Markdown output |
 | **Vector graphics** | Detects and includes references to vector graphic elements |
-| **Page chunking** | Returns one dict per page with text, tables, images, and full document metadata |
+| **Page chunking** | With `page_chunks=True` in layout mode, returns chunk dicts containing `metadata`, `toc_items`, `page_boxes`, and `text` |
 | **Hybrid OCR** | Automatically OCRs only image-covered or illegible regions; skips clean digital text. |
 | **Header / footer removal** | Configurable exclusion of repetitive page headers and footers |
 | **Selective pages** | Process a subset of pages via the `pages` parameter |
@@ -143,19 +143,18 @@ Path("output.md").write_bytes(md.encode())
 
 ### Hybrid OCR Strategy
 
-PyMuPDF4LLM applies OCR selectively — only where it is actually needed. Rather than blindly sending every page through an OCR engine (slow and potentially counterproductive on clean text), or naively skipping OCR on mixed documents (leaving scanned regions unreadable), it analyses each page first and makes a targeted decision. This selective approach typically reduces OCR processing time by around 50%.
+PyMuPDF4LLM applies OCR selectively — only where it is actually needed. Rather than blindly sending every page through an OCR engine (slow and counterproductive on clean text), or naively skipping OCR on mixed documents (leaving scanned regions unreadable), it analyses each page first and makes a targeted decision. This selective approach typically reduces OCR processing time by around 50%.
 
 #### How it works
 
-Before any text extraction, PyMuPDF4LLM inspects every page using a set of heuristics to decide which OCR mode, if any, to apply. There are three possible outcomes:
+Before a page is processed, PyMuPDF4LLM analyzes its content to decide whether OCR should be used to unlock the full content. There are four conditions that can lead to OCR the page:
 
-**No OCR** — the page contains sufficient, legible digital text. Native extraction runs at full speed; OCR is skipped entirely.
+1. Too many illegible characters (�)
+2. Presence of (many) vector graphics that simulate text
+3. Presence of a previous OCR text layer. This condition can be deselected which accepts a previous OCR and will not execute OCR again for the page.
+4. Presence of images containing text.
 
-**Full-page OCR** — the page has little or no selectable text, and most of its area is covered by images or character-sized vector graphics (the signature of a scanned document). The entire page is rasterised and passed to the OCR engine.
-
-**Span-level repair OCR** — the page contains text, but a significant number of characters are unreadable (rendered as `?` or `\ufffd` replacement characters — a symptom of missing or corrupt font encoding). Only the affected spans are rasterised and OCR'd; the readable portions of the page are left untouched.
-
-The result of all three paths is merged into a single, seamless output. There is no distinction in the Markdown between pages extracted natively and pages recovered via OCR.
+The result of all four paths is merged into a single, seamless output. There is no distinction in the Markdown between pages extracted natively and pages recovered via OCR.
 
 #### Why it matters
 
@@ -209,8 +208,7 @@ md = pymupdf4llm.to_markdown("document.pdf", ocr_function=my_ocr_fn)
 
 #### OCR engine selection
 
-PyMuPDF4LLM automatically selects the best available OCR engine at runtime — no manual configuration needed. It supports Tesseract (via PyMuPDF's built-in integration) and `rapidocr_onnxruntime`, choosing whichever is installed. If neither is available and OCR is required, an exception is raised with installation instructions.
-
+PyMuPDF4LLM automatically selects the best available OCR engine at runtime — no manual configuration needed. It supports Tesseract (via PyMuPDF's built-in integration) and `rapidocr_onnxruntime`, choosing whichever is installed. If neither is available, the default behavior is to disable OCR and emit a warning. If OCR is explicitly required (for example, `force_ocr=True` / ALWAYS mode), an exception is raised with installation instructions.
 
 Find out more with the full [PyMuPDF4LLM OCR documentation](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#ocr)
 
@@ -235,11 +233,10 @@ import pymupdf4llm
 chunks = pymupdf4llm.to_markdown("document.pdf", page_chunks=True)
 
 for chunk in chunks:
-    print(chunk["metadata"]["page"])   # page number
-    print(chunk["metadata"]["title"])  # document title
-    print(chunk["text"])               # markdown text for this page
-    print(chunk["tables"])             # tables found on this page
-    print(chunk["images"])             # images found on this page
+    print(chunk["metadata"]["page_number"])  # page number
+    print(chunk["metadata"]["title"])        # document title
+    print(chunk["text"])                     # markdown text for this page
+    print(chunk["metadata"]["page_boxes"])   # page layout boxes for this page
 ```
 
 Each chunk contains full document metadata alongside the page content — ready to insert into a vector store.
@@ -299,9 +296,13 @@ md = pymupdf4llm.to_markdown(
 
 ### Custom header detection
 
+Note, this is only available when [Layout Mode](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#pymupdf4llm-and-layout) is `False`.
+
 ```python
 import pymupdf
 import pymupdf4llm
+
+pymupdf4llm.use_layout(False)
 
 doc = pymupdf.open("document.pdf")
 
