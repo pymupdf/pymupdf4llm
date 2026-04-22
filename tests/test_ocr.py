@@ -7,17 +7,21 @@ import pymupdf4llm
 REPLACEMENT_UNICODE = chr(0xFFFD)
 g_root = os.path.normpath(f'{__file__}/../..')
 
-def _ocr_available():
+def _ocr_tesseract_available():
     try:
         tesseract = pymupdf.get_tessdata() 
     except Exception:
         tesseract = None
+    return bool(tesseract)
+
+
+def _ocr_rapidocr_onnxruntime_available():
     try:
         import rapidocr_onnxruntime
     except Exception:
         rapidocr_onnxruntime = None
-    print(f'{tesseract=} {rapidocr_onnxruntime=}')
-    return tesseract or rapidocr_onnxruntime
+    return bool(rapidocr_onnxruntime)
+
 
 def test_ocr_1():
     print()
@@ -25,7 +29,7 @@ def test_ocr_1():
     md = pymupdf4llm.to_markdown(path)
     with open(f'{g_root}/tests/out_test_ocr_1.md', 'w', encoding='utf-8') as f:
         f.write(md)
-    if _ocr_available():
+    if _ocr_tesseract_available() or _ocr_rapidocr_onnxruntime_available():
         assert REPLACEMENT_UNICODE not in md
     else:
         assert REPLACEMENT_UNICODE in md
@@ -47,7 +51,7 @@ def test_ocr_3():
         f.write(md)
     with open(f'{g_root}/tests/out_test_ocr_3_no_ocr.md', 'w', encoding='utf-8') as f:
         f.write(md_no_ocr)
-    if _ocr_available():
+    if _ocr_tesseract_available():
         assert len(md_no_ocr) < len(md)
     else:
         md_no_ocr == md
