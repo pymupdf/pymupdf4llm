@@ -378,7 +378,7 @@ def fallback_text_to_text(textlines, ignore_code: bool = False, clip=None):
         else:
             i = 0
         for j, s in enumerate(spans, start=i):
-            line[j] = s["text"].strip()
+            line[j] = s["text"].strip() + " "
         lines.append(line)
     tab_text = tabulate.tabulate(
         lines,
