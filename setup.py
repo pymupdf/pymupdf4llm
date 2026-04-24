@@ -5,7 +5,7 @@ import textwrap
 import pipcl
 
 
-VERSION = '1.27.2.2'
+VERSION = '1.27.2.3'
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 
 # We build with, and run with, a particular PyMuPDF version usually, but not
