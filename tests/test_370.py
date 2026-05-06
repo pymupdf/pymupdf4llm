@@ -74,7 +74,3 @@ def test_370_small_glyph_line_assignment():
         'Buggy output detected: dash was moved to the start of the '
         'paragraph and detached from "g".'
     )
-
-if __name__ == "__main__":
-    #test_370()
-    test_370_small_glyph_line_assignment()
