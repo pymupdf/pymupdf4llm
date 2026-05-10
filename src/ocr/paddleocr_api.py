@@ -133,6 +133,8 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
 
     # Insert recognized text
     lines = result[0]
+    if not lines:
+        return
     confs = result[1]
     for line in lines:
         if not line:

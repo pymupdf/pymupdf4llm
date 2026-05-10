@@ -67,6 +67,8 @@ def get_text(pixmap, irect, language="eng"):
     The irect is expected to contain one line only, so we use
     tessedit_pageseg_mode=7.
     """
+    if irect.is_empty:
+        return ""
     my_irect = irect + (-2, -2, 2, 2)
     # these options ensure a much improved Tesseract behavior
     options = "tessedit_pageseg_mode=7,preserve_interword_spaces=1"
@@ -194,7 +196,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     for box in boxes:
         # top-left, top-right, bottom-right, bottom-left
         tl, tr, br, bl = box
-        irect = pymupdf.IRect(tl[0], tl[1], br[0], br[1])
+        irect = pymupdf.IRect(tl[0], tl[1], br[0], br[1]).normalize()
         text = get_text(pixmap, irect)  # execute Tesseract OCR on the line box
         tess_results.append((irect, text))
     if not tess_results:  # guard against no text found

@@ -139,7 +139,7 @@ def get_raw_lines(
                     continue
                 # Ignore invisible text. Type 3 font text is never invisible.
                 if (
-                    s["font"] != TYPE3_FONT_NAME
+                    not s["font"].startswith(TYPE3_FONT_NAME)
                     and s["alpha"] == 0
                     and ignore_invisible
                 ):
