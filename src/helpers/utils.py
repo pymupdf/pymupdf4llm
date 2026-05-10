@@ -1,6 +1,7 @@
 import pymupdf
 from pymupdf import mupdf
 from pathlib import Path
+import numpy as np
 
 WHITE_CHARS = set(
     [chr(i) for i in range(33)]
@@ -24,7 +25,7 @@ WHITE_CHARS = set(
 )
 
 REPLACEMENT_CHARACTER = chr(0xFFFD)
-TYPE3_FONT_NAME = "Unnamed-T3"
+TYPE3_FONT_NAME = "Type3"  # MuPDF starts the fontname with this string
 TESSERACT_FONT_NAME = "GlyphLessFont"
 
 BULLETS = tuple(
@@ -324,20 +325,22 @@ def analyze_page(page, blocks=None) -> dict:
         "vec_area": float, fraction of sum of vector character area sizes
         "chars_total": int, count of visible characters
         "chars_bad": int, count of Replacement Unicode characters
+        "bad_areas": float, fraction of text areas having bad characters
         "ocr_spans": int, count: text spans with ignored text (render mode 3)
-        "img_var": float, area-weighted image variance
-        "img_edges": float, area-weighted image edge energy
-        "vec_suspicious": int, count of suspected vector-based glyphs
         "needs_ocr": bool, final decision
+        "reason": str, reason for the OCR decision
     """
-    # Thresholds for image variance and edge energy
-    IMG_VAR_THRESHOLD_LOW = 5.0  # "practically unicolor"
-    IMG_VAR_THRESHOLD_HIGH = 50.0  # "clearly structured content / scan"
-    IMG_EDGE_THRESHOLD_LOW = 3.0
-    IMG_EDGE_THRESHOLD_HIGH = 20.0
-    BAD_CHAR_THRESHOLD = 0.1  # 10% or more bad chars suggests OCR
-    VEC_AREA_THRESHOLD = 0.05  # 5% or more area covered by suspicious vectors
-
+    BLOCK_TEXT = pymupdf.mupdf.FZ_STEXT_BLOCK_TEXT
+    BLOCK_IMAGE = pymupdf.mupdf.FZ_STEXT_BLOCK_IMAGE
+    BLOCK_VECTOR = pymupdf.mupdf.FZ_STEXT_BLOCK_VECTOR
+    TEXT_STROKED = pymupdf.mupdf.FZ_STEXT_STROKED
+    TEXT_FILLED = pymupdf.mupdf.FZ_STEXT_FILLED
+    # Thresholds
+    BAD_CHAR_THRESHOLD = 0.05  # >=5% bad chars suggests OCR
+    VEC_AREA_THRESHOLD = 0.05  # >=5% area covered by suspicious vectors
+    VEC_MIN_SUSP_COUNT = 3  # minimum suspicious vector count
+    IMG_MIN_W, IMG_MIN_H = 24, 16  # image block minimum width, height
+    IMG_MIN_AREA = 400  # image minimum area size
     FLAGS = (
         pymupdf.TEXT_PRESERVE_LIGATURES
         | pymupdf.TEXT_PRESERVE_WHITESPACE
@@ -345,86 +348,239 @@ def analyze_page(page, blocks=None) -> dict:
         | pymupdf.TEXT_COLLECT_VECTORS
     )
 
-    def _pixmap_stats(page, bbox, dpi=72):
-        """Very cheap image characterization: variance + rough edge energy."""
-        pix = page.get_pixmap(clip=bbox, dpi=dpi)
-        if pix.n < 1 or pix.width * pix.height == 0:
-            return 0.0, 0.0
-        samples = memoryview(pix.samples)
-        # simple variance across all channels
-        n = len(samples)
-        mean = sum(samples) / n
-        var = sum((v - mean) * (v - mean) for v in samples) / n
-        # rough "edge energy": sum of absolute differences of neighboring pixels
-        # (only 1D approximation, sufficient as text-vs-photo indicator)
-        edge = sum(abs(samples[i] - samples[i - 1]) for i in range(1, n)) / n
-        return var, edge
+    # ------ helper functions ------
+    def downscale(arr, target_h, target_w):
+        """Downscale a NumPy array to the target height and width."""
+        h, w, c = arr.shape
+        sh = h // target_h
+        sw = w // target_w
+        arr = arr[: target_h * sh, : target_w * sw]
+        arr = arr.reshape(target_h, sh, target_w, sw, c)
+        return arr.mean(axis=(1, 3)).astype(np.uint8)
 
-    chars_total = 0
-    chars_bad = 0
-    if blocks is None:
+    def prepare_image(img_block):
+        """Prepare an image block for OCR analysis."""
+        # 1. Generate Pixmap
+        pix = pymupdf.Pixmap(img_block["image"])
+
+        # 2. Remove alpha channel
+        if pix.alpha:
+            pix = pymupdf.Pixmap(pix, 0)
+
+        # 3. Generate NumPy array
+        h, w = pix.height, pix.width
+        arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(h, w, pix.n)
+
+        # 4. Calculate effective DPI
+        bbox = pymupdf.Rect(img_block["bbox"])
+        dpi_x = 72 * (w / bbox.width)
+        dpi_y = 72 * (h / bbox.height)
+        dpi = min(dpi_x, dpi_y)
+
+        # 5. Downscaling factor
+        scale = min(1.0, 72.0 / dpi)
+
+        # 6. Target size
+        target_w = max(1, int(w * scale))
+        target_h = max(1, int(h * scale))
+
+        # 7. Downscaling
+        arr_small = downscale(arr, target_h, target_w)
+
+        return arr_small
+
+    # ------ image content text checker ------
+    def fast_text_map(
+        img: np.ndarray,
+        target_size=128,
+        edge_threshold=40,
+        min_small_cc=80,
+        max_large_cc_ratio=0.20,
+        coherence_threshold=0.18,
+    ) -> bool:
+        """
+        Check OCR relevance of an image. Pure NumPy, fast, with photo rejection.
+        """
+
+        h, w = img.shape[:2]
+        if h < IMG_MIN_H or w < IMG_MIN_W:
+            return False  # too small for meaningful text analysis
+
+        gray = img[..., :3].mean(axis=2).astype(np.float32)
+
+        # 1. Downscale
+        ys = np.linspace(0, h - 1, target_size).astype(np.int32)
+        xs = np.linspace(0, w - 1, target_size).astype(np.int32)
+        small = gray[ys][:, xs]
+
+        # 1a. Variance check (reject very homogeneous images)
+        if small.var() < 12.0:
+            return False
+
+        # 2. Sobel gradients
+        gx_full = small[:, 2:] - small[:, :-2]
+        gy_full = small[2:, :] - small[:-2, :]
+
+        gx = gx_full[1:-1, :]
+        gy = gy_full[:, 1:-1]
+
+        mag = np.hypot(gx, gy)
+        # Protection against division by 0
+        if mag.mean() < 1e-3:
+            return False
+
+        # 2a. Gradient Orientation Coherence (photo reject)
+        angles = np.arctan2(gy, gx)
+        angles = angles[~np.isnan(angles)]
+        if angles.size == 0:
+            return False
+
+        hist, _ = np.histogram(angles, bins=36, range=(-np.pi, np.pi))
+        hist = hist.astype(np.float32)
+        hist /= hist.sum() + 1e-6
+        coherence = hist.max()
+
+        # Photos: very small coherence (many random edge directions),
+        # Text: higher coherence (edges align in certain directions)
+        if coherence < coherence_threshold:
+            return False
+
+        # 3. Edge-Map
+        edges = np.abs(gx) + np.abs(gy)
+        edge_map = edges > edge_threshold
+
+        # 3a. Edge-Density-Check
+        if edge_map.mean() < 0.015:
+            return False
+
+        cc_map = edge_map  # no closing – photos remain fragmented
+
+        # 4. Connected Components (2-Pass, small, therefore ok)
+        h2, w2 = cc_map.shape
+        labels = np.zeros((h2, w2), dtype=np.int32)
+        label = 1
+
+        for y in range(h2):
+            for x in range(w2):
+                if not cc_map[y, x]:
+                    continue
+
+                neighbors = []
+                if x > 0 and labels[y, x - 1] > 0:
+                    neighbors.append(labels[y, x - 1])
+                if y > 0 and labels[y - 1, x] > 0:
+                    neighbors.append(labels[y - 1, x])
+
+                if not neighbors:
+                    labels[y, x] = label
+                    label += 1
+                else:
+                    labels[y, x] = min(neighbors)
+
+        unique, counts = np.unique(labels, return_counts=True)
+        component_sizes = counts[unique > 0]
+
+        if len(component_sizes) == 0:
+            return False
+
+        total_area = h2 * w2
+
+        small_cc = np.sum(component_sizes < total_area * 0.004)
+        large_cc = np.sum(component_sizes > total_area * max_large_cc_ratio)
+
+        # Text: many small CCs
+        if small_cc >= min_small_cc:
+            return True
+
+        # Photos / large areas: large CCs
+        if large_cc > 0:
+            return False
+
+        # Logos / mixed forms: moderately many small CCs
+        return small_cc > 20
+
+    # --------------------------------------------------------------------
+    # Main analysis
+    # --------------------------------------------------------------------
+    if blocks is None:  # make "dict" text extraction if not provided
         blocks = page.get_text(
             "dict",
             flags=FLAGS,
             clip=pymupdf.INFINITE_RECT(),
         )["blocks"]
 
-    img_rect = pymupdf.EMPTY_RECT()
-    txt_rect = +img_rect
-    vec_rect = +img_rect
-    img_area = 0.0
-    txt_area = 0.0
-    vec_area = 0.0
-    ocr_spans = 0
-    vec_suspicious = 0
+    img_rect = pymupdf.EMPTY_RECT()  # joined image bboxes
+    txt_rect = +img_rect  # joined text span bboxes
+    vec_rect = +img_rect  # joined suspicious vector bboxes
+    chars_total = 0  # total character count
+    chars_bad = 0  # Replacement Unicode count
+    bad_areas = 0.0  # sum of areas of text spans having bad characters
+    img_area = 0.0  # sum of image block areas
+    txt_area = 0.0  # sum of all text span bbox areas
+    vec_area = 0.0  # sum of suspicious vector block areas
+    ocr_spans = 0  # count text spans with OCR flags
+    vec_suspicious = 0  # suspicious vector count
+    img_boxes = []  # store image bboxes for later content analysis
 
-    img_var_weighted = 0.0
-    img_edge_weighted = 0.0
-
-    for b in blocks:
+    for block_idx, b in enumerate(blocks):
         bbox = intersect_rects(page.rect, b["bbox"])
         area = bbox.width * bbox.height
         if not area:
             continue
 
-        if b["type"] == 1:  # Image block
-            img_rect |= bbox
-            img_area += area
-            var, edge = _pixmap_stats(page, bbox, dpi=72)
-            img_var_weighted += var * area
-            img_edge_weighted += edge * area
-
-        elif b["type"] == 0:  # Text block
+        # Text block: we analyze text spans for bad characters and OCR flags.
+        if b["type"] == BLOCK_TEXT:
             if bbox_is_empty(b["bbox"]):
                 continue
             for l in b["lines"]:
                 if bbox_is_empty(l["bbox"]):
                     continue
                 for s in l["spans"]:
-                    if not s["text"] or s["text"].isspace():
-                        continue
                     sr = intersect_rects(page.rect, s["bbox"])
                     sr_area = sr.width * sr.height
                     if not sr_area:
                         continue
                     # OCR layer / invisible text
                     if s["font"] == "GlyphLessFont" or (
-                        s["char_flags"] & 8 == 0 and s["char_flags"] & 16 == 0
+                        True
+                        and s["char_flags"] & pymupdf.mupdf.FZ_STEXT_STROKED == 0
+                        and s["char_flags"] & pymupdf.mupdf.FZ_STEXT_FILLED == 0
                     ):
                         ocr_spans += 1
                         continue
                     # text may be zero alpha for other reasons: ignore
                     if s.get("alpha", 1) == 0:
                         continue
+                    if not s["text"] or s["text"].isspace():
+                        continue  # ignore spans having no relevant text
+
                     text = s["text"]
                     chars_total += len(text.strip())  # total character count
                     # bad character count
-                    chars_bad += sum(1 for c in text if c == REPLACEMENT_CHARACTER)
+                    bad_chars = sum(1 for c in text if c == REPLACEMENT_CHARACTER)
+                    chars_bad += bad_chars
+
                     txt_rect |= sr
                     txt_area += sr_area
+                    if bad_chars:
+                        # add area of span area if it contains bad characters
+                        bad_areas += sr_area
+            continue
 
-        elif (
-            b["type"] == 3  # vector block
+        # Image block: We only look at areas now. OCR decisions based on image
+        # content are made later.
+        if b["type"] == BLOCK_IMAGE:  # Image block
+            img_rect |= bbox
+            img_area += area
+            # store bbox and index for later analysis
+            img_boxes.append((bbox, block_idx))
+            continue
+
+        # Vector block: we look for small non-rectangular vectors
+        # that may mimic characters.
+        if (
+            True
+            and b["type"] == BLOCK_VECTOR  # vector block
             and 3 <= bbox.width <= 20
             and 3 <= bbox.height <= 20
             and not b["isrect"]
@@ -433,6 +589,7 @@ def analyze_page(page, blocks=None) -> dict:
             vec_suspicious += 1
             vec_rect |= bbox
             vec_area += area
+            continue
 
         # the rectangle on page covered by some content
     covered = img_rect | txt_rect | vec_rect
@@ -446,18 +603,15 @@ def analyze_page(page, blocks=None) -> dict:
             "txt_area": 0.0,
             "vec_joins": 0.0,
             "vec_area": 0.0,
+            "vec_suspicious": 0,
             "chars_total": 0,
             "chars_bad": 0,
+            "bad_areas": 0.0,
             "ocr_spans": 0,
-            "img_var": 0.0,
-            "img_edges": 0.0,
-            "vec_suspicious": 0,
             "needs_ocr": False,
         }
 
     cover_area = (covered[2] - covered[0]) * (covered[3] - covered[1])
-    img_var = img_var_weighted / img_area if img_area and cover_area else 0.0
-    img_edges = img_edge_weighted / img_area if img_area and cover_area else 0.0
 
     analysis = {
         "covered": covered,
@@ -465,31 +619,63 @@ def analyze_page(page, blocks=None) -> dict:
         "img_area": img_area / cover_area if cover_area else 0.0,
         "txt_joins": (abs(txt_rect) / cover_area) if cover_area else 0.0,
         "txt_area": txt_area / cover_area if cover_area else 0.0,
-        "vec_area": vec_area / cover_area if cover_area else 0.0,
         "vec_joins": (abs(vec_rect) / cover_area) if cover_area else 0.0,
+        "vec_area": vec_area / cover_area if cover_area else 0.0,
+        "vec_suspicious": vec_suspicious,
         "chars_total": chars_total,
         "chars_bad": chars_bad,
+        "bad_areas": bad_areas / cover_area if cover_area else 0.0,
         "ocr_spans": ocr_spans,
-        "img_var": img_var,
-        "img_edges": img_edges,
-        "vec_suspicious": vec_suspicious,
     }
 
     # --- final OCR decision ---
-
-    if chars_total > 0 and chars_bad / chars_total > BAD_CHAR_THRESHOLD:
+    # 1. Bad character check
+    if (
+        True
+        and chars_total
+        and txt_area
+        and (
+            False
+            or chars_bad / chars_total > BAD_CHAR_THRESHOLD
+            or bad_areas / txt_area > BAD_CHAR_THRESHOLD
+        )
+    ):
         return {**analysis, "needs_ocr": True, "reason": "chars_bad"}
 
-    if ocr_spans > 0:
+    # 2. OCR layer check
+    if ocr_spans:
         return {**analysis, "needs_ocr": True, "reason": "ocr_spans"}
 
-    if vec_suspicious > 3 and vec_area / cover_area >= VEC_AREA_THRESHOLD:
+    # 3. Suspicious vector check
+    if (
+        True
+        and vec_suspicious > VEC_MIN_SUSP_COUNT  # enough suspicious vectors
+        and vec_area / cover_area >= VEC_AREA_THRESHOLD  # their area ratio
+    ):
         return {**analysis, "needs_ocr": True, "reason": "vec_text"}
 
-    if img_area > 0 and (
-        img_var > IMG_VAR_THRESHOLD_HIGH or img_edges > IMG_EDGE_THRESHOLD_HIGH
-    ):
-        return {**analysis, "needs_ocr": True, "reason": "img_text"}
+    # 4. Image content check
+    for box, block_idx in img_boxes:
+        # skip images that are too small for text
+        if box.width < IMG_MIN_W or box.height < IMG_MIN_H:
+            continue
+        if box.width * box.height < IMG_MIN_AREA:
+            continue
+
+        block = blocks[block_idx]
+        img_bbox_area = abs(pymupdf.Rect(block["bbox"]))
+
+        # skip image if 80+% outside the page
+        if abs(box) / img_bbox_area < 0.2:
+            continue
+
+        # eligible image block: detect text
+        # computes a downscaled RGB array of the image block
+        img_array = prepare_image(block)
+
+        if fast_text_map(img_array):
+            # text-like image detected → OCR needed
+            return {**analysis, "needs_ocr": True, "reason": "img_text"}
 
     # Default
     return {**analysis, "needs_ocr": False, "reason": None}
@@ -794,7 +980,9 @@ def cluster_stripes(boxes, joined_boxes, vectors, vertical_gap=12):
         div = divider(y, joined_boxes, vertical_gap)
         if not any(div.intersects(pymupdf.Rect(b[:4])) for b in boxes):
             # this is a divider: look for next bbox below
-            y0 = min(b[1] for b in sorted_boxes if b[1] >= div.y1)
+            y0 = min((b[1] for b in sorted_boxes if b[1] >= div.y1), default=None)
+            if y0 is None:  # no more boxes below, we are done
+                continue
             div.y1 = y0  # divider has this bottom now
 
             inter_count = 0  # counts intersections with vectors

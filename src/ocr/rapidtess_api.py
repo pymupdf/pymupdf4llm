@@ -43,15 +43,20 @@ if TESSDATA is None:
 FONT = pymupdf.Font("cjk")  # this is the "Droid Sans Fallback" font
 FONTNAME = "myfont"  # its reference name in the page
 REPLACEMENT_UNICODE = chr(0xFFFD)  # Unicode Replacement Character
+STROKED_TEXT = pymupdf.mupdf.FZ_STEXT_STROKED
+FILLED_TEXT = pymupdf.mupdf.FZ_STEXT_FILLED
 
 
 def ocr_text(span) -> bool:
-    if not (span["char_flags"] & 32) and not (span["char_flags"] & 16):
-        return True
-    return False
+    if (span["char_flags"] & STROKED_TEXT) or (span["char_flags"] & FILLED_TEXT):
+        return False
+    return True
 
 
 ENGINE = RapidOCR()
+ENGINE.use_det = True  # use detection
+ENGINE.use_rec = False  # do not use recognition
+ENGINE.use_cls = False  # do not use orientation classification
 
 # prepare for more advanced use of Tesseract by checking a function signature
 sig = inspect.signature(pymupdf.Pixmap.pdfocr_tobytes)
@@ -67,6 +72,8 @@ def get_text(pixmap, irect, language="eng"):
     The irect is expected to contain one line only, so we use
     tessedit_pageseg_mode=7.
     """
+    if irect.is_empty:
+        return ""
     my_irect = irect + (-2, -2, 2, 2)
     # these options ensure a much improved Tesseract behavior
     options = "tessedit_pageseg_mode=7,preserve_interword_spaces=1"
@@ -184,9 +191,11 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
         )
     # for converting box coordinates to page coordinates
     matrix = pymupdf.Rect(pixmap.irect).torect(page.rect)
-    # t0 = time.perf_counter()
+
     # Execute the ENGINE's bbox Detector
-    boxes, _ = ENGINE.text_detector(img)
+    boxes = ENGINE(img)[:1] or []
+    if not boxes:  # nothing detected
+        return
     # t1 = time.perf_counter()
     # Execute Tesseract's text Recognizer
     # List of Tesseract text results
@@ -194,7 +203,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     for box in boxes:
         # top-left, top-right, bottom-right, bottom-left
         tl, tr, br, bl = box
-        irect = pymupdf.IRect(tl[0], tl[1], br[0], br[1])
+        irect = pymupdf.IRect(tl[0], tl[1], br[0], br[1]).normalize()
         text = get_text(pixmap, irect)  # execute Tesseract OCR on the line box
         tess_results.append((irect, text))
     if not tess_results:  # guard against no text found

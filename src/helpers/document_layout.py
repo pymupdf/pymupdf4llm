@@ -12,7 +12,7 @@ import textwrap
 import pymupdf
 import tabulate
 from pymupdf import mupdf
-from pymupdf4llm.helpers import utils  # , check_ocr
+from pymupdf4llm.helpers import utils
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
 from pymupdf4llm.ocr import OCRMode
 
@@ -352,6 +352,8 @@ def picture_text_to_text(textlines, ignore_code: bool = False, clip=None):
     in some form. Because we cannot be sure about the formatting we simply
     write it line by line wrapped by markers.
     """
+    if not textlines:
+        return "\n"
     output = "----- Start of picture text -----\n"
     for tl in textlines:
         line_text = " ".join([s["text"] for s in tl["spans"]])
@@ -378,11 +380,12 @@ def fallback_text_to_text(textlines, ignore_code: bool = False, clip=None):
         else:
             i = 0
         for j, s in enumerate(spans, start=i):
-            line[j] = s["text"].strip() + " "
+            line[j] = f'{s["text"].strip()} '
         lines.append(line)
     tab_text = tabulate.tabulate(
         lines,
         tablefmt="grid",
+        disable_numparse=True,
         maxcolwidths=int(100 / span_count),
     )
     output += tab_text + "\n"
@@ -612,12 +615,14 @@ def picture_text_to_md(textlines, ignore_code: bool = False, clip=None):
     in some form. Because we cannot be sure about the formatting we simply
     write it line by line wrapped by markers.
     """
-    output = "**----- Start of picture text -----**<br>\n"
+    if not textlines:
+        return "\n"
+    output = "<!-- Start of picture text -->\n"
     for tl in textlines:
         line_text = " ".join([s["text"] for s in tl["spans"]])
         output += line_text.rstrip() + "<br>"
-    output += "**----- End of picture text -----**<br>\n"
-    return output + "\n\n"
+    output += "<!-- End of picture text -->\n"
+    return output + "\n"
 
 
 def fallback_text_to_md(textlines, ignore_code: bool = False, clip=None):
@@ -625,14 +630,14 @@ def fallback_text_to_md(textlines, ignore_code: bool = False, clip=None):
     Convert text extracted from images to markdown format.
     """
     span_count = max(len(tl["spans"]) for tl in textlines)
-    output = "**----- Start of picture text -----**<br>\n"
+    output = "<!-- Start of picture text -->\n"
     output += "|" * (span_count + 1) + "\n"
     output += "|" + "|".join(["---"] * span_count) + "|\n"
     for tl in textlines:
         ltext = "|" + "|".join([s["text"].strip() for s in tl["spans"]]) + "|\n"
         output += ltext
-    output += "\n**----- End of picture text -----**<br>\n"
-    return output + "\n\n"
+    output += "\n<!-- End of picture text -->\n"
+    return output + "\n"
 
 
 @dataclass
@@ -732,7 +737,8 @@ class ParsedDocument:
                         data = f"data:image/{self.image_format};base64," + data
                         md_string += GRAPHICS_TEXT % data + "\n\n"
                     else:
-                        md_string += f"**==> picture [{clip.width} x {clip.height}] intentionally omitted <==**\n\n"
+                        md_string += f"\n\n"
+
 
                     # output text in image if requested
                     if box.textlines:
@@ -855,7 +861,7 @@ class ParsedDocument:
                     string_lengths.append(len(text_string))
                     continue
                 if btype in ("picture", "formula", "table-fallback"):
-                    text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
+                    # text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
                     if box.textlines:
                         if btype == "picture":
                             text_string += picture_text_to_text(
@@ -878,7 +884,10 @@ class ParsedDocument:
                         min_col_width=table_min_col_width,
                     )
                     text_string += (
-                        tabulate.tabulate(wrapped_table, tablefmt=table_format) + "\n\n"
+                        tabulate.tabulate(
+                            wrapped_table, disable_numparse=True, tablefmt=table_format
+                        )
+                        + "\n\n"
                     )
                     string_lengths.append(len(text_string))
 
@@ -982,12 +991,26 @@ def parse_document(
     else:
         mydoc = pymupdf.open(doc)
 
+    if mydoc.metadata["format"] == "Image":
+        # Re-open as PDF to ensure we can successfully OCR the image.
+        data = mydoc.convert_to_pdf()
+        mydoc.close()
+        mydoc = pymupdf.open(stream=data)
+
     if mydoc.is_pdf:
         # Remove StructTreeRoot to avoid possible performance degradation.
         # This package will not use the structure tree anyway.
         mypdf = pymupdf._as_pdf_document(mydoc)
         root = mupdf.pdf_dict_get(mupdf.pdf_trailer(mypdf), pymupdf.PDF_NAME("Root"))
         root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
+    else:
+        if force_ocr:
+            print(
+                "Warning: force_ocr is True but document is not a PDF. OCR will be disabled.",
+                file=INFO_MESSAGES,
+            )
+        use_ocr = OCRMode.NEVER
+        force_ocr = False
 
     if embed_images and write_images:
         raise ValueError("Cannot both embed and write images.")
@@ -1083,7 +1106,7 @@ def parse_document(
             ocr_function(
                 page, dpi=ocr_dpi, language=ocr_language, keep_ocr_text=keep_ocr_text
             )
-            page_full_ocred = True
+            # page_full_ocred = True
             print(f"OCR on {page.number=}/{page.number+1}.", file=INFO_MESSAGES)
 
         textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
@@ -1127,7 +1150,7 @@ def parse_document(
             table_blocks = None
 
         words = []  # not yet activated
-        links = page.get_links()
+        links = [l for l in page.get_links() if l["kind"] == pymupdf.LINK_URI]
         pagelayout = PageLayout(
             page_number=page.number + 1,
             width=page.rect.width,
@@ -1215,7 +1238,6 @@ def parse_document(
                     )
 
                 except Exception as e:
-                    # print(f"table detection error '{e}' on page {page.number+1}")
                     layoutbox.boxclass = "table-fallback"
                     # table structure not detected: treat like an image
                     if document.embed_images or document.write_images:

@@ -26,15 +26,20 @@ import numpy as np
 FONT = pymupdf.Font("cjk")  # this is the "Droid Sans Fallback" font
 FONTNAME = "myfont"  # its reference name in the page
 REPLACEMENT_UNICODE = chr(0xFFFD)  # Unicode Replacement Character
+STROKED_TEXT = pymupdf.mupdf.FZ_STEXT_STROKED
+FILLED_TEXT = pymupdf.mupdf.FZ_STEXT_FILLED
 
 
 def ocr_text(span) -> bool:
-    if not (span["char_flags"] & 32) and not (span["char_flags"] & 16):
-        return True
-    return False
+    if (span["char_flags"] & STROKED_TEXT) or (span["char_flags"] & FILLED_TEXT):
+        return False
+    return True
 
 
 ENGINE = RapidOCR()
+ENGINE.use_det = True  # use detection
+ENGINE.use_rec = True  # use recognition
+ENGINE.use_cls = False  # do not use orientation classification
 
 # pass any keyword arguments to RapidOCR when calling exec_ocr()
 KWARGS = {}
@@ -112,15 +117,17 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     # for converting box coordinates to page coordinates
     matrix = pymupdf.Rect(pixmap.irect).torect(page.rect)
 
-    # Execute RapidOCR, passing any additional keyword arguments.
-    # t0 = time.perf_counter()
-    result = ENGINE.__call__(img, **KWARGS)
-    # t1 = time.perf_counter()
-    # print(f"OCR execution time: {t1-t0:.2f} seconds")
-
+    # Execute RapidOCR
+    boxes, texts, confs = ENGINE(img)
+    boxes = boxes or []
+    texts = texts or []
+    confs = confs or []
+    result = list(zip(boxes, texts, confs))
+    if not result:  # nothing recognized
+        return
     if fffd_spans:
         # FFFD spans should have been recognized by OCR.
-        # We therefore remove them here.
+        # Remove their digital version to avoid "?" in the output.
         for sbbox in fffd_spans:
             page.add_redact_annot(sbbox)
         page.apply_redactions(
@@ -132,12 +139,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     page.insert_font(fontname=FONTNAME, fontbuffer=FONT.buffer)
 
     # Insert recognized text
-    lines = result[0]
-    confs = result[1]
-    for line in lines:
-        if not line:
-            continue
-
+    for line in result:
         box, text, conf = line
 
         # PaddleOCR box: 4 points (tl, tr, br, bl)
