@@ -221,7 +221,7 @@ def get_key_values(doc, xrefs=False, **kwargs):
     Args:
         doc: A file path to a PDF document or a pymupdf.Document object.
         xrefs: If True, include the xref numbers of the form fields in the output.
-            The xrefs can be useful tor directly load a widget via Page.load_widget(xref).
+            The xrefs can be useful to directly load a widget via Page.load_widget(xref).
         **kwargs: Additional keyword arguments (currently ignored).
     """
     from .helpers import utils
