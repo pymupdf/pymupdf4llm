@@ -1,3 +1,5 @@
+import pathlib
+
 import pymupdf
 
 from .versions_file import VERSION, VERSION_TUPLE
