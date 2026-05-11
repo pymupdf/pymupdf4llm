@@ -249,7 +249,6 @@ def markdown_to_pdf(
     user_css=None,
     page_rect=None,
     margins=None,
-    image_path=None,
     archive=None,
     output_path=None,
 ):
@@ -268,12 +267,9 @@ def markdown_to_pdf(
             Default is ISO A4.
         margins: A tuple of four floats representing left, top, right, bottom
             borders in points (1/72 inch). Default is (50, 50, 50, 50).
-        image_path: Optional path to a folder containing images referenced in
-            the markdown file. If not specified, images will be looked for in
-            the same folder as the markdown file.
         archive: Optional Archive object containing the images referenced
             in the markdown file. If not specified, an Archive will be created
-            from the path of the markdown file or the image_path if specified.
+            from the path of the markdown file.
         output_path: Optional path to save the resulting PDF file.
             If specified, the PDF will be saved to this location and None will
             be returned. Before saving, fonts will be subsetted to reduce
@@ -427,11 +423,11 @@ def markdown_to_pdf(
 
     md_text = md_path.read_bytes().decode("utf-8")
     if archive is None:
-        if image_path is None:
-            folder = md_path.resolve().parent
-            archive = pymupdf.Archive(folder)
-        else:
-            archive = pymupdf.Archive(image_path)
+        archive = pymupdf.Archive(md_path.resolve().parent)
+    elif isinstance(archive, pymupdf.Archive):
+        archive.add(md_path.resolve().parent)
+    else:
+        raise ValueError("archive must be a pymupdf.Archive or None")
 
     # make a few adjustments to ensure correct processing in PyMuPDF
     md_text = (
