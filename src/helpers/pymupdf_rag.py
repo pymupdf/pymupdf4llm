@@ -974,7 +974,7 @@ def to_markdown(
         parms.words = []
         parms.line_rects = []
         parms.accept_invisible = (
-            page_is_ocr(page) or ignore_alpha
+            page_is_ocr(page) or ignore_alpha is False
         )  # accept invisible text
 
         # determine background color
