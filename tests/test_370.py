@@ -43,3 +43,34 @@ def test_370():
     # Disable this assert for now because we don't appear to get consistent
     # output on different OS's.
     #assert actual == expected
+
+
+def test_370_small_glyph_line_assignment():
+    # Regression test: tiny glyphs (e.g. "-") with accurate bboxes that sit
+    # vertically centered inside full-height text were being split off onto
+    # their own line. In test_370.pdf this caused the dash in
+    # "g- silylallyloxysilane" to be moved to the start of the paragraph,
+    # producing "- To demonstrate ... g silylallyloxysilane".
+    path = os.path.normpath(f'{__file__}/../../tests/test_370.pdf')
+
+    with pymupdf.open(path) as document:
+        actual = pymupdf4llm.to_markdown(
+                document,
+                write_images=False,
+                embed_images=False,
+                image_format="jpg",
+                header=False,
+                footer=False,
+                show_progress=False,
+                force_text=True,
+                page_separators=True,
+                )
+
+    assert "g- silylallyloxysilane" in actual, (
+        'Expected dash to stay attached to "g-" on the same line as '
+        '"silylallyloxysilane".'
+    )
+    assert "- To demonstrate the feasibility of our strategy, g silylallyloxysilane" not in actual, (
+        'Buggy output detected: dash was moved to the start of the '
+        'paragraph and detached from "g".'
+    )

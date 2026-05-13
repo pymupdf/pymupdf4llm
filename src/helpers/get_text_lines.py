@@ -172,8 +172,14 @@ def get_raw_lines(
     for s in spans[1:]:  # walk through the spans
         sbbox = s["bbox"]  # this bbox
         sbbox0 = line[-1]["bbox"]  # previous bbox
-        # if any of top or bottom coordinates are close enough, join...
-        if abs(sbbox.y1 - sbbox0.y1) <= y_delta or abs(sbbox.y0 - sbbox0.y0) <= y_delta:
+        # Same line if top OR bottom edges align, OR the previous bbox is
+        # vertically contained in the current one. Handles tiny glyphs like
+        # "-", ".", "*" sitting centered within full-height text.
+        if (
+            abs(sbbox.y1 - sbbox0.y1) <= y_delta
+            or abs(sbbox.y0 - sbbox0.y0) <= y_delta
+            or (sbbox0.y0 >= sbbox.y0 - y_delta and sbbox0.y1 <= sbbox.y1 + y_delta)
+        ):
             line.append(s)  # append to this line
             lrect |= sbbox  # extend line rectangle
             continue
