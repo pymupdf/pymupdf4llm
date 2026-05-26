@@ -980,7 +980,10 @@ def cluster_stripes(boxes, joined_boxes, vectors, vertical_gap=12):
         div = divider(y, joined_boxes, vertical_gap)
         if not any(div.intersects(pymupdf.Rect(b[:4])) for b in boxes):
             # this is a divider: look for next bbox below
-            y0 = min(b[1] for b in sorted_boxes if b[1] >= div.y1)
+            candidates = [b[1] for b in sorted_boxes if b[1] >= div.y1]
+            if not candidates:
+                continue
+            y0 = min(candidates)
             div.y1 = y0  # divider has this bottom now
 
             inter_count = 0  # counts intersections with vectors
