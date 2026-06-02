@@ -6,11 +6,12 @@ import pymupdf
 import platform
 
 
-def test_4llm_370():
+def test_370_pdf4llm():
     # This is a copy of pymupdf4llm/tests/test_370.py:test_370(), except that
     # we use pdf4llm.to_markdown() instead of pymupdf4llm.to_markdown(). We
     # reuse that test's input and expected files.
     #
+    print()
     path = os.path.normpath(f'{__file__}/../../../tests/test_370.pdf')
     path_expected = os.path.normpath(f'{__file__}/../../../tests/test_370_expected.md')
     path_actual = os.path.normpath(f'{__file__}/../../../pdf4llm/tests/test_4llm_370_actual.md')
@@ -19,6 +20,7 @@ def test_4llm_370():
         expected = f.read()
     
     with pymupdf.open(path) as document:
+        print('test_4llm_370(): calling pdf4llm.to_markdown().')
         actual = pdf4llm.to_markdown(
                 document,
                 write_images=False,  # do not write image files
@@ -40,6 +42,7 @@ def test_4llm_370():
             )
     
     for line in lines:
-        print(f'test_370():    {line.encode()}', flush=1)
+        print(f'test_4llm_370():    {line.encode()}', flush=1)
     
+    print(f'test_4llm_370(): {actual==expected=}', flush=1)
     assert actual == expected
