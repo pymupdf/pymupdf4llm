@@ -27,8 +27,6 @@ else:
         f"pymupdf=={pymupdf_version}",
         f"pymupdf_layout=={pymupdf_layout_version}",
         "tabulate",
-        "markdown",
-        "pymdown-extensions",
     ]
 
 
