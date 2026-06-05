@@ -139,7 +139,14 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     page.insert_font(fontname=FONTNAME, fontbuffer=FONT.buffer)
 
     # Insert recognized text
-    for line in result:
+    lines = result[0]
+    if not lines:
+        return
+    confs = result[1]
+    for line in lines:
+        if not line:
+            continue
+
         box, text, conf = line
 
         # PaddleOCR box: 4 points (tl, tr, br, bl)

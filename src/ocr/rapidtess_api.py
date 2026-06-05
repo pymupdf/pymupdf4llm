@@ -79,7 +79,6 @@ def get_text(pixmap, irect, language="eng"):
     options = "tessedit_pageseg_mode=7,preserve_interword_spaces=1"
     this_pix = pymupdf.Pixmap(pymupdf.csRGB, my_irect)
     this_pix.copy(pixmap, my_irect)
-
     if USE_TESS_OPTIONS:
         # use options if pymupdf already provides this
         data = this_pix.pdfocr_tobytes(

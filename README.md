@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="https://github.com/pymupdf/PyMuPDF/">
-    <img loading="lazy" alt="PyMuPDF" src="https://pymupdf.pro/images/py-mupdf4llm-github-icon.png" width="100px"/>
+  <a href="https://pymupdf.io?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=logo&utm_term=website">
+    <img loading="lazy" alt="PyMuPDF" src="https://pymupdf.pro/images/py-mupdf4llm-github-icon.png" width="96px" alt="PyMuPDF logo"/>
   </a>
 </p>
 
@@ -11,17 +11,17 @@
 </p>
 
 
-[![Docs](https://img.shields.io/badge/docs-live-brightgreen)](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm)
+[![Docs](https://img.shields.io/badge/docs-live-brightgreen)](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=badges&utm_term=docs)
 [![PyPI Version](https://img.shields.io/pypi/v/pymupdf4llm?color=blue&label=PyPI)](https://pypi.org/project/pymupdf4llm)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pymupdf4llm)](https://pypi.org/project/pymupdf4llm/)
 [![License AGPL](https://img.shields.io/github/license/pymupdf/pymupdf4llm)](https://github.com/pymupdf/pymupdf4llm/blob/master/LICENSE)
 [![PyPI Downloads](https://static.pepy.tech/badge/pymupdf4llm/month)](https://pepy.tech/projects/pymupdf4llm)
 [![Github Stars](https://img.shields.io/github/stars/pymupdf/pymupdf4llm?style=social)](https://github.com/pymupdf/pymupdf4llm/stargazers)
-[![Discord](https://img.shields.io/discord/1460622234811895872?color=6A7EC2&logo=discord&logoColor=ffffff)](https://pymupdf.io/discord/pdf4llm/)
-[![Forum](https://img.shields.io/badge/Forum-ff6600?logo=python&logoColor=ffffff)](https://forum.mupdf.com/c/general/4)
+[![Discord](https://img.shields.io/discord/770681584617652264?color=6A7EC2&logo=discord&logoColor=ffffff)](https://artifex.com/discord/artifex?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=badges&utm_term=discord)
+[![Forum](https://img.shields.io/badge/Forum-ff6600?logo=python&logoColor=ffffff)](https://forum.mupdf.com/c/general/4?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=badges&utm_term=forum)
 [![Twitter](https://img.shields.io/twitter/follow/pymupdf4llm)](https://x.com/pymupdf4llm)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97_Hugging_Face-007ec6)](https://huggingface.co/artifex-software)
-[![Demo](https://img.shields.io/badge/PyMuPDF4LLM-live?badge&label=DEMO&logo=python&logoColor=ffffff)](https://demo.pymupdf.io)
+[![Demo](https://img.shields.io/badge/PyMuPDF4LLM-live?badge&label=DEMO&logo=python&logoColor=ffffff)](https://demo.pymupdf.io?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=badges&utm_term=demo)
 
 **Turn PDF and other documents into clean, LLM-ready data — in one line of code. No GPU, no Cloud, no Tokens required.**
 
@@ -36,7 +36,7 @@ md = pymupdf4llm.to_markdown("research-paper.pdf")
 
 [![Star on GitHub](https://img.shields.io/github/stars/pymupdf/pymupdf4llm.svg?style=for-the-badge&label=Star&logo=github)](https://github.com/pymupdf/pymupdf4llm/)
 
-[![Demo](https://img.shields.io/badge/Pymupdf4llm-live?style=for-the-badge&label=DEMO&logo=python&logoColor=ffffff)](https://demo.pymupdf.io)
+[![Demo](https://img.shields.io/badge/Pymupdf4llm-live?style=for-the-badge&label=DEMO&logo=python&logoColor=ffffff)](https://demo.pymupdf.io?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=body&utm_term=demo)
 
 ---
 
@@ -490,9 +490,9 @@ md = pymupdf4llm.to_markdown("document.pdf", ocr_function=my_ocr_fn)
 
 Full API reference, guides, and examples at **[pymupdf.readthedocs.io/en/latest/pymupdf4llm](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/)**.
 
-- [Getting started](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/)
-- [Full API reference](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/api.html)
-- [LLM & RAG guide](https://pymupdf.readthedocs.io/en/latest/rag.html)
+- [Getting started](https://docs.pdf4llm.com/python/getting-started?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=documentation_community&utm_term=getting_started)
+- [Full API reference](https://docs.pdf4llm.com/python/api?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=documentation_community&utm_term=api)
+- [LLM & RAG guide](https://pymupdf.readthedocs.io/en/latest/rag.html?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=documentation_community&utm_term=rag)
 - [Examples on GitHub](https://github.com/pymupdf/pymupdf4llm/tree/main/examples)
 
 ---
@@ -509,10 +509,10 @@ Full API reference, guides, and examples at **[pymupdf.readthedocs.io/en/latest/
 
 ## Licensing
 
-PyMuPDF4LLM and PyMuPDF are maintained by [Artifex Software, Inc.](https://artifex.com)
+PyMuPDF and MuPDF are maintained by [Artifex Software, Inc.](https://artifex.com?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=footer&utm_term=website)
 
 - **Open source** — [GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html). Free for open-source projects.
-- **Commercial** — separate licences available from [Artifex](https://artifex.com/licensing) for proprietary applications.
+- **Commercial** — separate commercial licences available from [Artifex](https://artifex.com/licensing?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=footer&utm_term=licensing) for proprietary applications.
 
 ---
 
@@ -521,7 +521,8 @@ PyMuPDF4LLM and PyMuPDF are maintained by [Artifex Software, Inc.](https://artif
 Contributions are welcome. Please open an issue before submitting large pull requests.
 
 - [Issue tracker](https://github.com/pymupdf/pymupdf4llm/issues)
-- [Discord](https://pymupdf.pro/discord/4llm/)
+- [Discord community](https://artifex.com/discord/artifex?utm_source=github&utm_medium=referral&utm_campaign=pymupdf4llm_github&utm_content=footer&utm_term=discord)
+
 
 
 ## ⭐ Support this project
