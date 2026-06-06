@@ -193,10 +193,11 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     matrix = pymupdf.Rect(pixmap.irect).torect(page.rect)
 
     # Execute the ENGINE's bbox Detector
-    boxes = ENGINE(img)[:1] or []
+    result, _ = ENGINE(img)
+    boxes = [r[0] for r in result]  # extract bounding boxes from the results
     if not boxes:  # nothing detected
         return
-    # t1 = time.perf_counter()
+
     # Execute Tesseract's text Recognizer
     # List of Tesseract text results
     tess_results = []
@@ -208,9 +209,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
         tess_results.append((irect, text))
     if not tess_results:  # guard against no text found
         return
-    # t2 = time.perf_counter()
-    # print(f"RapidOCR detection time: {t1 - t0:.2f} seconds")
-    # print(f"Tesseract OCR time: {t2 - t1:.2f} seconds")
+
     # insert the OCR font into the page
     page.insert_font(fontname=FONTNAME, fontbuffer=FONT.buffer)
 
