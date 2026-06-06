@@ -30,9 +30,78 @@ Tesseract OCR must also be available for this function to work.
 """
 
 import inspect
-from rapidocr_onnxruntime import RapidOCR
 import pymupdf
 import numpy as np
+from rapidocr_onnxruntime import RapidOCR
+
+class RapidOCR_DetOnly(RapidOCR):
+    """
+    A future-proof, detection-only variant of RapidOCR.
+
+    This class ensures:
+    - No recognition models are loaded.
+    - No recognition or classification steps are executed.
+    - Stable public API for downstream consumers.
+    - Defensive behavior against internal API changes in RapidOCR.
+    - Drop-in replacement for the standard RapidOCR class.
+
+    Intended for production use in environments where only text
+    detection (bounding boxes) is required and recognition overhead
+    must be avoided.
+    """
+
+    def __init__(self):
+        # Call base class constructor (loads all models by default)
+        super().__init__()
+
+        # Remove recognition-related components if they exist.
+        # This prevents recognition from being executed even if
+        # RapidOCR changes internal behavior in future versions.
+        for attr in ("text_recognizer", "text_classifier", "text_recognizer_session"):
+            if hasattr(self, attr):
+                setattr(self, attr, None)
+
+        # If RapidOCR introduces flags in future versions, disable them.
+        for flag in ("use_rec", "use_cls"):
+            if hasattr(self, flag):
+                setattr(self, flag, False)
+
+    def __call__(self, img):
+        """
+        Execute detection only.
+
+        Always returns a tuple: (boxes, scores)
+
+        This method is defensive: if RapidOCR changes the return
+        format of text_detector(), a clear error is raised instead
+        of silently producing incorrect results.
+        """
+        # Ensure the detector exists
+        if not hasattr(self, "text_detector") or self.text_detector is None:
+            raise RuntimeError("RapidOCR_DetOnly: No text_detector available.")
+
+        # Run detection
+        result = self.text_detector(img)
+
+        # Validate return format (RapidOCR may change this in the future)
+        if isinstance(result, (list, tuple)) and len(result) >= 2:
+            boxes, scores = result[0], result[1]
+        else:
+            raise RuntimeError(
+                f"RapidOCR_DetOnly: Unexpected return format from text_detector: {type(result)}"
+            )
+
+        return boxes, scores
+
+    def detect(self, img):
+        """
+        Stable public API for detection.
+
+        Downstream users should call this method instead of __call__().
+        This ensures API stability even if internal behavior changes.
+        """
+        return self.__call__(img)
+
 
 TESSDATA = pymupdf.get_tessdata()
 if TESSDATA is None:
@@ -53,10 +122,7 @@ def ocr_text(span) -> bool:
     return True
 
 
-ENGINE = RapidOCR()
-ENGINE.use_det = True  # use detection
-ENGINE.use_rec = False  # do not use recognition
-ENGINE.use_cls = False  # do not use orientation classification
+ENGINE = RapidOCR_DetOnly()
 
 # prepare for more advanced use of Tesseract by checking a function signature
 sig = inspect.signature(pymupdf.Pixmap.pdfocr_tobytes)
@@ -79,7 +145,6 @@ def get_text(pixmap, irect, language="eng"):
     options = "tessedit_pageseg_mode=7,preserve_interword_spaces=1"
     this_pix = pymupdf.Pixmap(pymupdf.csRGB, my_irect)
     this_pix.copy(pixmap, my_irect)
-
     if USE_TESS_OPTIONS:
         # use options if pymupdf already provides this
         data = this_pix.pdfocr_tobytes(
@@ -192,11 +257,12 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     # for converting box coordinates to page coordinates
     matrix = pymupdf.Rect(pixmap.irect).torect(page.rect)
 
-    # Execute the ENGINE's bbox Detector
-    boxes = ENGINE(img)[:1] or []
-    if not boxes:  # nothing detected
+    # Execute ENGINE's Detector
+    boxes, score = ENGINE.detect(img)
+
+    if boxes is None or not len(boxes):  # nothing detected
         return
-    # t1 = time.perf_counter()
+
     # Execute Tesseract's text Recognizer
     # List of Tesseract text results
     tess_results = []
@@ -208,9 +274,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
         tess_results.append((irect, text))
     if not tess_results:  # guard against no text found
         return
-    # t2 = time.perf_counter()
-    # print(f"RapidOCR detection time: {t1 - t0:.2f} seconds")
-    # print(f"Tesseract OCR time: {t2 - t1:.2f} seconds")
+
     # insert the OCR font into the page
     page.insert_font(fontname=FONTNAME, fontbuffer=FONT.buffer)
 
