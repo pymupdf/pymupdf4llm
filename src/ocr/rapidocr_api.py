@@ -118,13 +118,10 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     matrix = pymupdf.Rect(pixmap.irect).torect(page.rect)
 
     # Execute RapidOCR
-    boxes, texts, confs = ENGINE(img)
-    boxes = boxes or []
-    texts = texts or []
-    confs = confs or []
-    result = list(zip(boxes, texts, confs))
-    if not result:  # nothing recognized
+    result, _ = ENGINE(img)
+    if not result:
         return
+
     if fffd_spans:
         # FFFD spans should have been recognized by OCR.
         # Remove their digital version to avoid "?" in the output.
@@ -139,15 +136,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     page.insert_font(fontname=FONTNAME, fontbuffer=FONT.buffer)
 
     # Insert recognized text
-    lines = result[0]
-    if not lines:
-        return
-    confs = result[1]
-    for line in lines:
-        if not line:
-            continue
-
-        box, text, conf = line
+    for box, text, conf in result:
 
         # PaddleOCR box: 4 points (tl, tr, br, bl)
         tl, tr, br, bl = box
