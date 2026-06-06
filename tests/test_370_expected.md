@@ -4,11 +4,10 @@ Masahiro Sai*
 
 Faculty of Materials for Energy, Shimane University, 1060 Nishikawatsu-cho, Matsue, Shimane 690-8504, Japan 
 
-**==> picture [338 x 84] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-O<br>β<br>R<br>Peterson H [+] Ar<br>olefination<br>R<br>O Si TMSCH2K O Si K [+] RCHO O Si β,γ-unsaturated<br>R ketones<br>Ar Si Ar Si Ar<br>O<br>γ-silylallyloxysilanes siloxyallylpotassiums silyl dienol ethers E [+] α β R<br>Ar<br>E R<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+O<br>β<br>R<br>Peterson H [+] Ar<br>olefination<br>R<br>O Si TMSCH2K O Si K [+] RCHO O Si β,γ-unsaturated<br>R ketones<br>Ar Si Ar Si Ar<br>O<br>γ-silylallyloxysilanes siloxyallylpotassiums silyl dienol ethers E [+] α β R<br>Ar<br>E R<br><!-- End of picture text -->
 
 **ABSTRACT:** We report herein a general method for synthesizing a diverse array of silyl dienol ethers via the Peterson olefination of aldehydes using 3-silyl-substituted siloxyallylpotassium species. The reaction proceeds cleanly at –78 °C and tolerates a wide range of functional groups on aldehyde substrates (OMe, NMe2, F, Cl, Br, CN, CO2 _[t]_ Bu, CF3, and epoxide). Under our conditions, organolithium bases are ineffective, underscoring the critical role of potassium carbanions. The resulting silyl dienol ethers are readily converted to b,g-unsaturated ketones. This two-step sequence thus constitutes a formal b-olefination of ketones. 
 
@@ -16,21 +15,19 @@ Metal homoenolates are valuable nucleophiles for introducing functional groups a
 
 **Scheme 1. Strategies for** b **-Functionalization and** b **Olefination of Ketones** 
 
-**==> picture [240 x 274] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-a.  β -Functionalizations involving cyclopropane ring opening<br>E [+] O β<br>R E<br>R OH M O [M] β-functionalized<br>ketones<br>R<br>cyclopropanols homoenolatesmetal β-olefination O β R′<br>R<br>not achieved R′<br>β,γ-unsaturated<br>ketones<br>b. Our previous work<br>O E [1]<br>O Si TMSCH2K O Si K [+] E [1+] O Si E [1] E [2+] Ar α β R<br>Ar α γ R Ar R Ar R E [2]<br>allyloxysilanes potassium homoenolatesiloxyallylpotassiumsequivalents ( Z 3-functionalized)-silyl enol ethers EE [1][2]  =  =  CC , ,  BO , ,  SiF ,  Sn ,  P<br>c. This work<br>O<br>O Si TMSCH2K O Si K [+] R R O Si Si<br>O [–] K [+]<br>Ar Si Ar Si Ar<br>R R<br>siloxyallylpotassiums A<br>O<br>β<br>R<br>Ar H [+]<br>R O Si R olefinationPeterson O Si Si OK [+]<br>O Ar – Si O [–] K [+] Ar<br>α β R R R R<br>Ar E [+] silyl dienol ethers<br>E R<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+a.  β -Functionalizations involving cyclopropane ring opening<br>E [+] O β<br>R E<br>R OH M O [M] β-functionalized<br>ketones<br>R<br>cyclopropanols homoenolatesmetal β-olefination O β R′<br>R<br>not achieved R′<br>β,γ-unsaturated<br>ketones<br>b. Our previous work<br>O E [1]<br>O Si TMSCH2K O Si K [+] E [1+] O Si E [1] E [2+] Ar α β R<br>Ar α γ R Ar R Ar R E [2]<br>allyloxysilanes potassium homoenolatesiloxyallylpotassiumsequivalents ( Z 3-functionalized)-silyl enol ethers EE [1][2]  =  =  CC , ,  BO , ,  SiF ,  Sn ,  P<br>c. This work<br>O<br>O Si TMSCH2K O Si K [+] R R O Si Si<br>O [–] K [+]<br>Ar Si Ar Si Ar<br>R R<br>siloxyallylpotassiums A<br>O<br>β<br>R<br>Ar H [+]<br>R O Si R olefinationPeterson O Si Si OK [+]<br>O Ar – Si O [–] K [+] Ar<br>α β R R R R<br>Ar E [+] silyl dienol ethers<br>E R<br><!-- End of picture text -->
 
 - To demonstrate the feasibility of our strategy, g silylallyloxysilane **1a** was treated with various bases in THF, and the resulting siloxyallyl anion was trapped with benzophenone (Table 1). Substrate **1a** was prepared in three steps: (i) addition of trimethylsilylacetylene to benzaldehyde, (ii) _E_ - selective reduction of the resulting propargylic alcohol with 
 
 --- end of page.page_number=1 ---
 
-**==> picture [239 x 81] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-OTES THF, –78 °C, 10 minTMSCH2K (2 equiv) OTES Ph O Ph<br>Ph Ph<br>Ph TMS PhCOPh (1.3 equiv)<br>1a′ –78 °C, 10 min Ph Ph<br>2aa′ , 38% 4 , 51%<br>OTIPS<br>OTIPS same as above Ph<br>Ph<br>Ph TMS<br>Ph<br>1a″<br>2aa″ , 90%<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+OTES THF, –78 °C, 10 minTMSCH2K (2 equiv) OTES Ph O Ph<br>Ph Ph<br>Ph TMS PhCOPh (1.3 equiv)<br>1a′ –78 °C, 10 min Ph Ph<br>2aa′ , 38% 4 , 51%<br>OTIPS<br>OTIPS same as above Ph<br>Ph<br>Ph TMS<br>Ph<br>1a″<br>2aa″ , 90%<br><!-- End of picture text -->
 
 Red-Al, and (iii) silylation of the corresponding allylic alcohol. When TMSCH2K, which we previously demonstrated to be effective for the deprotonation of a-arylallyloxysilanes,[5] was employed, the desired silyl dienol ether **2aa** was formed in 72% NMR yield (entry 1). Increasing the amount of base to 2.0 equiv led to complete consumption of **1a** and improved the yield of **2aa** to 87% (entry 2). Reducing the amount of benzophenone from 1.5 to 1.3 equiv had no detrimental effect, and **2aa** was isolated in 92% yield (entry 3). In this reaction, a small amount of silyl enol ether **3a** was also detected, presumably formed by protonation of the siloxyallylpotassium intermediate rather than by trapping with benzophenone. Increasing the amount of benzophenone to 2.0 equiv did not suppress the formation of **3a** (entry 4). In contrast, with _[t]_ BuLi as the base, **2aa** was not observed, and **1a** was fully recovered (entry 5).[7] Addition of hexamethylphosphoramide (HMPA) to enhance the reactivity of _[t]_ BuLi decreased the recovery of **1a** to 28%; however, **2aa** was not detected, and **3a** became the major product (entry 6). Raising the reaction temperature from – 78 °C to 0 °C, in an attempt to promote the reaction of the putative siloxyallyllithium species with benzophenone, resulted in a complex mixture with no formation of **2aa** (entry 7). These results indicate that potassium carbanions are essential for the success of this transformation. 
 
@@ -40,11 +37,10 @@ The substrate scope of allyloxysilanes was examined using benzophenone as the el
 
 **Table 1. Optimization of the Reaction Conditions** _**[a]**_ 
 
-**==> picture [518 x 271] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-TMSCH2K (2 equiv) OTBS<br>OTBS THF, –78 °C, 10 min;base (X equiv) Ph OTBS Ph OTBS R OTBS 1 TMS THF, –78 °C, 10 min;PhCOPh (1.3 equiv)–78 °C, 10 min R 2 PhPh<br>Ph TMS PhCOPh (Y equiv) Ph TMS<br>1a –78 °C, 10 min 2aa Ph 3a OTBS<br>OTBS OTBS<br>Me Ph<br>yield (%) [b] Ph Ph<br>entry  1  base  X  Y  1a  2aa  3a  Ph Me Ph Ph<br>2ba 2ca Me 2da<br>1  1a  TMSCH2K  1.5  1.5  14  72  7  83% 84% 84%<br>2  1a TMSCH2K  2.0  1.5  <1  87  5  OTBS OTBS OTBS<br>3  1a  TMSCH2K  2.0  1.3  <1  89 (92) [c] 6  Ph MeO Ph Ph<br>Ph Ph Ph<br>4  1a  TMSCH2K  2.0  2.0  <1  90  6  MeO MeO Me2N<br>5  1a  t BuLi   2.0  1.3  95  0  0  82% 2ea 67% 2fa 79% 2ga<br>6  1a  t BuLi/HMPA  2.0  1.3  28  0  48  OTBS OTBS OMe OTBS<br>7 [d] 1a  t BuLi/HMPA 2.0  1.3  19  0  5  Ph Ph Ph<br>a Reaction conditions:  1a  (80.2 mg, 0.25 mmol), base, and additive  F 2ha Ph 2ia Ph 2ja Ph<br>in THF (3 mL) at –78 °C for 10 min, followed by addition of  61% 96% N.D.<br>benzophenone at –78 °C for 10 min.  [b] Determined by  [1] H NMR<br>analysis of the crude reaction mixture.  [c] Isolated yield.  [d] The reac- OTBS OTBS OTBS<br>Ph Ph<br>tion with benzophenone was conducted at 0 °C.  Me Ph<br>O Ph S Ph<br>We next examined the influence of the siloxy substituent on  2ka 2la 2ma Ph<br>the reaction outcome (Scheme 2). When triethylsilyl (TES)  83% 83% N.D.<br>( Z / E  = 93:7)<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+TMSCH2K (2 equiv) OTBS<br>OTBS THF, –78 °C, 10 min;base (X equiv) Ph OTBS Ph OTBS R OTBS 1 TMS THF, –78 °C, 10 min;PhCOPh (1.3 equiv)–78 °C, 10 min R 2 PhPh<br>Ph TMS PhCOPh (Y equiv) Ph TMS<br>1a –78 °C, 10 min 2aa Ph 3a OTBS<br>OTBS OTBS<br>Me Ph<br>yield (%) [b] Ph Ph<br>entry  1  base  X  Y  1a  2aa  3a  Ph Me Ph Ph<br>2ba 2ca Me 2da<br>1  1a  TMSCH2K  1.5  1.5  14  72  7  83% 84% 84%<br>2  1a TMSCH2K  2.0  1.5  <1  87  5  OTBS OTBS OTBS<br>3  1a  TMSCH2K  2.0  1.3  <1  89 (92) [c] 6  Ph MeO Ph Ph<br>Ph Ph Ph<br>4  1a  TMSCH2K  2.0  2.0  <1  90  6  MeO MeO Me2N<br>5  1a  t BuLi   2.0  1.3  95  0  0  82% 2ea 67% 2fa 79% 2ga<br>6  1a  t BuLi/HMPA  2.0  1.3  28  0  48  OTBS OTBS OMe OTBS<br>7 [d] 1a  t BuLi/HMPA 2.0  1.3  19  0  5  Ph Ph Ph<br>a Reaction conditions:  1a  (80.2 mg, 0.25 mmol), base, and additive  F 2ha Ph 2ia Ph 2ja Ph<br>in THF (3 mL) at –78 °C for 10 min, followed by addition of  61% 96% N.D.<br>benzophenone at –78 °C for 10 min.  [b] Determined by  [1] H NMR<br>analysis of the crude reaction mixture.  [c] Isolated yield.  [d] The reac- OTBS OTBS OTBS<br>Ph Ph<br>tion with benzophenone was conducted at 0 °C.  Me Ph<br>O Ph S Ph<br>We next examined the influence of the siloxy substituent on  2ka 2la 2ma Ph<br>the reaction outcome (Scheme 2). When triethylsilyl (TES)  83% 83% N.D.<br>( Z / E  = 93:7)<br><!-- End of picture text -->
 
 We next examined the influence of the siloxy substituent on the reaction outcome (Scheme 2). When triethylsilyl (TES) derivative **1a′** was used, the reaction proceeded efficiently; however, partial desilylation occurred, affording **2aa′** in 38% yield together with b,g-unsaturated ketone **4** in 51% yield. In contrast, triisopropylsilyl (TIPS) derivative **1a″** underwent complete conversion to provide **2aa″** in 90% isolated yield, despite the steric bulk of the TIPS group. 
 
@@ -60,11 +56,10 @@ the effect of the silyl substituent in this transformation, we propose the stere
 
 ## **Scheme 4. Effect of the Vinylsilane Substituent on Diastereoselectivity and Proposed Stereochemical Models** 
 
-**==> picture [239 x 225] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-OTBS TMSCH2K (2 equiv) OTBS<br>THF, –78 °C, 10 min<br>Ph<br>1Np Si PhCHO (1.5 equiv) 1Np 1 3<br>    –78 °C, 10 min 5ia<br>1i  ( Si  = TMS) 81% (3 E /3 Z  = 1.9:1) from  1i<br>1i′  ( Si  = TBS) 87% (3 E /3 Z  = 1.7:1) from  1i′<br>1i″  ( Si  = TIPS) 45% (3 E /3 Z  = 1.4:1) from  1i″<br>K [+] OTBS TBSO<br>1Np OTBS K [+] Si E [+] 1TBSONp 1 Z E Si 1Np 1 3 E [+] 1Np 1 E<br>H Si E Si<br>Z -configured<br>isomer E -configured<br>favored isomer<br>TBS1Np OKPh [+] H antiSi O TBS1Np O1 Z Si PhO [–] K [+] 1Np OTBS 3 E Ph<br>favored A H addition H elimination syn (1 Zmajor ,3 E )- 5ia<br>TBS1Np OKPh [+] OH Si H anti TBS1Np O1 Z Si PhHO [–] K [+] 1Np OTBS 3 Z Ph<br>B (1 Z ,3 Z )- 5ia<br>minor<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+OTBS TMSCH2K (2 equiv) OTBS<br>THF, –78 °C, 10 min<br>Ph<br>1Np Si PhCHO (1.5 equiv) 1Np 1 3<br>    –78 °C, 10 min 5ia<br>1i  ( Si  = TMS) 81% (3 E /3 Z  = 1.9:1) from  1i<br>1i′  ( Si  = TBS) 87% (3 E /3 Z  = 1.7:1) from  1i′<br>1i″  ( Si  = TIPS) 45% (3 E /3 Z  = 1.4:1) from  1i″<br>K [+] OTBS TBSO<br>1Np OTBS K [+] Si E [+] 1TBSONp 1 Z E Si 1Np 1 3 E [+] 1Np 1 E<br>H Si E Si<br>Z -configured<br>isomer E -configured<br>favored isomer<br>TBS1Np OKPh [+] H antiSi O TBS1Np O1 Z Si PhO [–] K [+] 1Np OTBS 3 E Ph<br>favored A H addition H elimination syn (1 Zmajor ,3 E )- 5ia<br>TBS1Np OKPh [+] OH Si H anti TBS1Np O1 Z Si PhHO [–] K [+] 1Np OTBS 3 Z Ph<br>B (1 Z ,3 Z )- 5ia<br>minor<br><!-- End of picture text -->
 
 The scope of aldehydes was examined using allyloxysilane **1i** as the model substrate (Scheme 5).[8] Because generation of the siloxyallylpotassium species from an allyloxysilane requires a highly reactive potassium carbanion, the allyloxysilane component exhibited limited functional-group tolerance. In contrast, addition of the siloxyallylpotassium species to aldehydes, followed by Peterson olefination, proceeded rapidly even at cryogenic temperatures, thereby allowing broad functional-group tolerance on the aldehyde component. Indeed, aldehydes bearing methoxy, amino, fluoro, chloro, bromo, cyano, ester, and trifluoromethyl groups were well tolerated ( **5ib** – **5ij** ). Notably, even an epoxide group, typically susceptible to nucleophilic ring opening, was tolerated ( **5ik** ) under the reaction conditions.[9] _Ortho_ -substituted aldehydes were compatible, providing **5il** – **5in** in 84–88% yields; however, with 2,6-dimethylbenzaldehyde, the 3 _Z_ isomer was obtained as the major product ( **5in** ). Heteroaromatic aldehydes 
 
@@ -72,11 +67,10 @@ were also suitable electrophiles, affording **5io** – **5iq** in 66–83% yiel
 
 ## **Scheme 5. Scope of Aldehydes** _**[a,b]**_ 
 
-**==> picture [239 x 408] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-OTBS THF, –78 °C, 10 minTMSCH2K (2 equiv) OTBS<br>R<br>1Np TMS RCHO (1.5 equiv) 1Np<br>1i –78 °C, 10 min 5<br>Me OMe NMe2<br>OTBS OTBS OTBS<br>1Np 1Np 1Np<br>5ib 5ic 5id [c]<br>88% 88% 76%<br>(3 E /3 Z  = 2.1:1) (3 E /3 Z  = 2.1:1) (3 E /3 Z  = 1.6:1)<br>OTBS F OTBS Cl OTBS Br<br>1Np 1Np 1Np<br>5ie 5if 5ig<br>81% 71% 63%<br>(3 E /3 Z  = 1.5:1) (3 E /3 Z  = 1.4:1) (3 E /3 Z  = 1.3:1)<br>OTBS CN OTBS CO2 [t] Bu OTBS CF3<br>1Np 1Np 1Np<br>5ih 5ii 5ij<br>40% 59% 69%<br>(3 E /3 Z  = 1.4:1) (3 E /3 Z  = 1.7:1) (3 E /3 Z  = 1.2:1)<br>O OTBS OTBS<br>OTBS 1Np 1Np<br>1Np Me<br>5ik 5il 5im<br>55% [d]  (76%) [e] 87% 88%<br>(3 E /3 Z  = 1.7:1) (3 E /3 Z  = 1.8:1) (3 E /3 Z  = 2.3:1)<br>OTBS OTBS<br>1Np OTBS 1Np<br>Me Me 1Np N O<br>5io<br>5in 83% 5ip<br>(3 E /384% Z  = 1:1.6) (3 E /3 Z  = 3.3:1) (3 E /372% Z  = 1:1.3)<br>OTBS<br>1Np OTBS S 1Np 1Np OTBS t Bu<br>5iq 5ir [f] Ph 5is<br>66% 58% N.D.<br>(3 E /3 Z  = 1.3:1) (1 Z , 3 E , 5 E /1 Z , 3 Z , 5 E  = 1:3.0)<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+OTBS THF, –78 °C, 10 minTMSCH2K (2 equiv) OTBS<br>R<br>1Np TMS RCHO (1.5 equiv) 1Np<br>1i –78 °C, 10 min 5<br>Me OMe NMe2<br>OTBS OTBS OTBS<br>1Np 1Np 1Np<br>5ib 5ic 5id [c]<br>88% 88% 76%<br>(3 E /3 Z  = 2.1:1) (3 E /3 Z  = 2.1:1) (3 E /3 Z  = 1.6:1)<br>OTBS F OTBS Cl OTBS Br<br>1Np 1Np 1Np<br>5ie 5if 5ig<br>81% 71% 63%<br>(3 E /3 Z  = 1.5:1) (3 E /3 Z  = 1.4:1) (3 E /3 Z  = 1.3:1)<br>OTBS CN OTBS CO2 [t] Bu OTBS CF3<br>1Np 1Np 1Np<br>5ih 5ii 5ij<br>40% 59% 69%<br>(3 E /3 Z  = 1.4:1) (3 E /3 Z  = 1.7:1) (3 E /3 Z  = 1.2:1)<br>O OTBS OTBS<br>OTBS 1Np 1Np<br>1Np Me<br>5ik 5il 5im<br>55% [d]  (76%) [e] 87% 88%<br>(3 E /3 Z  = 1.7:1) (3 E /3 Z  = 1.8:1) (3 E /3 Z  = 2.3:1)<br>OTBS OTBS<br>1Np OTBS 1Np<br>Me Me 1Np N O<br>5io<br>5in 83% 5ip<br>(3 E /384% Z  = 1:1.6) (3 E /3 Z  = 3.3:1) (3 E /372% Z  = 1:1.3)<br>OTBS<br>1Np OTBS S 1Np 1Np OTBS t Bu<br>5iq 5ir [f] Ph 5is<br>66% 58% N.D.<br>(3 E /3 Z  = 1.3:1) (1 Z , 3 E , 5 E /1 Z , 3 Z , 5 E  = 1:3.0)<br><!-- End of picture text -->
 
 > _a_ Conditions: **1i** (92.7 mg, 0.25 mmol) and TMSCH2K (63.2 mg, 0.50 mmol) in THF (3 mL) at –78 °C for 10 min, followed by addition of aldehyde (0.375 mmol) at –78 °C for 10 min. _[b]_ The 3 _E_ /3 _Z_ ratios were determined by[1] H NMR analysis of the crude reaction mixtures. _[c]_ Purified by gel permeation chromatography. 
 
@@ -90,11 +84,10 @@ Finally, we demonstrated the conversion of the silyl dienol ethers to b,g-unsatu
 
 --- end of page.page_number=3 ---
 
-**==> picture [201 x 94] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-protodesilylation<br>TBAF (1.2 equiv) O<br>AcOH (2 equiv) β Ph<br>Ph<br>OTBS THF, 0 °C, 5 min Ph<br>Ph Ph 4 , 98%<br>Ph α-siloxylation O<br>2aa m CPBA (1.1 equiv) α [β] Ph<br>Ph<br>hexane/DCM (2:1)<br>0 °C to rt, 1 h TBSO Ph<br>6 , 77%<br>**----- End of picture text -----**<br>
 
+<!-- Start of picture text -->
+protodesilylation<br>TBAF (1.2 equiv) O<br>AcOH (2 equiv) β Ph<br>Ph<br>OTBS THF, 0 °C, 5 min Ph<br>Ph Ph 4 , 98%<br>Ph α-siloxylation O<br>2aa m CPBA (1.1 equiv) α [β] Ph<br>Ph<br>hexane/DCM (2:1)<br>0 °C to rt, 1 h TBSO Ph<br>6 , 77%<br><!-- End of picture text -->
 
 In conclusion, we have developed an efficient method for synthesizing a variety of silyl dienol ethers via the Peterson olefination of aldehydes and benzophenone with siloxyallylpotassium species, generated by TMSCH2K-mediated deprotonation of g-silylallyloxysilanes. The reaction proceeds smoothly at –78 °C and exhibits broad functional-group tolerance toward aldehyde substrates, accommodating methoxy, amino, halogen, ester, trifluoromethyl, and epoxide functionalities. Moreover, the resulting silyl dienol ethers serve as valuable synthetic intermediates, as they can be readily transformed into b,g-unsaturated ketones and a-substituted b,g-unsaturated ketones. 
 
