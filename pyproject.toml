@@ -1,4 +1,21 @@
 [build-system]
-    requires = ['pipcl']
-    build-backend = "setup"
-    backend-path = ["."]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pymupdf4llm-tsr"
+version = "0.1.0"
+description = "PyMuPDF Utilities for LLM/RAG with Visual Analyzer"
+license = { text = "MIT" }
+readme = "README.md"
+authors = [
+    { name = "TSR", email = "tusharsoni.info@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pymupdf",
+    "pymupdf-layout",
+    "tabulate",
+    "markdown",
+    "pymdown-extensions",
+]
