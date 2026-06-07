@@ -8,7 +8,7 @@ import pymupdf
 
 def test_370():
     # https://github.com/ArtifexSoftware/sce/issues/137
-    
+    print()
     path = os.path.normpath(f'{__file__}/../../tests/test_370.pdf')
     path_expected = os.path.normpath(f'{__file__}/../../tests/test_370_expected.md')
     path_actual = os.path.normpath(f'{__file__}/../../tests/test_370_actual.md')
@@ -17,6 +17,7 @@ def test_370():
         expected = f.read()
     
     with pymupdf.open(path) as document:
+        print('test_370(): calling pymupdf4llm.to_markdown().')
         actual = pymupdf4llm.to_markdown(
                 document,
                 write_images=False,  # do not write image files
@@ -40,6 +41,5 @@ def test_370():
     for line in lines:
         print(f'test_370():    {line.encode()}', flush=1)
     
-    # Disable this assert for now because we don't appear to get consistent
-    # output on different OS's.
-    #assert actual == expected
+    print(f'test_370(): {actual==expected=}', flush=1)
+    assert actual == expected

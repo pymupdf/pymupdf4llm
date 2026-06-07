@@ -353,6 +353,8 @@ def picture_text_to_text(textlines, ignore_code: bool = False, clip=None):
     in some form. Because we cannot be sure about the formatting we simply
     write it line by line wrapped by markers.
     """
+    if not textlines:
+        return "\n"
     output = "----- Start of picture text -----\n"
     for tl in textlines:
         line_text = " ".join([s["text"] for s in tl["spans"]])
@@ -614,12 +616,14 @@ def picture_text_to_md(textlines, ignore_code: bool = False, clip=None):
     in some form. Because we cannot be sure about the formatting we simply
     write it line by line wrapped by markers.
     """
-    output = "**----- Start of picture text -----**<br>\n"
+    if not textlines:
+        return "\n"
+    output = "<!-- Start of picture text -->\n"
     for tl in textlines:
         line_text = " ".join([s["text"] for s in tl["spans"]])
         output += line_text.rstrip() + "<br>"
-    output += "**----- End of picture text -----**<br>\n"
-    return output + "\n\n"
+    output += "<!-- End of picture text -->\n"
+    return output + "\n"
 
 
 def fallback_text_to_md(textlines, ignore_code: bool = False, clip=None):
@@ -627,14 +631,14 @@ def fallback_text_to_md(textlines, ignore_code: bool = False, clip=None):
     Convert text extracted from images to markdown format.
     """
     span_count = max(len(tl["spans"]) for tl in textlines)
-    output = "**----- Start of picture text -----**<br>\n"
+    output = "<!-- Start of picture text -->\n"
     output += "|" * (span_count + 1) + "\n"
     output += "|" + "|".join(["---"] * span_count) + "|\n"
     for tl in textlines:
         ltext = "|" + "|".join([s["text"].strip() for s in tl["spans"]]) + "|\n"
         output += ltext
-    output += "\n**----- End of picture text -----**<br>\n"
-    return output + "\n\n"
+    output += "\n<!-- End of picture text -->\n"
+    return output + "\n"
 
 
 @dataclass
@@ -739,7 +743,8 @@ class ParsedDocument:
                         # image is intentionally omitted, but description is available
                         pass
                     else:
-                        md_string += f"**==> picture [{clip.width} x {clip.height}] intentionally omitted <==**\n\n"
+                        md_string += f"\n\n"
+
 
                     if box.description:
                         md_string += f"{box.description}\n\n"
@@ -866,7 +871,7 @@ class ParsedDocument:
                     continue
                 if btype in ("picture", "formula", "table-fallback"):
                     if box.description:
-                        text_string += f"Image description: {box.description}\n\n"
+                        text_string += f"{box.description}\n\n"
                     else:
                         text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
                     if box.textlines:

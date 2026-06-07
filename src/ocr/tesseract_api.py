@@ -7,12 +7,14 @@ if TESSDATA is None:
     )
 
 REPLACEMENT_UNICODE = chr(0xFFFD)  # Unicode Replacement Character
+STROKED_TEXT = pymupdf.mupdf.FZ_STEXT_STROKED
+FILLED_TEXT = pymupdf.mupdf.FZ_STEXT_FILLED
 
 
 def ocr_text(span) -> bool:
-    if not (span["char_flags"] & 32) and not (span["char_flags"] & 16):
-        return True
-    return False
+    if (span["char_flags"] & STROKED_TEXT) or (span["char_flags"] & FILLED_TEXT):
+        return False
+    return True
 
 
 def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
