@@ -1,15 +1,9 @@
-import difflib
 import os
-import platform
-import dotenv
 
-dotenv.load_dotenv()
-
-import pymupdf4llm
-# import pymupdf4llm
-import pymupdf
 from pymupdf4llm.helpers.image_analyzer import LlamaCppImageAnalyzer
 from llama_cpp.llama_chat_format import Gemma4ChatHandler
+import pymupdf
+import pymupdf4llm
 
 
 MODEL_REPO = "unsloth/gemma-4-E4B-it-GGUF"
@@ -25,7 +19,7 @@ chat_handler = Gemma4ChatHandler.from_pretrained(
 def test_image_analyzer():
     
     path = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer.pdf')
-    path_export = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer.md')
+    path_export = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer2.md')
     image_path = os.path.normpath(f'{__file__}/../../tests/images')
     
     with pymupdf.open(path) as document:
@@ -47,3 +41,6 @@ def test_image_analyzer():
 
     with open(path_export, 'w', encoding='utf8') as f:
         f.write(actual)
+
+if __name__ == "__main__":
+    test_image_analyzer()
