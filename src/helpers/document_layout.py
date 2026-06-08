@@ -739,7 +739,6 @@ class ParsedDocument:
                     else:
                         md_string += f"\n\n"
 
-
                     # output text in image if requested
                     if box.textlines:
                         if btype == "picture":
@@ -1103,16 +1102,25 @@ def parse_document(
                 keep_ocr_text = True
             else:
                 keep_ocr_text = False
-            ocr_function(
-                page, dpi=ocr_dpi, language=ocr_language, keep_ocr_text=keep_ocr_text
-            )
-            # page_full_ocred = True
-            print(f"OCR on {page.number=}/{page.number+1}.", file=INFO_MESSAGES)
+
+            if keep_ocr_text and PAGE_ANALYSIS.get("reason") == "ocr_spans":
+                pass
+            else:
+                ocr_function(
+                    page,
+                    dpi=ocr_dpi,
+                    language=ocr_language,
+                    keep_ocr_text=keep_ocr_text,
+                )
+                # page_full_ocred = True
+                print(f"OCR on {page.number=}/{page.number+1}.", file=INFO_MESSAGES)
 
         textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
         blocks = textpage.extractDICT()["blocks"]
 
+        # Execute the Layout module AFTER any OCR
         page.get_layout()
+
         # Determine if any tables are present. If False, we skip any table-related efforts.
         tables_exist = any(b for b in page.layout_information if b[4] == "table")
         if not page_full_ocred:
@@ -1213,7 +1221,7 @@ def parse_document(
                     ][0]
                     cells = [[c for c in row.cells] for row in table.rows]
                     row_count = table.row_count
-                    if table.header.external:  # if the header ioutside table
+                    if table.header.external:  # if header is outside table
                         cells.insert(0, table.header.cells)  # insert a row
                         row_count += 1  # increase row count
 

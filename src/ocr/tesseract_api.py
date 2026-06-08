@@ -1,4 +1,5 @@
 import pymupdf
+from .get_culled_pixmap import get_pixmap
 
 TESSDATA = pymupdf.get_tessdata()
 if TESSDATA is None:
@@ -33,70 +34,49 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     """
     if TESSDATA is None:
         return
-    text_blocks = page.get_text("dict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]
-    # get bboxes with significant legible text on page
-    spans = []
-    fffd_spans = []
+    displaylist = page.get_displaylist()
+    stextpage = displaylist.get_textpage(flags=pymupdf.TEXT_ACCURATE_BBOXES)
+    textpage = pymupdf.TextPage(stextpage)
+    text_blocks = textpage.extractDICT()["blocks"]
+
+    # get bboxes with multiple text categories on page
+    spans = []  # spans with legible text
+    fffd_spans = []  # spans containing U+FFFD characters.
+    ocr_spans = []  # spans with previously OCRed text
+
     for b in text_blocks:
         for l in b["lines"]:
             for s in l["spans"]:
                 if ocr_text(s):
-                    if keep_ocr_text:
-                        spans.append(s["bbox"])
-                    else:
-                        fffd_spans.append(s["bbox"])
-                    continue
-                if REPLACEMENT_UNICODE in s["text"]:
+                    ocr_spans.append(s["bbox"])
+                elif REPLACEMENT_UNICODE in s["text"]:
                     fffd_spans.append(s["bbox"])
                 else:
                     spans.append(s["bbox"])
-
-    if spans:
-        temp_pdf = pymupdf.open()  # create a temporary PDF in memory
-        # insert the page
-        temp_pdf.insert_pdf(
-            page.parent,
-            from_page=page.number,
-            to_page=page.number,
-        )
-        temp_page = temp_pdf[0]
-        for sbbox in spans:
-            # add redaction annotation for each text span
-            temp_page.add_redact_annot(sbbox)
-
-        # remove text
-        temp_page.apply_redactions(
-            images=pymupdf.PDF_REDACT_IMAGE_NONE,
-            graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-            text=pymupdf.PDF_REDACT_TEXT_REMOVE,
-        )
-        # make pixmap from the page with legible text removed
-        pixmap = temp_page.get_pixmap(dpi=dpi)
-
-    # make pixmap if not provided
-    if pixmap is None:
-        pixmap = page.get_pixmap(dpi=dpi)
-
-    if fffd_spans:
-        # if there are spans with U+FFFD, we remove them now because their
-        # regions will be occupied by OCR text
-        for sbbox in fffd_spans:
-            page.add_redact_annot(sbbox)
-        page.apply_redactions(
-            images=pymupdf.PDF_REDACT_IMAGE_NONE,
-            graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-            text=pymupdf.PDF_REDACT_TEXT_REMOVE,
-        )
+    if ocr_spans and keep_ocr_text:
+        # If there are already OCR spans and the user wants to keep them, we skip OCR.
+        # This is because we cannot distinguish between "good" text and "bad" OCR text.
+        return
+    # make a Pixmap without "good" text
+    pixmap = get_pixmap(displaylist, dpi=dpi, rects=spans)
 
     # OCR the (remainder of the) page and remove everything except the text
     # layer from the OCR result
     temp_pdf = pymupdf.open("pdf", pixmap.pdfocr_tobytes(language=language))
     temp_page = temp_pdf[0]
     temp_page.add_redact_annot(temp_page.rect)
+    # Remove everything on the OCRed page except the detected text
     temp_page.apply_redactions(
         images=pymupdf.PDF_REDACT_IMAGE_REMOVE,
         graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED,
         text=pymupdf.PDF_REDACT_TEXT_NONE,
+    )
+    # on the target page ONLY remove all text
+    page.add_redact_annot(page.rect)
+    page.apply_redactions(
+        images=pymupdf.PDF_REDACT_IMAGE_NONE,
+        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+        text=pymupdf.PDF_REDACT_TEXT_REMOVE,
     )
     # insert the OCR text layer into the original page
     page.show_pdf_page(page.rect, temp_pdf, 0)
