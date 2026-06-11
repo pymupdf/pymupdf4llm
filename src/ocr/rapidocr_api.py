@@ -22,6 +22,7 @@ for speed and accuracy. This is currently also the only working way to use
 from rapidocr_onnxruntime import RapidOCR
 import pymupdf
 import numpy as np
+from .get_culled_pixmap import get_pixmap
 
 FONT = pymupdf.Font("cjk")  # this is the "Droid Sans Fallback" font
 FONTNAME = "myfont"  # its reference name in the page
@@ -37,20 +38,17 @@ def ocr_text(span) -> bool:
 
 
 ENGINE = RapidOCR()
-ENGINE.use_det = True  # use detection
-ENGINE.use_rec = True  # use recognition
-ENGINE.use_cls = False  # do not use orientation classification
 
 # pass any keyword arguments to RapidOCR when calling exec_ocr()
 KWARGS = {}
 
 
 def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
-    """Perform OCR on the given page and insert recognized text.
+    """This callback function performs OCR on the given page.
 
-    If a Pixmap is provided, the DPI parameter is ignored. Otherwise, an RGB
-    Pixmap is created from the page at the specified DPI.
-    The DPI value is also used if extractable text is present.
+    The pixmap parameter is deprecated and ignored.
+    The keep_ocr parameter is ignored. If this plugin is called,
+    existing OCR text will ALWAYS be removed and replaced with new OCR text.
     """
 
     def adjust_width(text, fontsize, rect):
@@ -66,86 +64,83 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
             mat = pymupdf.Matrix(1, 1)
         return mat
 
-    text_blocks = page.get_text("dict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]
-    # get bboxes with legible significant text on page
+    """
+    We ensure that legible extractable text is excluded from OCR. We render
+    the page without "good" text and perform OCR on the rest.
+    """
+    displaylist = page.get_displaylist()
+    stextpage = displaylist.get_textpage(flags=pymupdf.TEXT_ACCURATE_BBOXES)
+    textpage = pymupdf.TextPage(stextpage)
+    text_blocks = textpage.extractDICT()["blocks"]
+
+    # get bboxes with multiple text categories on page
     spans = []  # spans with legible text
     fffd_spans = []  # spans containing U+FFFD characters.
+    ocr_spans = []  # spans with previously OCRed text
     for b in text_blocks:
         for l in b["lines"]:
             for s in l["spans"]:
                 if ocr_text(s):
-                    if keep_ocr_text:
-                        spans.append(s["bbox"])
-                    else:
-                        fffd_spans.append(s["bbox"])
-                    continue
-                if not REPLACEMENT_UNICODE in s["text"]:
-                    spans.append(s["bbox"])
-                else:
+                    ocr_spans.append(s["bbox"])
+                elif REPLACEMENT_UNICODE in s["text"]:
                     fffd_spans.append(s["bbox"])
+                else:
+                    # for removal good text regions
+                    spans.append(s["bbox"])
+    if ocr_spans and keep_ocr_text:
+        # If there are already OCR spans and the user wants to keep them, we skip OCR.
+        # This is because we cannot distinguish between "good" text and "bad" OCR text.
+        return
+    # make a Pixmap without "good" text
+    pix = get_pixmap(displaylist, dpi=dpi, rects=spans)
 
-    if spans:
-        temp_pdf = pymupdf.open()  # create a temporary PDF in memory
-        # insert the page
-        temp_pdf.insert_pdf(
-            page.parent,
-            from_page=page.number,
-            to_page=page.number,
-        )
-        temp_page = temp_pdf[0]
-        for sbbox in spans:
-            # add redaction annotation for each text span
-            temp_page.add_redact_annot(sbbox)
-
-        # remove text
-        temp_page.apply_redactions(
-            images=pymupdf.PDF_REDACT_IMAGE_NONE,
-            graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-            text=pymupdf.PDF_REDACT_TEXT_REMOVE,
-        )
-        # make pixmap from the page where text is removed
-        pixmap = temp_page.get_pixmap(dpi=dpi)
-    # make pixmap if not provided
-    if pixmap is None:
-        pixmap = page.get_pixmap(dpi=dpi)
+    # Converts ENGINE box coordinates to page coordinates
+    matrix = pymupdf.Rect(pix.irect).torect(page.rect)
 
     # make numpy array from pixmap
-    img = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(
-        pixmap.height, pixmap.width, pixmap.n
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+        pix.height,
+        pix.width,
+        3,
     )
-
-    # for converting box coordinates to page coordinates
-    matrix = pymupdf.Rect(pixmap.irect).torect(page.rect)
 
     # Execute RapidOCR
     result, _ = ENGINE(img)
     if not result:
         return
 
-    if fffd_spans:
-        # FFFD spans should have been recognized by OCR.
-        # Remove their digital version to avoid "?" in the output.
-        for sbbox in fffd_spans:
+    # Remove all OCR and illegible spans from the page.
+    # The OCR engine will restore them according to its best ability.
+    redaction_rects = fffd_spans + ocr_spans
+    if redaction_rects:
+        for sbbox in redaction_rects:
             page.add_redact_annot(sbbox)
         page.apply_redactions(
             images=pymupdf.PDF_REDACT_IMAGE_NONE,
             graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
             text=pymupdf.PDF_REDACT_TEXT_REMOVE,
         )
+
     # insert the font into the page if not already present
     page.insert_font(fontname=FONTNAME, fontbuffer=FONT.buffer)
 
     # Insert recognized text
     for box, text, conf in result:
-
-        # PaddleOCR box: 4 points (tl, tr, br, bl)
-        tl, tr, br, bl = box
-        rect = pymupdf.Rect(tl[0], tl[1], br[0], br[1]) * matrix
-
+        # PaddleOCR box: 4 point-likes (tl, tr, br, bl)
+        rect = (
+            pymupdf.Rect(
+                min(p[0] for p in box),
+                min(p[1] for p in box),
+                max(p[0] for p in box),
+                max(p[1] for p in box),
+            )
+            * matrix
+        )
         if not text.strip():
             continue
 
         fontsize = rect.height
+        # Text width scaling matrix ensures text width = box width
         mat = adjust_width(text, fontsize, rect)
 
         page.insert_text(
@@ -153,6 +148,5 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
             text,
             fontsize=fontsize,
             fontname=FONTNAME,
-            render_mode=0,  # standard PDF text rendering
             morph=(rect.bl, mat),
         )
