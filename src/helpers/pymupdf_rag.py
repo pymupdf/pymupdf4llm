@@ -36,6 +36,7 @@ CA 94129, USA, for further information.
 """
 
 import os
+import re
 import string
 from binascii import b2a_base64
 from collections import defaultdict
@@ -470,7 +471,13 @@ def to_markdown(
             middle = (hot.tl + hot.br) / 2  # middle point of hot area
             if not middle in bbox:
                 continue  # does not touch the bbox
-            text = f'[{span["text"].strip()}]({link["uri"]})'
+            text = span['text'].strip()
+            uri = link['uri']
+            # Escape characters that would mess up the generated markdown.
+            # See: https://bugs.ghostscript.com/show_bug.cgi?id=709173.
+            for c in '()\n':
+                uri = uri.replace(c, f'%{hex(ord(c))}')
+            text = f'[{text}]({uri})'
             return text
 
     def save_image(parms, rect, i):
