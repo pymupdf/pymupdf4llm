@@ -41,6 +41,3 @@ def test_image_analyzer():
 
     with open(path_export, 'w', encoding='utf8') as f:
         f.write(actual)
-
-if __name__ == "__main__":
-    test_image_analyzer()

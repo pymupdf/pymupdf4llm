@@ -4,18 +4,12 @@ import textwrap
 
 import pipcl
 
-VERSION = "1.27.2.3"
+VERSION = "0.2.0"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 
-# We build with, and run with, a particular PyMuPDF version usually, but not
-# always, the same as our version.
-#
-pymupdf_version = VERSION
+pymupdf_version = "1.27.2"
 
-# We build with, and run with, a particular pymupdf_layout version usually, but
-# not always, the same as our version.
-#
-pymupdf_layout_version = VERSION
+pymupdf_layout_version = "1.27.2"
 
 
 PYMUPDF_SETUP_VERSION = os.environ.get("PYMUPDF_SETUP_VERSION")
@@ -57,7 +51,7 @@ p = pipcl.Package(
     "pymupdf4llm-tsr",
     VERSION,
     requires_dist=requires_dist,
-    requires_python=">=3.13",
+    requires_python=">=3.10",
     pure=True,
     author="TSR",
     author_email="tusharsoni.info@gmail.com",
