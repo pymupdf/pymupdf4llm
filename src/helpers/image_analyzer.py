@@ -1,4 +1,5 @@
 import base64
+import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from functools import lru_cache
@@ -63,6 +64,11 @@ class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
     """
     def __init__(self, model_name: str = "Qwen/Qwen3.5-0.8B", device_map: str = "auto"):
         super().__init__(model=model_name)
+        warnings.warn(
+            "HuggingFaceImageAnalyzer is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self._model_name = model_name
         self.device_map = device_map
 
@@ -155,13 +161,19 @@ class GroqImageAnalyzer(BaseImageAnalyzer):
         return (response.choices[0].message.content or "").strip()
 
 
-# NOTE: This class is not tested yet
 class OpenAIImageAnalyzer(BaseImageAnalyzer):
     """
     Analyze images using OpenAI models.
     """
-    def __init__(self, model_name: str = "gpt-4o"):
+    def __init__(
+            self, 
+            api_key: str,
+            base_url: str,
+            model_name: str,
+        ):
         super().__init__(model=model_name)
+        self.api_key = api_key
+        self.base_url = base_url
         self._model_name = model_name
 
 
@@ -176,7 +188,10 @@ class OpenAIImageAnalyzer(BaseImageAnalyzer):
 
         img_base64 = self._encode_image_to_base64(img)
 
-        client = openai.OpenAI()
+        client = openai.OpenAI(
+            api_key = self.api_key,
+            base_url = self.base_url
+        )
         response = client.chat.completions.create(
             messages = [
                 {
@@ -198,90 +213,3 @@ class OpenAIImageAnalyzer(BaseImageAnalyzer):
         )
 
         return (response.choices[0].message.content or "").strip()
-    
-class LlamaCppImageAnalyzer(BaseImageAnalyzer):
-    """
-    Analyze images using llama-cpp-python lib.
-    """
-    def __init__(
-            self, 
-            model_name: str = "unsloth/gemma-4-E4B-it-GGUF", 
-            filename: str = "gemma-4-E4B-it-UD-Q4_K_XL.gguf", 
-            chat_handler=None, 
-            device: str = "cuda",
-            n_ctx: int = 131072,
-            flash_attn: bool = True,
-            verbose: bool = False,
-        ):
-        super().__init__(model=model_name)
-        self._model_name = model_name
-        self.filename = filename
-        self.chat_handler = chat_handler
-        self.device = device
-        self.n_ctx = n_ctx
-        self.flash_attn = flash_attn
-        self.verbose = verbose
-    @lru_cache(maxsize=None)
-    def _load_model(self):
-        try:
-            from llama_cpp import Llama
-        except ImportError:
-            raise ImportError(
-                "`llama_cpp` package not found. please install it with "
-                "`pip install llama-cpp-python`"
-            )
-        
-        if self.device == "cuda":
-            n_gpu_layers = -1  # offload all layers to GPU
-        elif self.device == "cpu":
-            n_gpu_layers = 0  # run all layers on CPU
-        else:
-            raise ValueError("device must be either 'cuda' or 'cpu'")
-
-        llm = Llama.from_pretrained(
-            repo_id=self._model_name,
-            filename=self.filename,
-            chat_handler=self.chat_handler,
-            n_gpu_layers=n_gpu_layers,
-            n_ctx=self.n_ctx,
-            flash_attn=self.flash_attn,
-            verbose=self.verbose,
-        )
-        
-        return llm
-
-    def analyze_image(self, img: str | bytes) -> str:
-        try:
-            from llama_cpp import Llama
-        except ImportError:
-            raise ImportError(
-                "`llama_cpp` package not found. please install it with "
-                "`pip install llama-cpp-python`"
-            )
-
-        img_base64 = self._encode_image_to_base64(img)
-
-        llm = self._load_model()
-
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": _PROMPT_IMAGE_ANALYSIS},
-                    {
-                        "type": "image_url", 
-                        "image_url": {
-                            "url": f"data:image/png;base64,{img_base64}"
-                        }
-                    },
-                ],
-            },
-        ]
-
-        response = llm.create_chat_completion(
-            messages=messages,
-            max_tokens=self.max_output_tokens,
-            temperature=self.temperature,
-        )
-
-        return response["choices"][0]["message"]["content"].strip()
