@@ -685,7 +685,6 @@ class ParsedDocument:
     image_format: str = "png"  # 'png' or 'jpg'
     image_path: str = ""  # path to save images
     use_ocr: OCRMode = OCRMode.SELECT_REMOVING_OLD  # if beneficial invoke OCR
-    analyze_image: Optional[BaseImageAnalyzer] = None
 
     def to_markdown(
         self,
@@ -991,8 +990,8 @@ def parse_document(
     pages=None,
     show_progress=False,
     embed_images=False,
-    analyze_image: Optional[BaseImageAnalyzer] = None,
     write_images=False,
+    analyze_image: Optional[BaseImageAnalyzer] = None,
     force_text=False,
     use_ocr=OCRMode.SELECT_REMOVING_OLD,
     force_ocr=False,

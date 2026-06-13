@@ -132,7 +132,6 @@ def _layout_to_json(
     force_ocr=False,
     ocr_language="eng",
     ocr_function=None,
-    analyze_image=None,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -150,7 +149,6 @@ def _layout_to_json(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
-        analyze_image=analyze_image,
     )
     return parsed_doc.to_json()
 

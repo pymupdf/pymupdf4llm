@@ -13,8 +13,8 @@ class BaseImageAnalyzer(ABC):
         self,
         model: str,
         prompt: str = _PROMPT_IMAGE_ANALYSIS,
-        max_output_tokens: int = 1024,
-        temperature: float = 0.6,
+        max_output_tokens: int = 2048,
+        temperature: float = 0.7,
     ) -> None:
         """
         Initialize the ImageAnalyzer.
@@ -33,18 +33,53 @@ class BaseImageAnalyzer(ABC):
         self.max_output_tokens = max_output_tokens
         self.temperature = temperature
 
-    def _encode_image_to_base64(self, img: str | bytes) -> str:
-        if isinstance(img, bytes):
-            base64_image = base64.b64encode(img).decode('utf-8')
-            return base64_image
+    
+    def image_filter(
+        self,
+        img: str | bytes,
+        max_size: int = 1024,
+        sharpness_factor: float = 1.5,
+        contrast_factor: float = 1.3,
+    ) -> str:
+        """Pre-process image by applying sharpening, contrast enhancement, and resizing,
+        then encode to base64.
 
-        if isinstance(img, str):
-            image_bytes = Path(img).read_bytes()
-            base64_image = base64.b64encode(image_bytes).decode('utf-8')
-            return base64_image
+        Args:
+            img: Image bytes or file path.
+            max_size: max_size: Maximum dimension for the longest side; image is scaled down proportionally if larger or vice versa.
+            sharpness_factor: Sharpness enhancement factor (1.0 = original).
+            contrast_factor: Contrast enhancement factor (1.0 = original).
 
-        raise ValueError("image must be image bytes or a file path string.")
+        Returns:
+            Base64-encoded PNG string.
+        """
+        try:
+            from PIL import Image, ImageEnhance
+            import io
+        except ImportError as exc:
+            raise ImportError(
+                "`pillow` package not found. Please install it with `pip install pillow`"
+            ) from exc
 
+        raw = img if isinstance(img, bytes) else Path(img).read_bytes()
+        image = Image.open(io.BytesIO(raw)).convert("RGB")
+
+        w, h = image.size
+        if max(w, h) > max_size:
+            if w > h:
+                image = image.resize((max_size, int(h * (max_size / w))), Image.LANCZOS)
+            else:
+                image = image.resize((int(w * (max_size / h)), max_size), Image.LANCZOS)
+
+        image = ImageEnhance.Sharpness(image).enhance(sharpness_factor)
+        image = ImageEnhance.Contrast(image).enhance(contrast_factor)
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        png_bytes = buf.getvalue()
+
+        base64_image = base64.b64encode(png_bytes).decode('utf-8')
+        return base64_image
+    
     @abstractmethod
     def analyze_image(self, img: str | bytes) -> str:
         """Analyze an image using the provided language model.
@@ -62,7 +97,13 @@ class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
     """
     Analyze images using Hugging Face pipeline.
     """
-    def __init__(self, model_name: str = "Qwen/Qwen3.5-0.8B", device_map: str = "auto"):
+    def __init__(
+            self, 
+            model_name: str = "Qwen/Qwen3.5-0.8B", 
+            device_map: str = "auto",
+            temperature: float = 0.7,
+            max_output_tokens: int = 2048
+        ):
         super().__init__(model=model_name)
         warnings.warn(
             "HuggingFaceImageAnalyzer is deprecated and will be removed in a future version.",
@@ -71,6 +112,8 @@ class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
         )
         self._model_name = model_name
         self.device_map = device_map
+        self.temperature = temperature
+        self.max_output_tokens = max_output_tokens
 
         # Suppress all warnings
         from transformers import logging
@@ -91,7 +134,7 @@ class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
         return pipe
 
     def analyze_image(self, img: str | bytes) -> str:
-        img_base64 = self._encode_image_to_base64(img)
+        img_base64 = self.image_filter(img)
         messages = [
             {
                 "role": "user",
@@ -121,9 +164,17 @@ class GroqImageAnalyzer(BaseImageAnalyzer):
     """
     Analyze images using Groq models.
     """
-    def __init__(self, model_name: str = "meta-llama/llama-4-scout-17b-16e-instruct"):
+    def __init__(
+            self, 
+            api_key: str,
+            model_name: str = "meta-llama/llama-4-scout-17b-16e-instruct",
+            temperature: float = 0.7,
+            max_output_tokens: int = 2048
+        ):
         super().__init__(model=model_name)
         self._model_name = model_name
+        self.temperature = temperature
+        self.max_output_tokens = max_output_tokens
 
 
     def analyze_image(self, img: str | bytes) -> str:
@@ -135,7 +186,7 @@ class GroqImageAnalyzer(BaseImageAnalyzer):
                 "`pip install groq`"
             )
 
-        img_base64 = self._encode_image_to_base64(img)
+        img_base64 = self.image_filter(img)
 
         client = groq.Client()
         response = client.chat.completions.create(
@@ -170,11 +221,15 @@ class OpenAIImageAnalyzer(BaseImageAnalyzer):
             api_key: str,
             base_url: str,
             model_name: str,
+            temperature: float = 0.7,
+            max_output_tokens: int = 2048
         ):
         super().__init__(model=model_name)
         self.api_key = api_key
         self.base_url = base_url
         self._model_name = model_name
+        self.temperature = temperature
+        self.max_output_tokens = max_output_tokens
 
 
     def analyze_image(self, img: str | bytes) -> str:
@@ -186,7 +241,7 @@ class OpenAIImageAnalyzer(BaseImageAnalyzer):
                 "`pip install openai`"
             )
 
-        img_base64 = self._encode_image_to_base64(img)
+        img_base64 = self.image_filter(img)
 
         client = openai.OpenAI(
             api_key = self.api_key,

@@ -9,7 +9,9 @@ dotenv.load_dotenv()
 analyzer = OpenAIImageAnalyzer(
     api_key=os.getenv("OPENAI_API_KEY"), 
     base_url=os.getenv("OPENAI_BASE_URL"), 
-    model_name=os.getenv("OPENAI_MODEL_NAME")
+    model_name=os.getenv("OPENAI_MODEL_NAME"),
+    temperature=0.7,
+    max_output_tokens=2048,
 )
 
 def test_image_analyzer():
@@ -23,6 +25,7 @@ def test_image_analyzer():
                 header=False,  # include/omit page headers
                 footer=False,  # include/omit page footers
                 force_text=False,
+                dpi=300,
                 analyze_image=analyzer,
             )
 
