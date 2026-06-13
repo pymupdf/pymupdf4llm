@@ -4,7 +4,7 @@ import textwrap
 
 import pipcl
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 
 pymupdf_version = "1.27.2"

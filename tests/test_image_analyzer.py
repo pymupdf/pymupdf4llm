@@ -1,12 +1,12 @@
 import os
 import dotenv
-from src.helpers.image_analyzer import OpenAIImageAnalyzer
+from pymupdf4llm.helpers.image_analyzer import OpenAIImageAnalyzer
 import pymupdf
-import src
+import pymupdf4llm
 
 dotenv.load_dotenv()
 
-model = OpenAIImageAnalyzer(
+analyzer = OpenAIImageAnalyzer(
     api_key=os.getenv("OPENAI_API_KEY"), 
     base_url=os.getenv("OPENAI_BASE_URL"), 
     model_name=os.getenv("OPENAI_MODEL_NAME")
@@ -14,18 +14,16 @@ model = OpenAIImageAnalyzer(
 
 def test_image_analyzer():
     
-    path = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer.pdf')
+    doc_path = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer.pdf')
     path_export = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer2.md')
     
-    with pymupdf.open(path) as document:
-        actual = src.to_markdown(
+    with pymupdf.open(doc_path) as document:
+        actual = pymupdf4llm.to_markdown(
                 document,
                 header=False,  # include/omit page headers
                 footer=False,  # include/omit page footers
-                show_progress=False,
                 force_text=False,
-                page_separators=False,
-                # analyze_image=model,
+                analyze_image=analyzer,
             )
 
     with open(path_export, 'w', encoding='utf8') as f:

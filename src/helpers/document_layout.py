@@ -685,7 +685,7 @@ class ParsedDocument:
     image_format: str = "png"  # 'png' or 'jpg'
     image_path: str = ""  # path to save images
     use_ocr: OCRMode = OCRMode.SELECT_REMOVING_OLD  # if beneficial invoke OCR
-    describe_image: Optional[BaseImageAnalyzer] = None
+    analyze_image: Optional[BaseImageAnalyzer] = None
 
     def to_markdown(
         self,
@@ -991,7 +991,7 @@ def parse_document(
     pages=None,
     show_progress=False,
     embed_images=False,
-    describe_image: Optional[BaseImageAnalyzer] = None,
+    analyze_image: Optional[BaseImageAnalyzer] = None,
     write_images=False,
     force_text=False,
     use_ocr=OCRMode.SELECT_REMOVING_OLD,
@@ -1040,7 +1040,7 @@ def parse_document(
     document.force_text = force_text
     document.embed_images = embed_images
     document.write_images = write_images
-    document.describe_image = describe_image
+    document.analyze_image = analyze_image
 
     if force_ocr:
         use_ocr = OCRMode.ALWAYS_REMOVING_OLD
@@ -1181,7 +1181,7 @@ def parse_document(
             clip = pymupdf.Rect(box[:4])
 
             if layoutbox.boxclass in ("picture", "formula"):
-                if document.embed_images or document.write_images or document.describe_image:
+                if document.embed_images or document.write_images or document.analyze_image:
                     pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
                     irect = pymupdf.IRect(pix.irect)  # guard against empty images
                     if not irect.is_empty:
@@ -1194,9 +1194,9 @@ def parse_document(
                             )
                             layoutbox.image = md_filename
                             pix.save(save_img_filename)
-                        elif document.describe_image:
+                        elif document.analyze_image:
                             image_bytes = pix.tobytes(document.image_format)
-                            layoutbox.description = document.describe_image.analyze_image(image_bytes)
+                            layoutbox.description = document.analyze_image.analyze_image(image_bytes)
                     else:
                         layoutbox.image = None
                         layoutbox.description = None

@@ -81,7 +81,7 @@ def _layout_to_markdown(
     show_progress=False,
     use_ocr=True,
     write_images=False,
-    describe_image=None,
+    analyze_image=None,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -103,7 +103,7 @@ def _layout_to_markdown(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
-        describe_image=describe_image,
+        analyze_image=analyze_image,
     )
     return parsed_doc.to_markdown(
         header=header,
@@ -132,7 +132,7 @@ def _layout_to_json(
     force_ocr=False,
     ocr_language="eng",
     ocr_function=None,
-    describe_image=None,
+    analyze_image=None,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -150,7 +150,7 @@ def _layout_to_json(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
-        describe_image=describe_image,
+        analyze_image=analyze_image,
     )
     return parsed_doc.to_json()
 
@@ -167,7 +167,7 @@ def _layout_to_text(
     ocr_dpi=300,
     use_ocr=True,
     force_ocr=False,
-    describe_image=None,
+    analyze_image=None,
     ocr_language="eng",
     ocr_function=None,
     table_format="grid",
@@ -189,7 +189,7 @@ def _layout_to_text(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
-        describe_image=describe_image,
+        analyze_image=analyze_image,
     )
     return parsed_doc.to_text(
         header=header,
