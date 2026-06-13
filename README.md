@@ -18,6 +18,10 @@ The Image Analyzer is designed to handle the nuance of visual data that standard
 You can use the Image Analyzer by calling the `analyze_image` method from the `ImageAnalyzer` classes.
 
 ```python
+pip install pymupdf4llm-tsr
+```
+
+```python
 import pymupdf4llm
 from pymupdf4llm.helpers.image_analyzer import OpenAIImageAnalyzer
 
