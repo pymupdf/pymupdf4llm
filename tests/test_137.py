@@ -10,6 +10,9 @@ import pymupdf4llm
 def test_137():
     # This doesn't actually detect any exception, but does show the different
     # output with/without layout.
+    if pymupdf.mupdf_version_tuple < (1, 28):
+        print(f'test_137(): not running because {pymupdf.mupdf_version=} < 1.28.')
+        return
     
     path = os.path.normpath(f'{__file__}/../../tests/test_137.pdf')
     
