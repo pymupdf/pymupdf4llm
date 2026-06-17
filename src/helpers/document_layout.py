@@ -21,6 +21,8 @@ try:
 except ImportError:
     from pymupdf4llm.helpers.progress import ProgressBar
 
+from dataclasses import dataclass
+
 pymupdf.TOOLS.unset_quad_corrections(True)
 
 INFO_MESSAGES = io.StringIO()
@@ -36,6 +38,42 @@ FLAGS = (
     | pymupdf.TEXT_IGNORE_ACTUALTEXT
 )
 BULLETS = tuple(utils.BULLETS)
+
+
+def get_table_details(tab_dict, table_blocks):
+    tab_det = TableDetails()
+    tab_det.bbox = tab_dict["group_bbox"]
+    x0, y0, x1, y1 = tab_det.bbox
+    grid = tab_dict.get("table_grid")
+    cells = []
+    extract = []
+    md_cells = []
+    h_lines = [y0] + [h + y0 for h in grid.h_lines] + [y1]
+    v_lines = [x0] + [v + x0 for v in grid.v_lines] + [x1]
+    tab_det.row_count = len(h_lines) - 1
+    tab_det.col_count = len(v_lines) - 1
+    for i in range(tab_det.row_count):
+        row = []
+        text_row = []
+        md_row = []
+        for j in range(tab_det.col_count):
+            cell_bbox = (v_lines[j], h_lines[i], v_lines[j + 1], h_lines[i + 1])
+            row.append(cell_bbox)
+            text = utils.extract_cells(
+                table_blocks, cell_bbox, markdown=False, ocrpage=False
+            )
+            text_row.append(text)
+            md_text = utils.extract_cells(
+                table_blocks, cell_bbox, markdown=True, ocrpage=False
+            )
+            md_row.append(md_text)
+        cells.append(row)
+        extract.append(text_row)
+        md_cells.append(md_row)
+    tab_det.cells = cells
+    tab_det.extract = extract
+    tab_det.markdown = utils.table_to_markdown(md_cells)
+    return tab_det
 
 
 def wrap_table_for_tabulate(table, max_width=100, min_col_width=10):
@@ -99,13 +137,8 @@ def make_page_chunk(doc, page, text, string_lengths) -> Dict:
         page_boxes.append(
             {
                 "index": i,
-                "class": b.boxclass if b.boxclass != "table-fallback" else "table",
-                "bbox": (
-                    math.floor(b.x0),
-                    math.floor(b.y0),
-                    math.ceil(b.x1),
-                    math.ceil(b.y1),
-                ),
+                "class": b.boxclass,
+                "bbox": tuple(pymupdf.IRect(b.x0, b.y0, b.x1, b.y1)),
                 "pos": (start, stop),
             }
         )
@@ -402,27 +435,51 @@ def get_styled_text(spans):
     output = ""
     old_line = 0
     old_block = 0
-    suffix = ""
+
     for i, s in enumerate(spans):
-        # decode font properties
-        prefix = ""
+        # decode font flags and char_flags properties
         superscript = s["flags"] & 1
-        mono = s["flags"] & 8 and s["font"] != OCR_FONTNAME
-        bold = s["flags"] & 16 or s["char_flags"] & 8
+        mono = s["flags"] & 8 and not s["font"].startswith(OCR_FONTNAME)
+        bold = s["flags"] & 16 or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
         italic = s["flags"] & 2
-        strikeout = s["char_flags"] & 1
+        strikeout = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
+        underline = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE
+        highlight = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_HIGHLIGHT
 
         # compute styling prefix and suffix
-        if mono:
-            prefix = "`" + prefix
-        if bold:
-            prefix = "**" + prefix
-        if italic:
-            prefix = "_" + prefix
-        if strikeout:
-            prefix = "~~" + prefix
+        prefix = []
+        suffix = []
 
-        suffix = "".join(reversed(prefix))  # reverse of prefix
+        if superscript:
+            prefix.append("<sup>")
+            suffix.append("</sup>")
+
+        if mono:
+            prefix.append("`")
+            suffix.append("`")
+
+        if bold:
+            prefix.append("**")
+            suffix.append("**")
+
+        if italic:
+            prefix.append("_")
+            suffix.append("_")
+
+        if strikeout:
+            prefix.append("~~")
+            suffix.append("~~")
+
+        if underline:
+            prefix.append("<u>")
+            suffix.append("</u>")
+
+        if highlight:
+            prefix.append("<mark>")
+            suffix.append("</mark>")
+
+        prefix = "".join(prefix)
+        suffix = "".join(reversed(suffix))
 
         span_text = s["text"].strip()  # remove leading/trailing spaces
         # convert intersecting link to markdown syntax
@@ -445,8 +502,8 @@ def get_styled_text(spans):
             ):
                 output = output[:-1]
                 text = span_text + suffix + " "
-            elif superscript:
-                text = span_text + suffix + " "
+            # elif superscript:
+            #     text = span_text + suffix + " "
             else:
                 text = " " + span_text + suffix + " "
 
@@ -541,11 +598,9 @@ def footnote_to_md(textlines):
     return output + "\n\n"
 
 
-def section_hdr_to_md(textlines):
+def section_hdr_to_md(header_level, textlines):
     """
     Convert "section-header" bboxes to markdown.
-    This is treated as a level 2 header (##).
-    The line text itself is handled like normal text.
     """
     spans = []
     for l in textlines:
@@ -553,14 +608,14 @@ def section_hdr_to_md(textlines):
             assert isinstance(s, dict)
             spans.append(s)
     output, suffix = get_styled_text(spans)
-    return f"## {output}\n\n"
+    return f"{'#' * header_level} {output}\n\n"
 
 
-def title_to_md(textlines):
+def title_to_md(header_level, textlines):
     """
     Convert "title" bboxes to markdown.
-    This is treated as a level 1 header (#).
     The line text itself is handled like normal text.
+    TODO: Consider joining with section_hdr.
     """
     spans = []
     for l in textlines:
@@ -568,7 +623,7 @@ def title_to_md(textlines):
             assert isinstance(s, dict)
             spans.append(s)
     output, suffix = get_styled_text(spans)
-    return f"# {output}\n\n"
+    return f"{'#' * header_level} {output}\n\n"
 
 
 def code_block_to_md(textlines):
@@ -641,6 +696,16 @@ def fallback_text_to_md(textlines, ignore_code: bool = False, clip=None):
 
 
 @dataclass
+class TableDetails:
+    bbox: tuple = None
+    row_count: int = None
+    col_count: int = None
+    cells: list = None  # list of list of cell bbox coordinates
+    extract: list = None  # list of list of cell plain text content
+    markdown: str = None  # table markdown content
+
+
+@dataclass
 class LayoutBox:
     x0: float
     y0: float
@@ -655,6 +720,8 @@ class LayoutBox:
     table: Optional[Dict] = None
 
     # text line information for text-type boxclasses
+    max_fontsize: Optional[int] = None
+    header_level: Optional[int] = 0  # one of 1..6 for title/section-header
     textlines: Optional[List[Dict]] = None
 
 
@@ -728,7 +795,7 @@ class ParsedDocument:
                     continue
 
                 # pictures and formulas: either write image file or embed
-                if btype in ("picture", "formula", "table-fallback"):
+                if btype in ("picture", "formula"):
                     if isinstance(box.image, str):
                         md_string += GRAPHICS_TEXT % box.image + "\n\n"
                     elif isinstance(box.image, bytes):
@@ -743,12 +810,6 @@ class ParsedDocument:
                     if box.textlines:
                         if btype == "picture":
                             md_string += picture_text_to_md(
-                                box.textlines,
-                                ignore_code=ignore_code or page.full_ocred,
-                                clip=clip,
-                            )
-                        elif btype == "table-fallback":
-                            md_string += fallback_text_to_md(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
                                 clip=clip,
@@ -768,10 +829,10 @@ class ParsedDocument:
                     string_lengths.append(len(md_string))
                     continue
                 if btype == "title":
-                    md_string += title_to_md(box.textlines)
+                    md_string += title_to_md(box.header_level, box.textlines)
                     string_lengths.append(len(md_string))
                 elif btype == "section-header":
-                    md_string += section_hdr_to_md(box.textlines)
+                    md_string += section_hdr_to_md(box.header_level, box.textlines)
                     string_lengths.append(len(md_string))
                 elif btype == "list-item":
                     md_string += list_item_to_md(box.textlines, list_item_levels[i])
@@ -859,21 +920,13 @@ class ParsedDocument:
                 if btype == "page-footer" and footer is False:
                     string_lengths.append(len(text_string))
                     continue
-                if btype in ("picture", "formula", "table-fallback"):
-                    # text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
-                    if box.textlines:
-                        if btype == "picture":
-                            text_string += picture_text_to_text(
-                                box.textlines,
-                                ignore_code=ignore_code or page.full_ocred,
-                                clip=clip,
-                            )
-                        elif btype == "table-fallback":
-                            text_string += fallback_text_to_text(
-                                box.textlines,
-                                ignore_code=ignore_code or page.full_ocred,
-                                clip=clip,
-                            )
+                if btype in ("picture", "formula"):
+                    if box.textlines and btype == "picture":
+                        text_string += picture_text_to_text(
+                            box.textlines,
+                            ignore_code=ignore_code or page.full_ocred,
+                            clip=clip,
+                        )
                     string_lengths.append(len(text_string))
 
                 elif btype == "table":
@@ -968,6 +1021,18 @@ def select_ocr_function():
             return paddleocr_api.exec_ocr
 
 
+def update_header_tags(pages, header_fontsizes):
+    """Update title/section-header boxes with HTML header tags."""
+    header_fontsizes = sorted(header_fontsizes, reverse=True)[:6]
+    for page in pages:
+        for box in page.boxes:
+            if box.boxclass in ("title", "section-header"):
+                if box.max_fontsize >= header_fontsizes[-1]:
+                    box.header_level = header_fontsizes.index(box.max_fontsize) + 1
+                else:
+                    box.header_level = 6
+
+
 def parse_document(
     doc,
     filename="",
@@ -980,7 +1045,7 @@ def parse_document(
     embed_images=False,
     write_images=False,
     force_text=False,
-    use_ocr=OCRMode.SELECT_REMOVING_OLD,
+    use_ocr=OCRMode.SELECT_PRESERVING_OLD,
     force_ocr=False,
     ocr_language="eng",
     ocr_function=None,
@@ -1013,6 +1078,10 @@ def parse_document(
 
     if embed_images and write_images:
         raise ValueError("Cannot both embed and write images.")
+
+    # collect font sizes of title and section_header
+    header_fontsizes = set()
+
     document = ParsedDocument()
     document.filename = mydoc.name if mydoc.name else filename
     document.toc = mydoc.get_toc(simple=True)
@@ -1119,31 +1188,28 @@ def parse_document(
         blocks = textpage.extractDICT()["blocks"]
 
         # Execute the Layout module AFTER any OCR
-        page.get_layout()
+        page.get_layout(return_raw=True)
 
         # Determine if any tables are present. If False, we skip any table-related efforts.
-        tables_exist = any(b for b in page.layout_information if b[4] == "table")
+        tables_exist = any(
+            b for b in page.layout_information if b["class_name"] == "table"
+        )
+        table_infos = {}
+        new_layout_info = []
+        for b in page.layout_information:
+            bbox = tuple(b["group_bbox"] + [b["class_name"]])
+            new_layout_info.append(bbox)
+            if b["class_name"] == "table":
+                key = tuple(pymupdf.IRect(b["group_bbox"]))
+                table_infos[key] = b
+        page.layout_information = new_layout_info
         if not page_full_ocred:
             utils.clean_pictures(page, blocks)
             utils.add_image_orphans(page, blocks)
-            if tables_exist:
-                utils.clean_tables(page, blocks)
 
         page.layout_information = utils.find_reading_order(
             page.rect, blocks, page.layout_information
         )
-
-        # identify vector graphics to help find tables
-        if tables_exist and not page_full_ocred:
-            all_lines, all_boxes = utils.complete_table_structure(page)
-        else:
-            all_lines, all_boxes = [], []
-        if tables_exist:
-            tbf = page.find_tables(
-                strategy="lines_strict", add_lines=all_lines, add_boxes=all_boxes
-            )
-        else:
-            tbf = None
         fulltext = [b for b in blocks if b["type"] == 0]
         if tables_exist:
             # tables are present on page:
@@ -1206,76 +1272,24 @@ def parse_document(
                     ]
 
             elif layoutbox.boxclass == "table":
-                # This is either a table detected by native TableFinder or by
-                # MuPDF's table structure recognition (which may fail).
-                # If the structure was not detected, we output an image.
-                # A table is represented as a dict with bbox, row_count,
-                # col_count, cells, extract (2D list of cell texts), and the
-                # markdown string.
+                search_key = (layoutbox.x0, layoutbox.y0, layoutbox.x1, layoutbox.y1)
 
-                try:  # guard against table structure detection failure
-                    table = [
-                        tab
-                        for tab in tbf.tables
-                        if pymupdf.table._iou(tab.bbox, clip) > 0.6
-                    ][0]
-                    cells = [[c for c in row.cells] for row in table.rows]
-                    row_count = table.row_count
-                    if table.header.external:  # if header is outside table
-                        cells.insert(0, table.header.cells)  # insert a row
-                        row_count += 1  # increase row count
+                # Because of intermediate processing, the bbox might not match
+                # the original exactly. So we need to take the best fit.
+                key = max(table_infos.keys(), key=lambda k: utils.iou(k, search_key))
 
-                    layoutbox.table = {
-                        "bbox": list(table.bbox),
-                        "row_count": row_count,
-                        "col_count": table.col_count,
-                        "cells": cells,
-                    }
+                tab_dict = table_infos.get(key)
+                tab_details = get_table_details(tab_dict, table_blocks)
 
-                    layoutbox.table["extract"] = utils.table_extract(
-                        table_blocks,
-                        layoutbox,
-                        ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
-                    )
+                layoutbox.table = {
+                    "bbox": list(tab_details.bbox),
+                    "row_count": tab_details.row_count,
+                    "col_count": tab_details.col_count,
+                    "cells": tab_details.cells,
+                    "extract": tab_details.extract,
+                    "markdown": tab_details.markdown,
+                }
 
-                    layoutbox.table["markdown"] = utils.table_to_markdown(
-                        table_blocks,
-                        layoutbox,
-                        ocrpage=(pagelayout.full_ocred or pagelayout.text_ocred),
-                        markdown=True,
-                    )
-
-                except Exception as e:
-                    layoutbox.boxclass = "table-fallback"
-                    # table structure not detected: treat like an image
-                    if document.embed_images or document.write_images:
-                        pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
-                        if document.embed_images:
-                            layoutbox.image = pix.tobytes(document.image_format)
-                        elif document.write_images:
-                            img_filename = f"{document.filename}-{page.number+1:04d}-{len(pagelayout.boxes):02d}.{document.image_format}"
-                            md_filename, save_img_filename = utils.md_path(
-                                document.image_path, img_filename
-                            )
-                            layoutbox.image = md_filename
-                            pix.save(save_img_filename)
-                    else:
-                        layoutbox.image = None
-                    layoutbox.textlines = [
-                        {"bbox": l[0], "spans": l[1]}
-                        for l in get_raw_lines(
-                            textpage=None,
-                            blocks=pagelayout.fulltext,
-                            clip=clip,
-                            ignore_invisible=not pagelayout.full_ocred,
-                        )
-                    ]
-                    if layoutbox.textlines and (
-                        len(layoutbox.textlines) == 1
-                        or max(len(l["spans"]) for l in layoutbox.textlines) < 2
-                    ):
-                        # treat as text if only one line or only one span per line:
-                        layoutbox.boxclass = "text"
             else:
                 # Handle text-like box classes:
                 # Extract text line information within the box.
@@ -1289,6 +1303,17 @@ def parse_document(
                         ignore_invisible=not pagelayout.full_ocred,
                     )
                 ]
+                # for each title/section_header compute and store the maximum
+                # font size, to be used as a signal for header "#" prefix
+                if layoutbox.boxclass in ("title", "section-header"):
+                    max_fontsize = 0
+                    for line in layoutbox.textlines:
+                        for span in line["spans"]:
+                            size = round(span["size"])
+                            max_fontsize = max(max_fontsize, size)
+                    header_fontsizes.add(max_fontsize)
+                    layoutbox.max_fontsize = max_fontsize
+
             pagelayout.boxes.append(layoutbox)
         document.pages.append(pagelayout)
     if mydoc != doc:
@@ -1298,6 +1323,8 @@ def parse_document(
         pymupdf.message("=== Document parser messages ===")
         pymupdf.message(msg_text)
         INFO_MESSAGES.truncate(0)  # empty the file-like object
+    # Update title/section-header boxes with html header tags
+    update_header_tags(document.pages, header_fontsizes)
     return document
 
 

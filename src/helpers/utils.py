@@ -308,120 +308,16 @@ def expand_bbox_by_points(bbox, points):
     return (x0, y0, x1, y1)
 
 
-def table_cleaner(page, blocks, tbbox):
-    """Clean the table bbox 'tbbox'.
-
-    'blocks' is the TextPage.extractDict()["blocks"] list.
-
-    This function must be used AFTER clean_pictures() so we know that tbbox
-    is complete in terms of includable vectors.
-
-    We check whether the table bbox contains non-rect ("tilted") vectors
-    and determine which part of tbbox they cover. If this is too large, we
-    re-classify tbbox as a picture.
-    Else we check whether the tilted vectors only cover some upper part of the
-    result. In that case we separate the top part as a picture and keep
-    the remining area as a table.
-    """
-    bbox = pymupdf.Rect(tbbox[:4])
-
-    # All vectors inside tbbox. Checking for the top-left corner is enough.
-    all_vectors = [
-        (pymupdf.IRect(b["bbox"]), b["isrect"])
-        for b in blocks
-        if b["type"] == 3 and b["bbox"][:2] in bbox
-    ]
-    tilt_vectors = [v for v in all_vectors if not v[1]]
-    # Early exit if no tilted vectors
-    if not tilt_vectors:
-        return None, None
-
-    y0 = min([b[0].y0 for b in tilt_vectors])
-    y1 = max([b[0].y1 for b in tilt_vectors])
-    x0 = min([b[0].x0 for b in tilt_vectors])
-    x1 = max([b[0].x1 for b in tilt_vectors])
-
-    # Rectangle containing all non-rectangle vectors inside the table bbox
-    tilted = pymupdf.Rect(x0, y0, x1, y1)
-
-    # if it covers most of the table bbox, we convert to picture
-    if tilted.width >= bbox.width * 0.8 and tilted.height >= bbox.height * 0.8:
-        return tbbox[:4] + ["picture"], None
-
-    # Extract text spans. Needed for completing the potential picture area.
-    span_rects = [
-        s["bbox"]
-        for b in blocks
-        if b["type"] == 0
-        for l in b["lines"]
-        for s in l["spans"]
-        if s["bbox"] in bbox
-    ]
-
-    # Check if non-rect vectors cover some acceptable upper part of tbbox.
-    if (
-        1
-        and tilted.y1 - bbox.y0 <= bbox.height * 0.3  # 30% of tbbox height
-        and tilted.width >= bbox.width * 0.7  # at least 80% of tbbox width
-    ):
-        tilted.y1 += 2  # add some buffer at the bottom
-
-        # include any text that is part of the picture area
-        for r in span_rects:
-            if tilted.intersects(r):
-                tilted |= r
-
-        picture_box = [bbox.x0, bbox.y0, bbox.x1, tilted.y1, "picture"]
-        table_box = [bbox.x0, tilted.y1 + 1, bbox.x1, bbox.y1, "table"]
-        return picture_box, table_box
-    return None, None
-
-
-def clean_tables(page, blocks):
-    for i in range(len(page.layout_information)):
-        if page.layout_information[i][4] != "table":
-            continue
-        # re-classify some corner cases as "text"
-        # the layout bbox as a Rect
-        bbox = pymupdf.Rect(page.layout_information[i][:4])
-
-        # lines in this bbox
-        lines = [
-            l for b in blocks if b["type"] == 0 for l in b["lines"] if l["bbox"] in bbox
-        ]
-        y_vals0 = sorted(set(round(l["bbox"][3]) for l in lines))
-        if not y_vals0:
-            # no text lines in the table bbox
-            page.layout_information[i][4] = "table-fallback"
-            continue
-        y_vals = [y_vals0[0]]
-        for y in y_vals0[1:]:
-            if y - y_vals[-1] > 3:
-                y_vals.append(y)
-        if len(y_vals) < 2:  # too few distinct line bottoms
-            # too few text lines to be a table
-            page.layout_information[i][4] = "text"
-            continue
-        # our table minimum dimension, rows x cols, is 2 x 2
-        mx_same_baseline = 1
-        for y in y_vals:
-            count = len([l for l in lines if abs(y - l["bbox"][3]) <= 3])
-            if count > mx_same_baseline:
-                mx_same_baseline = count
-                break
-        if mx_same_baseline < 2:
-            # too few text columns to be a table
-            page.layout_information[i][4] = "text"
-            continue
-        rc1, rc2 = table_cleaner(page, blocks, page.layout_information[i])
-        if rc1:
-            if not rc2:
-                page.layout_information[i] = rc1
-            else:
-                page.layout_information[i] = rc2
-                page.layout_information.insert(i, rc1)
-                i += 1
-    return
+def iou(r1, r2):
+    """Compute intersection over union of two rectangles."""
+    ix = max(0, min(r1[2], r2[2]) - max(r1[0], r2[0]))
+    iy = max(0, min(r1[3], r2[3]) - max(r1[1], r2[1]))
+    intersection = ix * iy  # intersection area
+    if not intersection:
+        return 0
+    area1 = (r1[2] - r1[0]) * (r1[3] - r1[1])
+    area2 = (r2[2] - r2[0]) * (r2[3] - r2[1])
+    return intersection / (area1 + area2 - intersection)
 
 
 def clean_pictures(page, blocks):
@@ -435,7 +331,7 @@ def clean_pictures(page, blocks):
     all_bboxes = [pymupdf.Rect(b[:4]) for b in page.layout_information]
 
     for i in range(len(all_bboxes)):
-        if page.layout_information[i][4] not in ("picture", "formula", "table"):
+        if page.layout_information[i][4] not in ("picture", "formula"):
             # no eligible layout box
             continue
 
@@ -934,47 +830,6 @@ def find_virtual_lines(page, table_bbox, words, vectors, link_rects):
     return all_lines, all_boxes
 
 
-def complete_table_structure(page):
-    """Add virtual lines for "table" layout bboxes
-
-    Iterate through all "table" layout boxes on the page's layout_information
-    and return virtual lines and boxes that can help detect table structures.
-
-    Returns:
-        lists of virtual lines and boxes for the page's TableFinder.
-    """
-    all_lines = []
-    all_boxes = []
-    textpage = page.get_textpage(
-        flags=pymupdf.TEXT_ACCURATE_BBOXES
-        | pymupdf.TEXT_COLLECT_VECTORS
-        | pymupdf.TEXT_COLLECT_STYLES
-    )
-    words = page.get_text("words", textpage=textpage)
-    vectors = sorted(
-        [b for b in textpage.extractDICT()["blocks"] if b["type"] == 3 and b["isrect"]],
-        key=lambda v: (v["bbox"][3], v["bbox"][0]),
-    )
-    vectors = simplify_vectors(vectors)
-    link_rects = [l["from"] for l in page.get_links()]
-    for b in page.layout_information:
-        if b[-1] != "table":
-            continue
-        table_bbox = pymupdf.Rect(b[:4])
-        all_boxes.append(table_bbox)
-        lines, boxes = find_virtual_lines(
-            page,
-            table_bbox,
-            words,
-            vectors,
-            link_rects,
-        )
-        all_lines.extend(lines)
-        all_boxes.extend(boxes)
-
-    return all_lines, all_boxes
-
-
 def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
     """Extract text from a rect-like 'cell' as plain or MD styled text.
 
@@ -1031,23 +886,47 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     text += span_text
                     continue
 
-                prefix = ""
-                suffix = ""
-                if horizontal and span["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT:
-                    prefix += "~~"
-                    suffix = "~~" + suffix
-                if span["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD:
-                    prefix += "**"
-                    suffix = "**" + suffix
-                if span["flags"] & pymupdf.TEXT_FONT_ITALIC:
-                    prefix += "_"
-                    suffix = "_" + suffix
-                if not ocrpage and span["flags"] & pymupdf.TEXT_FONT_MONOSPACED:
-                    prefix += "`"
-                    suffix = "`" + suffix
+                # decode font flags and char_flags properties
+                superscript = span["flags"] & 1
+                mono = span["flags"] & 8 and not span["font"].startswith(OCR_FONTNAME)
+                bold = span["flags"] & 16 or span["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+                italic = span["flags"] &  pymupdf.TEXT_FONT_ITALIC
+                strikeout = span["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
+                underline = span["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE
+                highlight = span["char_flags"] & pymupdf.mupdf.FZ_STEXT_HIGHLIGHT
+
+
+                prefix = []
+                suffix = []
+                if superscript:
+                    prefix.append("<sup>")
+                    suffix.append("</sup>")
+
+                if not ocrpage and mono:
+                    prefix.append("`")
+                    suffix.append("`")
+
+                if bold:
+                    prefix.append("**")
+                    suffix.append("**")
+
+                if italic:
+                    prefix.append("_")
+                    suffix.append("_")
+
+                if horizontal and strikeout:
+                    prefix.append("~~")
+                    suffix.append("~~")
+
+                # if highlight:
+                #     prefix.append("<mark>")
+                #     suffix.append("</mark>")
 
                 if len(span_text) > 2:
                     span_text = span_text.rstrip()
+
+                prefix = "".join(prefix)
+                suffix = "".join(reversed(suffix))
 
                 # if span continues previous styling: extend cell text
                 if (ls := len(suffix)) and text.endswith(suffix):
@@ -1066,45 +945,13 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
     return text.strip()
 
 
-def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
+def table_to_markdown(cells):
     output = ""
-    table = table_item.table
-    row_count = table["row_count"]
-    col_count = table["col_count"]
-    cell_boxes = table["cells"]
-    # make empty cell text list
-    cells = [[None for i in range(col_count)] for j in range(row_count)]
-
-    # fill None cells with extracted text
-    # for rows, copy content from left to right
-    for j in range(row_count):
-        for i in range(col_count - 1):
-            if cells[j][i + 1] is None:
-                cells[j][i + 1] = cells[j][i]
-
-    # for columns, copy top to bottom
-    for i in range(col_count):
-        for j in range(row_count - 1):
-            if cells[j + 1][i] is None:
-                cells[j + 1][i] = cells[j][i]
-
-    for i, row in enumerate(cell_boxes):
-        for j, cell in enumerate(row):
-            if cell is not None:
-                cells[i][j] = extract_cells(
-                    table_blocks, cell_boxes[i][j], markdown=markdown, ocrpage=ocrpage
-                )
-    for i, name in enumerate(cells[0]):
-        if name is None:
-            if i > 0:
-                cells[0][i] = cells[0][i - 1]
-            else:
-                cells[0][i] = ""
 
     header = "|" + "|".join(cells[0]) + "|\n"
     output += header
     # insert GitHub header line separator
-    output += "|" + "|".join("---" for i in range(col_count)) + "|\n"
+    output += "|" + "|".join("---" for i in range(len(cells[0]))) + "|\n"
 
     # skip first row in details if header is part of the table
     j = 1  # if self.header.external else 1
@@ -1122,23 +969,3 @@ def table_to_markdown(table_blocks, table_item, markdown=True, ocrpage=False):
         output += line
     return output + "\n"
 
-
-def table_extract(table_blocks, table_item, ocrpage=False):
-    table = table_item.table
-    row_count = table["row_count"]
-    col_count = table["col_count"]
-    cell_boxes = table["cells"]
-    # make empty cell text list
-    cells = [[None for i in range(col_count)] for j in range(row_count)]
-
-    for i, row in enumerate(cell_boxes):
-        for j, cell in enumerate(row):
-            if cell is not None:
-                cells[i][j] = extract_cells(
-                    table_blocks,
-                    cell_boxes[i][j],
-                    markdown=False,
-                    ocrpage=ocrpage,
-                )
-
-    return cells

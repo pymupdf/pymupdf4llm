@@ -471,13 +471,13 @@ def to_markdown(
             middle = (hot.tl + hot.br) / 2  # middle point of hot area
             if not middle in bbox:
                 continue  # does not touch the bbox
-            text = span['text'].strip()
-            uri = link['uri']
+            text = span["text"].strip()
+            uri = link["uri"]
             # Escape characters that would mess up the generated markdown.
             # See: https://bugs.ghostscript.com/show_bug.cgi?id=709173.
-            for c in '()\n':
-                uri = uri.replace(c, f'%{hex(ord(c))}')
-            text = f'[{text}]({uri})'
+            for c in "()\n":
+                uri = uri.replace(c, f"%{hex(ord(c))}")
+            text = f"[{text}]({uri})"
             return text
 
     def save_image(parms, rect, i):
@@ -710,26 +710,49 @@ def to_markdown(
                 code = False
 
             for i, s in enumerate(spans):  # iterate spans of the line
-                # decode font properties
-                mono = s["flags"] & 8
-                bold = s["flags"] & 16 or s["char_flags"] & 8
+                # decode font flags and char_flags properties
+                superscript = s["flags"] & 1
+                mono = s["flags"] & 8 and not s["font"].startswith(OCR_FONTNAME)
+                bold = s["flags"] & 16 or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
                 italic = s["flags"] & 2
-                strikeout = s["char_flags"] & 1
+                strikeout = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
+                underline = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE
+                highlight = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_HIGHLIGHT
 
-                prefix = ""
-                suffix = ""
+                # compute styling prefix and suffix
+                prefix = []
+                suffix = []
+
+                if superscript:
+                    prefix.append("<sup>")
+                    suffix.append("</sup>")
+
                 if mono:
-                    prefix = "`" + prefix
-                    suffix += "`"
+                    prefix.append("`")
+                    suffix.append("`")
+
                 if bold:
-                    prefix = "**" + prefix
-                    suffix += "**"
+                    prefix.append("**")
+                    suffix.append("**")
+
                 if italic:
-                    prefix = "_" + prefix
-                    suffix += "_"
+                    prefix.append("_")
+                    suffix.append("_")
+
                 if strikeout:
-                    prefix = "~~" + prefix
-                    suffix += "~~"
+                    prefix.append("~~")
+                    suffix.append("~~")
+
+                if underline:
+                    prefix.append("<u>")
+                    suffix.append("</u>")
+
+                if highlight:
+                    prefix.append("<mark>")
+                    suffix.append("</mark>")
+
+                prefix = "".join(prefix)
+                suffix = "".join(reversed(suffix))
 
                 # convert intersecting link to markdown syntax
                 ltext = resolve_links(parms.links, s)

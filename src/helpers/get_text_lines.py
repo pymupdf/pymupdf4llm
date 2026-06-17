@@ -153,7 +153,7 @@ def get_raw_lines(
                     if len(line["spans"]) > i:
                         neighbor = line["spans"][i]
                         sbbox.y1 = neighbor["bbox"][3]
-                    s["text"] = f"[{s['text']}]"
+                    s["text"] = f"{s['text']}"
                 s["bbox"] = sbbox  # update with the Rect version
                 # include line/block numbers to facilitate separator insertion
                 s["line"] = lno
