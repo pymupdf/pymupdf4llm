@@ -438,10 +438,10 @@ def get_styled_text(spans):
 
     for i, s in enumerate(spans):
         # decode font flags and char_flags properties
-        superscript = s["flags"] & 1
-        mono = s["flags"] & 8 and not s["font"].startswith(OCR_FONTNAME)
-        bold = s["flags"] & 16 or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
-        italic = s["flags"] & 2
+        superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
+        mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and s["font"] != OCR_FONTNAME
+        bold = s["flags"] & pymupdf.TEXT_FONT_BOLD or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+        italic = s["flags"] & pymupdf.TEXT_FONT_ITALIC
         strikeout = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
         underline = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE
         highlight = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_HIGHLIGHT
@@ -502,13 +502,15 @@ def get_styled_text(spans):
             ):
                 output = output[:-1]
                 text = span_text + suffix + " "
-            # elif superscript:
-            #     text = span_text + suffix + " "
+            elif superscript:
+                text = span_text + suffix + " "
             else:
                 text = " " + span_text + suffix + " "
 
         old_line = s["line"]
         old_block = s["block"]
+        if superscript:
+            output = output.rstrip(" ")
         output += text
     return output, suffix
 
