@@ -1,0 +1,59 @@
+name: test_push
+
+on:
+  pull_request:
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      args:
+        default: ''
+        description: 'Arguments to be passed to scripts/test_push.py.'
+
+jobs:
+
+  test:
+    name: test_push
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+                ubuntu-latest,
+                windows-2022,
+                macos-14,
+                ]
+
+      # Avoid cancelling of all runs after a single failure.
+      fail-fast: false
+
+    steps:
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # We get swig-related problems with python3.13 on macos.
+          python-version: 3.12
+
+      - name: test_push
+        env:
+          ARTIFEX_SOFTWARE_SSH_KEY: ${{secrets.ARTIFEX_SOFTWARE_SSH_KEY}}
+        shell: python
+        run: |
+            import os
+            import subprocess
+            import sys
+            
+            # We install and import pipcl so we can easily clone Aptest with
+            # ARTIFEX_SOFTWARE_SSH_KEY.
+            #
+            subprocess.run(f'{sys.executable} -m pip install pipcl', shell=1, check=1)
+            import pipcl
+            pipcl.git_get(
+                    'aptest',
+                    remote='git@github.com:ArtifexSoftware/aptest.git',
+                    branch='main',
+                    key=os.environ['ARTIFEX_SOFTWARE_SSH_KEY'],
+                    )
+            
+            # Run Aptest.
+            subprocess.run(f'{sys.executable} aptest/aptest.py -m=git: -p=git: --layout=git: --4llm=. build test -t 4llm', shell=1, check=1)
