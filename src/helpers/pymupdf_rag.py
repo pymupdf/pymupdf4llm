@@ -49,6 +49,7 @@ from pymupdf4llm.helpers.multi_column import column_boxes
 from pymupdf4llm.helpers.utils import (
     BULLETS,
     REPLACEMENT_CHARACTER,
+    OCR_FONTNAME,
     startswith_bullet,
     is_white,
     bbox_is_empty,
@@ -640,11 +641,17 @@ def to_markdown(
             # full line strikeout?
             all_strikeout = all([s["char_flags"] & 1 for s in spans])
             # full line italic?
-            all_italic = all([s["flags"] & 2 for s in spans])
+            all_italic = all([s["flags"] & pymupdf.TEXT_FONT_ITALIC for s in spans])
             # full line bold?
-            all_bold = all([(s["flags"] & 16) or (s["char_flags"] & 8) for s in spans])
+            all_bold = all(
+                [
+                    (s["flags"] & pymupdf.TEXT_FONT_BOLD)
+                    or (s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD)
+                    for s in spans
+                ]
+            )
             # full line mono-spaced?
-            all_mono = all([s["flags"] & 8 for s in spans])
+            all_mono = all([s["flags"] & pymupdf.TEXT_FONT_MONOSPACED for s in spans])
 
             # if line is a header, this will return multiple "#" characters,
             # otherwise an empty string
@@ -712,8 +719,14 @@ def to_markdown(
             for i, s in enumerate(spans):  # iterate spans of the line
                 # decode font flags and char_flags properties
                 superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
-                mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and s["font"] != OCR_FONTNAME
-                bold = s["flags"] & pymupdf.TEXT_FONT_BOLD or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+                mono = (
+                    s["flags"] & pymupdf.TEXT_FONT_MONOSPACED
+                    and s["font"] != OCR_FONTNAME
+                )
+                bold = (
+                    s["flags"] & pymupdf.TEXT_FONT_BOLD
+                    or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+                )
                 italic = s["flags"] & pymupdf.TEXT_FONT_ITALIC
                 strikeout = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
                 underline = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE

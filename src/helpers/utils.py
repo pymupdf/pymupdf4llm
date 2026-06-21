@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from pymupdf4llm.ocr.analyze_page import analyze_page
 
+OCR_FONTNAME = "GlyphLessFont"  # Tesseract's font for OCR text layers
 WHITE_CHARS = set(
     [chr(i) for i in range(33)]
     + [
@@ -887,14 +888,19 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     continue
 
                 # decode font flags and char_flags properties
-                superscript = span["flags"] & 1
-                mono = span["flags"] & 8 and not span["font"].startswith(OCR_FONTNAME)
-                bold = span["flags"] & 16 or span["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
-                italic = span["flags"] &  pymupdf.TEXT_FONT_ITALIC
+                superscript = span["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
+                mono = (
+                    span["flags"] & pymupdf.TEXT_FONT_MONOSPACED
+                    and span["font"] != OCR_FONTNAME
+                )
+                bold = (
+                    span["flags"] & pymupdf.TEXT_FONT_BOLD
+                    or span["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+                )
+                italic = span["flags"] & pymupdf.TEXT_FONT_ITALIC
                 strikeout = span["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
                 underline = span["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE
                 highlight = span["char_flags"] & pymupdf.mupdf.FZ_STEXT_HIGHLIGHT
-
 
                 prefix = []
                 suffix = []
@@ -968,4 +974,3 @@ def table_to_markdown(cells):
         line += "\n"
         output += line
     return output + "\n"
-
