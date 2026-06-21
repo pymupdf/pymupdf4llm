@@ -27,7 +27,7 @@ pymupdf.TOOLS.unset_quad_corrections(True)
 
 INFO_MESSAGES = io.StringIO()
 GRAPHICS_TEXT = "\n![](%s)\n"
-OCR_FONTNAME = "GlyphLessFont"  # if encountered do not use "code" style
+OCR_FONTNAME = utils.OCR_FONTNAME  # if encountered do not use "code" style
 FLAGS = (
     0
     | pymupdf.TEXT_COLLECT_STYLES
@@ -229,7 +229,10 @@ def is_monospaced(textlines):
 
     for l in textlines:
         all_mono = all(
-            bool(s["flags"] & 8 and s["font"] != OCR_FONTNAME) for s in l["spans"]
+            bool(
+                s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and s["font"] != OCR_FONTNAME
+            )
+            for s in l["spans"]
         )
         if all_mono:
             mono += 1
@@ -433,6 +436,8 @@ def get_styled_text(spans):
     The text string always ends with the suffix and a space
     """
     output = ""
+    prefix = ""
+    suffix = ""
     old_line = 0
     old_block = 0
 
@@ -440,7 +445,10 @@ def get_styled_text(spans):
         # decode font flags and char_flags properties
         superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
         mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and s["font"] != OCR_FONTNAME
-        bold = s["flags"] & pymupdf.TEXT_FONT_BOLD or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+        bold = (
+            s["flags"] & pymupdf.TEXT_FONT_BOLD
+            or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
+        )
         italic = s["flags"] & pymupdf.TEXT_FONT_ITALIC
         strikeout = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_STRIKEOUT
         underline = s["char_flags"] & pymupdf.mupdf.FZ_STEXT_UNDERLINE
