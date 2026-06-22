@@ -113,7 +113,7 @@ def check_images(image_blocks, prob, threshold=0.93):
 
 def is_ocr_span(span):
     """If this is an OCR text span."""
-    return span["font"] == "GlyphLessFont" or (
+    return span["font"] == TESSERACT_FONT_NAME or (
         True
         and span["char_flags"] & TEXT_STROKED == 0
         and span["char_flags"] & TEXT_FILLED == 0

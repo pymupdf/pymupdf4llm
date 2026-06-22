@@ -49,7 +49,7 @@ from pymupdf4llm.helpers.multi_column import column_boxes
 from pymupdf4llm.helpers.utils import (
     BULLETS,
     REPLACEMENT_CHARACTER,
-    OCR_FONTNAME,
+    is_ocr_text,
     startswith_bullet,
     is_white,
     bbox_is_empty,
@@ -721,7 +721,7 @@ def to_markdown(
                 superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
                 mono = (
                     s["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                    and s["font"] != OCR_FONTNAME
+                    and not is_ocr_text(s)
                 )
                 bold = (
                     s["flags"] & pymupdf.TEXT_FONT_BOLD
@@ -739,10 +739,6 @@ def to_markdown(
                 if superscript:
                     prefix.append("<sup>")
                     suffix.append("</sup>")
-
-                if mono:
-                    prefix.append("`")
-                    suffix.append("`")
 
                 if bold:
                     prefix.append("**")
@@ -763,6 +759,10 @@ def to_markdown(
                 if highlight:
                     prefix.append("<mark>")
                     suffix.append("</mark>")
+
+                if mono:
+                    prefix.append("`")
+                    suffix.append("`")
 
                 prefix = "".join(prefix)
                 suffix = "".join(reversed(suffix))
