@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from pymupdf4llm.ocr.analyze_page import analyze_page
 
-OCR_FONTNAME = "GlyphLessFont"  # Tesseract's font for OCR text layers
+TESSERACT_FONT_NAME = "GlyphLessFont"  # Tesseract's font for OCR text layers
 WHITE_CHARS = set(
     [chr(i) for i in range(33)]
     + [
@@ -28,7 +28,6 @@ WHITE_CHARS = set(
 
 REPLACEMENT_CHARACTER = chr(0xFFFD)
 TYPE3_FONT_NAME = "Type3"  # MuPDF starts the fontname with this string
-TESSERACT_FONT_NAME = "GlyphLessFont"
 
 BULLETS = tuple(
     {
@@ -216,7 +215,7 @@ def is_ocr_text(span) -> bool:
     use other techniques to ensure the generated text layer is invisible.
     """
     if span["font"] == TESSERACT_FONT_NAME:
-        # This is a safe bet for OCR
+        # This is a safe bet for OCR by Tesseract
         return True
     if (span["char_flags"] & pymupdf.mupdf.FZ_STEXT_STROKED) or (
         span["char_flags"] & pymupdf.mupdf.FZ_STEXT_FILLED
@@ -891,7 +890,7 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                 superscript = span["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
                 mono = (
                     span["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                    and span["font"] != OCR_FONTNAME
+                    and not is_ocr_text(span)
                 )
                 bold = (
                     span["flags"] & pymupdf.TEXT_FONT_BOLD
@@ -908,10 +907,6 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     prefix.append("<sup>")
                     suffix.append("</sup>")
 
-                if not ocrpage and mono:
-                    prefix.append("`")
-                    suffix.append("`")
-
                 if bold:
                     prefix.append("**")
                     suffix.append("**")
@@ -924,15 +919,23 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                     prefix.append("~~")
                     suffix.append("~~")
 
+                # if underline:
+                #     prefix.append("<u>")
+                #     suffix.append("</u>")
+
                 # if highlight:
                 #     prefix.append("<mark>")
                 #     suffix.append("</mark>")
 
-                if len(span_text) > 2:
-                    span_text = span_text.rstrip()
+                if mono:
+                    prefix.append("`")
+                    suffix.append("`")
 
                 prefix = "".join(prefix)
                 suffix = "".join(reversed(suffix))
+
+                if len(span_text) > 2:
+                    span_text = span_text.rstrip()
 
                 # if span continues previous styling: extend cell text
                 if (ls := len(suffix)) and text.endswith(suffix):

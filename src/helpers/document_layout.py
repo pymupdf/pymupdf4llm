@@ -27,7 +27,7 @@ pymupdf.TOOLS.unset_quad_corrections(True)
 
 INFO_MESSAGES = io.StringIO()
 GRAPHICS_TEXT = "\n![](%s)\n"
-OCR_FONTNAME = utils.OCR_FONTNAME  # if encountered do not use "code" style
+
 FLAGS = (
     0
     | pymupdf.TEXT_COLLECT_STYLES
@@ -41,13 +41,18 @@ BULLETS = tuple(utils.BULLETS)
 
 
 def get_table_details(tab_dict, table_blocks):
+    """Create a TableDetails object.
+
+    The table dictionary is as returned by the Layout module with option
+    "return_raw=True".
+    """
     tab_det = TableDetails()
-    tab_det.bbox = tab_dict["group_bbox"]
+    tab_det.bbox = tab_dict["group_bbox"]  # bounding box
     x0, y0, x1, y1 = tab_det.bbox
-    grid = tab_dict.get("table_grid")
-    cells = []
-    extract = []
-    md_cells = []
+    grid = tab_dict.get("table_grid")  # Layout's GridPrediction object
+    cells = []  # cell bounding boxes
+    extract = []  # cell text content
+    md_cells = []  # cell markdown content
     h_lines = [y0] + [h + y0 for h in grid.h_lines] + [y1]
     v_lines = [x0] + [v + x0 for v in grid.v_lines] + [x1]
     tab_det.row_count = len(h_lines) - 1
@@ -222,7 +227,7 @@ def is_monospaced(textlines):
     """Detect text bboxes with all mono-spaced lines.
 
     Returns True if all lines are mono-spaced.
-    This may be used to output code blocks.
+    Used to output code blocks.
     """
     line_count = len(textlines)
     mono = 0
@@ -230,9 +235,11 @@ def is_monospaced(textlines):
     for l in textlines:
         all_mono = all(
             bool(
-                s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and s["font"] != OCR_FONTNAME
+                s["flags"] & pymupdf.TEXT_FONT_MONOSPACED
+                and not utils.is_ocr_text(s)
             )
             for s in l["spans"]
+            if not s["text"].isspace()
         )
         if all_mono:
             mono += 1
@@ -444,7 +451,7 @@ def get_styled_text(spans):
     for i, s in enumerate(spans):
         # decode font flags and char_flags properties
         superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
-        mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and s["font"] != OCR_FONTNAME
+        mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not utils.is_ocr_text(s)
         bold = (
             s["flags"] & pymupdf.TEXT_FONT_BOLD
             or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD
@@ -461,10 +468,6 @@ def get_styled_text(spans):
         if superscript:
             prefix.append("<sup>")
             suffix.append("</sup>")
-
-        if mono:
-            prefix.append("`")
-            suffix.append("`")
 
         if bold:
             prefix.append("**")
@@ -485,6 +488,10 @@ def get_styled_text(spans):
         if highlight:
             prefix.append("<mark>")
             suffix.append("</mark>")
+
+        if mono:
+            prefix.append("`")
+            suffix.append("`")
 
         prefix = "".join(prefix)
         suffix = "".join(reversed(suffix))
@@ -741,8 +748,7 @@ class PageLayout:
     width: float
     height: float
     boxes: List[LayoutBox]
-    full_ocred: bool = False  # whether the page is an OCR page
-    text_ocred: bool = False  # whether the page text only is OCR'd
+    full_ocred: bool = False  # whether the page is an OCR'd page
     fulltext: Optional[List[Dict]] = None  # full page text in extractDICT format
     words: Optional[List[Dict]] = None  # list of words with bbox
     links: Optional[List[Dict]] = None
@@ -759,7 +765,7 @@ class ParsedDocument:
     image_dpi: int = 150  # image resolution
     image_format: str = "png"  # 'png' or 'jpg'
     image_path: str = ""  # path to save images
-    use_ocr: OCRMode = OCRMode.SELECT_REMOVING_OLD  # if beneficial invoke OCR
+    use_ocr: OCRMode = OCRMode.SELECT_KEEP_OLD  # if beneficial invoke OCR
 
     def to_markdown(
         self,
@@ -1033,6 +1039,7 @@ def select_ocr_function():
 
 def update_header_tags(pages, header_fontsizes):
     """Update title/section-header boxes with HTML header tags."""
+    # List of up to 6 integer font sizes in descending order
     header_fontsizes = sorted(header_fontsizes, reverse=True)[:6]
     for page in pages:
         for box in page.boxes:
@@ -1041,6 +1048,30 @@ def update_header_tags(pages, header_fontsizes):
                     box.header_level = header_fontsizes.index(box.max_fontsize) + 1
                 else:
                     box.header_level = 6
+
+
+def make_ocr_decision(page, use_ocr):
+    """Decide whether to OCR a page.
+
+    Returns a tuple (needs_ocr, ocr_spans) where needs_ocr is a boolean
+    indicating whether OCR is needed, and ocr_spans is the number of
+    existing OCR spans on the page (if any).
+    """
+    # OCR not desired at all
+    if use_ocr == OCRMode.NEVER:
+        return False, 0
+
+    page_analysis = utils.analyze_page(page)
+
+    needs_ocr = page_analysis.get("needs_ocr", False)
+    # may be > 0 even if needs_ocr is False:
+    ocr_spans = page_analysis.get("ocr_spans", 0)
+
+    if ocr_spans and use_ocr in (OCRMode.FORCE_KEEP_OLD, OCRMode.SELECT_KEEP_OLD):
+        # return False if old OCR should be kept
+        return False, ocr_spans
+
+    return needs_ocr, 0
 
 
 def parse_document(
@@ -1055,7 +1086,7 @@ def parse_document(
     embed_images=False,
     write_images=False,
     force_text=False,
-    use_ocr=OCRMode.SELECT_PRESERVING_OLD,
+    use_ocr=OCRMode.SELECT_KEEP_OLD,
     force_ocr=False,
     ocr_language="eng",
     ocr_function=None,
@@ -1078,12 +1109,12 @@ def parse_document(
         root = mupdf.pdf_dict_get(mupdf.pdf_trailer(mypdf), pymupdf.PDF_NAME("Root"))
         root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
     else:
+        use_ocr = OCRMode.NEVER
         if force_ocr:
             print(
-                "Warning: force_ocr is True but document is not a PDF. OCR will be disabled.",
+                "Warning: OCR disabled because document is no PDF.",
                 file=INFO_MESSAGES,
             )
-        use_ocr = OCRMode.NEVER
         force_ocr = False
 
     if embed_images and write_images:
@@ -1107,7 +1138,7 @@ def parse_document(
     document.write_images = write_images
 
     if force_ocr:
-        use_ocr = OCRMode.ALWAYS_REMOVING_OLD
+        use_ocr = OCRMode.FORCE_KEEP_OLD
 
     if use_ocr:
         if callable(ocr_function):
@@ -1123,17 +1154,13 @@ def parse_document(
 
     if not callable(ocr_function):
         if document.use_ocr in (
-            OCRMode.ALWAYS_REMOVING_OLD,
-            OCRMode.ALWAYS_PRESERVING_OLD,
+            OCRMode.FORCE_DROP_OLD,
+            OCRMode.FORCE_KEEP_OLD,
         ):
-            raise ValueError("Always OCR is True but no OCR function available.")
+            raise ValueError("Force OCR is True but no OCR engine available.")
         if document.use_ocr != OCRMode.NEVER:
-            print(
-                "Warning: OCR is enabled but no OCR function is available. OCR will be disabled."
-            )
+            print("Warning: No OCR engine available, OCR disabled.")
             document.use_ocr = OCRMode.NEVER
-
-    PAGE_ANALYSIS = {"needs_ocr": False}
 
     if pages is None:
         page_filter = range(mydoc.page_count)
@@ -1162,37 +1189,19 @@ def parse_document(
         page = mydoc.load_page(pno)
         page.remove_rotation()
         page_full_ocred = False
-        page_text_ocred = False
+        PAGE_ANALYSIS = {}
+        OCR_SPANS = 0
+        needs_ocr, OCR_SPANS = make_ocr_decision(page, document.use_ocr)
 
-        if document.use_ocr in (
-            OCRMode.SELECT_REMOVING_OLD,
-            OCRMode.SELECT_PRESERVING_OLD,
-        ):
-            PAGE_ANALYSIS = utils.analyze_page(page)
-
-        if PAGE_ANALYSIS["needs_ocr"] or document.use_ocr in (
-            OCRMode.ALWAYS_REMOVING_OLD,
-            OCRMode.ALWAYS_PRESERVING_OLD,
-        ):
-            if document.use_ocr in (
-                OCRMode.SELECT_PRESERVING_OLD,
-                OCRMode.ALWAYS_PRESERVING_OLD,
-            ):
-                keep_ocr_text = True
-            else:
-                keep_ocr_text = False
-
-            if keep_ocr_text and PAGE_ANALYSIS.get("reason") == "ocr_spans":
-                pass
-            else:
-                ocr_function(
-                    page,
-                    dpi=ocr_dpi,
-                    language=ocr_language,
-                    keep_ocr_text=keep_ocr_text,
-                )
-                # page_full_ocred = True
-                print(f"OCR on {page.number=}/{page.number+1}.", file=INFO_MESSAGES)
+        if needs_ocr:
+            # execute OCR for the page replacing any previous OCR spans
+            ocr_function(
+                page,
+                dpi=ocr_dpi,
+                language=ocr_language,
+                keep_ocr_text=False,
+            )
+            print(f"OCR on {page.number=}/{page.number+1}.", file=INFO_MESSAGES)
 
         textpage = page.get_textpage(flags=FLAGS, clip=pymupdf.INFINITE_RECT())
         blocks = textpage.extractDICT()["blocks"]
@@ -1204,32 +1213,36 @@ def parse_document(
         tables_exist = any(
             b for b in page.layout_information if b["class_name"] == "table"
         )
+
+        # Dictionary with details for all tables. Key is the bounding box
+        # tuple, value is the original Layout info per table.
         table_infos = {}
-        new_layout_info = []
+
+        new_layout_info = []  # will contain Layout boxes in non-"raw" format
         for b in page.layout_information:
             bbox = tuple(b["group_bbox"] + [b["class_name"]])
             new_layout_info.append(bbox)
+
+            # store table info for later use in table extraction
+            # we use the bounding box tuple as key for later matching
             if b["class_name"] == "table":
                 key = tuple(pymupdf.IRect(b["group_bbox"]))
                 table_infos[key] = b
+
         page.layout_information = new_layout_info
-        if not page_full_ocred:
+        if not OCR_SPANS:  # some cleaning if no old OCR spans
             utils.clean_pictures(page, blocks)
             utils.add_image_orphans(page, blocks)
 
+        # execute our own reading order function
         page.layout_information = utils.find_reading_order(
             page.rect, blocks, page.layout_information
         )
         fulltext = [b for b in blocks if b["type"] == 0]
         if tables_exist:
-            # tables are present on page:
-            if not (page_full_ocred or page_text_ocred):
-                # we need the by-character extraction if no OCR
-                table_blocks = [
-                    b for b in textpage.extractRAWDICT()["blocks"] if b["type"] == 0
-                ]
-            else:
-                table_blocks = fulltext
+            table_blocks = [
+                b for b in textpage.extractRAWDICT()["blocks"] if b["type"] == 0
+            ]
         else:
             table_blocks = None
 
@@ -1241,7 +1254,6 @@ def parse_document(
             height=page.rect.height,
             boxes=[],
             full_ocred=page_full_ocred,
-            text_ocred=page_text_ocred,
             fulltext=fulltext,
             words=words,
             links=links,
@@ -1276,7 +1288,7 @@ def parse_document(
                             textpage=None,
                             blocks=pagelayout.fulltext,
                             clip=clip,
-                            ignore_invisible=not pagelayout.full_ocred,
+                            ignore_invisible=False,
                             only_horizontal=False,
                         )
                     ]
@@ -1310,10 +1322,10 @@ def parse_document(
                         textpage=None,
                         blocks=pagelayout.fulltext,
                         clip=clip,
-                        ignore_invisible=not pagelayout.full_ocred,
+                        ignore_invisible=False,
                     )
                 ]
-                # for each title/section_header compute and store the maximum
+                # For each title/section_header compute and store the maximum
                 # font size, to be used as a signal for header "#" prefix
                 if layoutbox.boxclass in ("title", "section-header"):
                     max_fontsize = 0
@@ -1332,7 +1344,7 @@ def parse_document(
     if msg_text:
         pymupdf.message("=== Document parser messages ===")
         pymupdf.message(msg_text)
-        INFO_MESSAGES.truncate(0)  # empty the file-like object
+    INFO_MESSAGES.truncate(0)  # empty the file-like object
     # Update title/section-header boxes with html header tags
     update_header_tags(document.pages, header_fontsizes)
     return document
