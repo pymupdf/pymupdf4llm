@@ -10,6 +10,7 @@ def test_sce_150_1():
     expected = (
         (Path(__file__).parent / "test_sce_150_1.expected.md").read_bytes().decode()
     )
+    expected = expected.replace('\r', '')   # For github windows.
     md = pymupdf4llm.to_markdown(
         filename,
         write_images=False,
@@ -28,6 +29,7 @@ def test_sce_150_2():
     expected = (
         (Path(__file__).parent / "test_sce_150_2.expected.md").read_bytes().decode()
     )
+    expected = expected.replace('\r', '')   # For github windows.
     md = pymupdf4llm.to_markdown(
         filename,
         write_images=False,
@@ -46,6 +48,7 @@ def test_sce_150_3():
     expected = (
         (Path(__file__).parent / "test_sce_150_3.expected.md").read_bytes().decode()
     )
+    expected = expected.replace('\r', '')   # For github windows.
     md = pymupdf4llm.to_markdown(
         filename,
         write_images=False,
