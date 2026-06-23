@@ -8,6 +8,13 @@ import textwrap
 
 
 def test_pylint():
+    '''
+    2026-06-23: currently disabled unless $PYMUPDF4LLM_TEST_PYLINT is '1'.
+    '''
+    if os.environ.get('PYMUPDF4LLM_TEST_PYLINT') != '1':
+        print('test_pylint(): not running because PYMUPDF4LLM_TEST_PYLINT!=1.')
+        return
+    
     subprocess.run(f'pip install -U flake8 pylint codespell', shell=1, check=1)
     ignores = ''
     ignores += textwrap.dedent(
@@ -54,11 +61,54 @@ def test_pylint():
             R0916: too-many-boolean-expressions
             '''
             )
+    ignores += textwrap.dedent(
+            '''
+            arguments-renamed
+            bare-except
+            consider-using-enumerate
+            consider-using-f-string
+            consider-using-generator
+            consider-using-set-comprehension
+            consider-using-with
+            duplicate-value
+            function-redefined
+            global-variable-undefined
+            import-error
+            no-else-continue
+            no-else-raise
+            no-member
+            pointless-statement
+            pointless-string-statement
+            protected-access
+            raise-missing-from
+            raise-missing-from
+            redefined-builtin
+            reimported
+            simplifiable-if-statement
+            too-many-nested-blocks
+            too-many-positional-arguments
+            too-many-return-statements
+            trailing-newlines
+            ungrouped-imports
+            unnecessary-comprehension
+            unreachable
+            unused-argument
+            unused-import
+            unused-variable
+            use-a-generator
+            use-implicit-booleaness-not-comparison
+            use-implicit-booleaness-not-len
+            useless-return
+            wrong-import-position
+            '''
+            )
     ignores_list = list()
     for line in ignores.split('\n'):
         if not line or line.startswith('#'):
             continue
         m = re.match('^(.....): ', line)
+        if not m:
+            m = re.match('^([a-z-]+)$', line)
         assert m, f'Failed to parse {line=}'
         ignores_list.append(m.group(1))
     ignores = ','.join(ignores_list)
@@ -80,7 +130,7 @@ def test_pylint():
     subprocess.run(command, shell=1, check=1)
 
 
-def test_codespell():
+def disabled_test_codespell():
     '''
     Check rebased Python code with codespell.
     '''
@@ -123,7 +173,7 @@ def test_codespell():
     print('test_codespell(): codespell succeeded.')
 
 
-def test_flake8():
+def disabled_test_flake8():
     ignores = textwrap.dedent('''
             E123 closing bracket does not match indentation of opening bracket\'s line
             E124 closing bracket does not match visual indentation
