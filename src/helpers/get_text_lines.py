@@ -217,7 +217,7 @@ def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr
     page.remove_rotation()
     prect = page.rect if not clip else pymupdf.Rect(clip)  # area to consider
 
-    xsep = sep if sep == "|" else ""
+    sep = sep if sep == "|" else ""
 
     # make a TextPage if required
     if textpage is None:
@@ -266,6 +266,7 @@ def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr
     """
     rows = []
     xvalues = []
+    col_count = 0  # just to calm down the linter
     for lrect, line in lines:
         # if only 1 span in line and no columns identified yet...
         if len(line) == 1 and not xvalues:

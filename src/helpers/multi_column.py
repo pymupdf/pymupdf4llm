@@ -305,7 +305,7 @@ def column_boxes(
         for box in new_rects:
             # search for the left-most rect that overlaps like "P" above
             # candidates must have the same background
-            background = in_bbox(box, path_rects)  # this background
+            # background = in_bbox(box, path_rects)  # this background
             left_rects = sorted(
                 [
                     r

@@ -499,12 +499,12 @@ def get_styled_text(spans):
         span_text = s["text"].strip()  # remove leading/trailing spaces
         # convert intersecting link to markdown syntax
         # ltext = resolve_links(parms.links, s)
-        ltext = ""  # TODO: implement link resolution
-        if ltext:
-            text = f"{hdr_string}{prefix}{ltext}{suffix} "
-        else:
-            text = f"{prefix}{span_text}{suffix} "
-
+        # ltext = ""  # TODO: implement link resolution
+        # if ltext:
+        #     text = f"{hdr_string}{prefix}{ltext}{suffix} "
+        # else:
+        #     text = f"{prefix}{span_text}{suffix} "
+        text = f"{prefix}{span_text}{suffix} "
         # Extend output string taking care of styles staying the same.
         if output.endswith(f"{suffix} "):
             output = output[: -len(suffix) - 1]
@@ -872,6 +872,7 @@ class ParsedDocument:
 
     def to_json(self, show_progress=False) -> str:
         # Serialize to JSON
+        _ = show_progress
         class LayoutEncoder(json.JSONEncoder):
             def default(self, s):
                 if isinstance(s, (bytes, bytearray)):
@@ -889,7 +890,7 @@ class ParsedDocument:
                     return list(s)
                 if hasattr(s, "__dict__"):
                     return s.__dict__
-                return self.super().default(s)
+                return super().default(s)
 
         js = json.dumps(self, cls=LayoutEncoder, ensure_ascii=False)
         return js
