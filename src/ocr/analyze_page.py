@@ -6,6 +6,7 @@ import onnxruntime as ort
 import pymupdf
 from pymupdf import mupdf
 from .compute_ocr_features import FEATURE_NAMES, compute_features
+from .check_legal_text import contains_unsafe
 
 FLAGS = (
     0
@@ -23,7 +24,7 @@ BLOCK_TEXT = mupdf.FZ_STEXT_BLOCK_TEXT
 BLOCK_IMAGE = mupdf.FZ_STEXT_BLOCK_IMAGE
 BLOCK_VECTOR = mupdf.FZ_STEXT_BLOCK_VECTOR
 # Thresholds
-BAD_CHAR_THRESHOLD = 0.05  # >=5% bad chars suggests OCR
+BAD_CHAR_THRESHOLD = 0.10  # >=10% bad chars suggests OCR
 
 # Return needs_ocr as True if the probability is at least this:
 OCR_MODEL_THRESHOLD = 0.93
@@ -111,7 +112,7 @@ def check_images(image_blocks, prob, threshold=0.93):
 #     return pix
 
 
-def is_ocr_span(span):
+def is_ocr_text(span):
     """If this is an OCR text span."""
     return span["font"] == TESSERACT_FONT_NAME or (
         True
@@ -119,6 +120,9 @@ def is_ocr_span(span):
         and span["char_flags"] & TEXT_FILLED == 0
     )
 
+def is_unsafe_text(span):
+    """If this text span contains unsafe characters."""
+    return contains_unsafe(span["text"])
 
 def intersect_rects(r1, r2, bbox_only=False):
     """Speedy version using indices."""
@@ -188,6 +192,7 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
     txt_area = 0.0  # sum of all text span bbox areas
     vec_area = 0.0  # sum of suspicious vector block areas
     ocr_spans = 0  # count text spans with OCR flags
+    unsafe_text_spans = 0  # count text spans with unsafe characters
     ocr_span_boxes = []
     bad_char_boxes = []
     good_char_boxes = []
@@ -211,11 +216,16 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
                     if not text or text.isspace():
                         continue  # ignore spans having no relevant text
                     chars_total += len(text)  # total character count
+
                     # OCR layer / invisible text
-                    if is_ocr_span(s):
+                    if is_ocr_text(s):
                         ocr_spans += 1
                         ocr_span_boxes.append(s["bbox"])
                         continue
+
+                    # Unsafe text span
+                    if is_unsafe_text(s):
+                        unsafe_text_spans += 1
 
                     # bad character count
                     bad_chars = sum(1 for c in text if c == REPLACEMENT_CHARACTER)
@@ -287,6 +297,14 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
     }
 
     # --- final OCR decision ---
+    if unsafe_text_spans:
+        # If there are unsafe text spans, we recommend OCR.
+        return {
+            **analysis,
+            "needs_ocr": False,
+            "reason": None,
+            "probability": None,
+        }
 
     if ocr_spans:
         # This page has previously been OCRed.
@@ -321,8 +339,8 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
         and txt_area
         and (
             False
-            or chars_bad / chars_total > BAD_CHAR_THRESHOLD
-            or bad_areas / txt_area > BAD_CHAR_THRESHOLD
+            or (chars_bad / chars_total > BAD_CHAR_THRESHOLD
+            and bad_areas / txt_area > BAD_CHAR_THRESHOLD)
         )
     ):
         return {
