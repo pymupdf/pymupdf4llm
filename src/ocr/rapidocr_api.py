@@ -23,6 +23,7 @@ from rapidocr_onnxruntime import RapidOCR
 import pymupdf
 import numpy as np
 from .get_culled_pixmap import get_pixmap
+from .check_legal_text import contains_unsafe
 
 FONT = pymupdf.Font("cjk")  # this is the "Droid Sans Fallback" font
 FONTNAME = "myfont"  # its reference name in the page
@@ -77,6 +78,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     spans = []  # spans with legible text
     fffd_spans = []  # spans containing U+FFFD characters.
     ocr_spans = []  # spans with previously OCRed text
+    unsafe_span_count = 0
     for b in text_blocks:
         for l in b["lines"]:
             for s in l["spans"]:
@@ -84,13 +86,22 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
                     ocr_spans.append(s["bbox"])
                 elif REPLACEMENT_UNICODE in s["text"]:
                     fffd_spans.append(s["bbox"])
+                elif contains_unsafe(s["text"]):
+                    unsafe_span_count += 1
                 else:
                     # for removal good text regions
                     spans.append(s["bbox"])
+
     if ocr_spans and keep_ocr_text:
         # If there are already OCR spans and the user wants to keep them, we skip OCR.
         # This is because we cannot distinguish between "good" text and "bad" OCR text.
         return
+
+    if unsafe_span_count > 0:
+        # If there are spans with unsafe characters, we skip OCR.
+        # This is because the OCR engine may not handle them correctly.
+        return
+
     # make a Pixmap without "good" text
     pix = get_pixmap(displaylist, dpi=dpi, rects=spans)
 
@@ -107,6 +118,12 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     # Execute RapidOCR
     result, _ = ENGINE(img)
     if not result:
+        return
+
+    if any(contains_unsafe(text) for _, text, _ in result):
+        # If any recognized text contains unsafe characters, we skip OCR
+        # entirely. This is because we have no way yet to make correct
+        # insertions of such text into the page.
         return
 
     # Remove all OCR and illegible spans from the page.

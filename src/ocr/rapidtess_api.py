@@ -34,6 +34,7 @@ import pymupdf
 import numpy as np
 from rapidocr_onnxruntime import RapidOCR
 from .get_culled_pixmap import get_pixmap
+from .check_legal_text import contains_unsafe
 
 class RapidOCR_DetOnly(RapidOCR):
     """
@@ -204,6 +205,7 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
     spans = []  # bboxes with good text
     fffd_spans = []  # boxes with illegible text
     ocr_spans = []  # boxes with old OCR text
+    unsafe_span_count = 0
     for b in text_blocks:
         for l in b["lines"]:
             for s in l["spans"]:
@@ -211,6 +213,8 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
                     ocr_spans.append(s["bbox"])
                 elif REPLACEMENT_UNICODE in s["text"]:
                     fffd_spans.append(s["bbox"])
+                elif contains_unsafe(s["text"]):
+                    unsafe_span_count += 1
                 else:
                     # for removal of good text regions
                     spans.append(s["bbox"])
@@ -218,6 +222,12 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
         # If there are already OCR spans and the user wants to keep them, we skip OCR.
         # This is because we cannot distinguish between "good" text and "bad" OCR text.
         return
+
+    if unsafe_span_count > 0:
+        # If there are spans with unsafe characters, we skip OCR.
+        # This is because the OCR engine may not handle them correctly.
+        return
+
     # make a Pixmap without "good" text
     pix = get_pixmap(displaylist, dpi=dpi, rects=spans)
 
