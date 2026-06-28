@@ -67,6 +67,19 @@ FLAGS = (
 )
 
 
+def verify_password(doc: pymupdf.Document, password: str) -> bool:
+    """Verify password correctness for a PDF document. Returns True if the password is correct or not needed, False otherwise."""
+    if not doc.is_pdf or not doc.needs_pass:
+        return True  # Not a PDF or no password required
+    if not password or not (isinstance(password, str) and len(password) < 40):
+        # Password required but is missing or invalid
+        return False
+    rc = doc.authenticate(password)
+    if not rc:
+        return False  # Incorrect password
+    return True
+
+
 def extract_form_fields_with_pages(doc, xrefs=False):
     """
     Traverse /AcroForm/Fields hierarchy and return a dict:
@@ -888,9 +901,8 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
 
                 # decode font flags and char_flags properties
                 superscript = span["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
-                mono = (
-                    span["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                    and not is_ocr_text(span)
+                mono = span["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not is_ocr_text(
+                    span
                 )
                 bold = (
                     span["flags"] & pymupdf.TEXT_FONT_BOLD
