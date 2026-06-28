@@ -1079,7 +1079,7 @@ def parse_document(
     doc,
     filename="",
     image_dpi=150,
-    ocr_dpi=300,
+    ocr_dpi=150,
     image_format="png",
     image_path="",
     pages=None,
