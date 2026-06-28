@@ -1079,10 +1079,11 @@ def parse_document(
     doc,
     filename="",
     image_dpi=150,
-    ocr_dpi=300,
+    ocr_dpi=150,
     image_format="png",
     image_path="",
     pages=None,
+    password=None,
     show_progress=False,
     embed_images=False,
     write_images=False,
@@ -1103,9 +1104,12 @@ def parse_document(
         mydoc.close()
         mydoc = pymupdf.open(stream=data)
 
+    if not utils.verify_password(mydoc, password):
+        raise ValueError("Document is password protected")
+
     if mydoc.is_pdf:
         # Remove StructTreeRoot to avoid possible performance degradation.
-        # This package will not use the structure tree anyway.
+        # This package does not currently use the structure tree.
         mypdf = pymupdf._as_pdf_document(mydoc)
         root = mupdf.pdf_dict_get(mupdf.pdf_trailer(mypdf), pymupdf.PDF_NAME("Root"))
         root.pdf_dict_del(pymupdf.PDF_NAME("StructTreeRoot"))
