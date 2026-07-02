@@ -49,14 +49,14 @@ from pymupdf4llm.helpers.multi_column import column_boxes
 from pymupdf4llm.helpers.utils import (
     BULLETS,
     REPLACEMENT_CHARACTER,
-    is_ocr_text,
-    startswith_bullet,
-    is_white,
-    bbox_is_empty,
     almost_in_bbox,
     are_disjoint,
     bbox_in_bbox,
+    bbox_is_empty,
     intersect_rects,
+    is_ocr_text,
+    is_white,
+    startswith_bullet,
 )
 
 try:
@@ -719,10 +719,7 @@ def to_markdown(
             for i, s in enumerate(spans):  # iterate spans of the line
                 # decode font flags and char_flags properties
                 superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
-                mono = (
-                    s["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                    and not is_ocr_text(s)
-                )
+                mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not is_ocr_text(s)
                 bold = (
                     s["flags"] & pymupdf.TEXT_FONT_BOLD
                     or s["char_flags"] & pymupdf.mupdf.FZ_STEXT_BOLD

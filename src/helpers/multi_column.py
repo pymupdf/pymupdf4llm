@@ -64,8 +64,8 @@ import pymupdf
 from pymupdf4llm.helpers.utils import (
     WHITE_CHARS,
     are_disjoint,
-    intersect_rects,
     bbox_is_empty,
+    intersect_rects,
 )
 
 pymupdf.TOOLS.unset_quad_corrections(True)

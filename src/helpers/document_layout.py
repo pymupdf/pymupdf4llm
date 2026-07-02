@@ -1,13 +1,13 @@
 import base64
 import io
 import json
-import os
 import math
-from dataclasses import dataclass
+import os
+import textwrap
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-import textwrap
 
 import pymupdf
 import tabulate
@@ -234,10 +234,7 @@ def is_monospaced(textlines):
 
     for l in textlines:
         all_mono = all(
-            bool(
-                s["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                and not utils.is_ocr_text(s)
-            )
+            bool(s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not utils.is_ocr_text(s))
             for s in l["spans"]
             if not s["text"].isspace()
         )
@@ -256,7 +253,10 @@ def is_superscripted(line):
         return True
     if len(spans) < 2:  # single span line: skip
         return False
-    if span0["origin"][1] < spans[1]["origin"][1] and span0["size"] < spans[1]["size"]:
+    if (
+        span0["origin"][1] < spans[1]["origin"][1]
+        and span0["size"] < spans[1]["size"] * 0.6
+    ):
         return True
     return False
 
@@ -873,6 +873,7 @@ class ParsedDocument:
     def to_json(self, show_progress=False) -> str:
         # Serialize to JSON
         _ = show_progress
+
         class LayoutEncoder(json.JSONEncoder):
             def default(self, s):
                 if isinstance(s, (bytes, bytearray)):
@@ -987,6 +988,8 @@ def select_ocr_function():
 
     Return the best OCR function available or None.
     """
+    from pymupdf4llm.ocr.detect_rapidocr import detect_rapidocr_backend
+
     tessdata = None
     rapidocr_available = False
     paddleocr_available = False
@@ -995,30 +998,34 @@ def select_ocr_function():
     except:
         tessdata = None
 
-    try:
-        import rapidocr_onnxruntime
+    rapidocr_backend = detect_rapidocr_backend()
+    if rapidocr_backend and rapidocr_backend != "rapidocr_onnxruntime":
+        # the new RapidOCR backend is available, so use this as default
+        from pymupdf4llm.ocr import rapidocr_api
 
+        print("Using RapidOCR for OCR processing.", file=INFO_MESSAGES)
+        return rapidocr_api.exec_ocr
+
+    if rapidocr_backend is not None:
         rapidocr_available = True
-        paddleocr_available = True
-    except:
-        pass
+        paddleocr_available = True  # for now: we have no own paddleocr yet
+
     if {tessdata, rapidocr_available, paddleocr_available} == {None, False, False}:
         return None
+
     if tessdata:
         if rapidocr_available:
             from pymupdf4llm.ocr import rapidtess_api
 
             print(
-                "Using RapidOCR and Tesseract for OCR processing.",
+                "Using RapidOCR & Tesseract for OCR processing.",
                 file=INFO_MESSAGES,
             )
             return rapidtess_api.exec_ocr
         elif paddleocr_available:
             from pymupdf4llm.ocr import paddletess_api
 
-            print(
-                "Using PaddleOCR and Tesseract for OCR processing.", file=INFO_MESSAGES
-            )
+            print("Using PaddleOCR & Tesseract for OCR processing.", file=INFO_MESSAGES)
             return paddletess_api.exec_ocr
         else:
             from pymupdf4llm.ocr import tesseract_api
@@ -1060,26 +1067,36 @@ def make_ocr_decision(page, use_ocr):
     """
     # OCR not desired at all
     if use_ocr == OCRMode.NEVER:
-        return False, 0
+        return False, 0, False
 
     page_analysis = utils.analyze_page(page)
 
+    only_text = (
+        page_analysis.get("img_area", 0) == 0
+        and page_analysis.get("vec_norects", 0) == 0
+    )
     needs_ocr = page_analysis.get("needs_ocr", False)
     # may be > 0 even if needs_ocr is False:
     ocr_spans = page_analysis.get("ocr_spans", 0)
 
     if ocr_spans and use_ocr in (OCRMode.FORCE_KEEP_OLD, OCRMode.SELECT_KEEP_OLD):
         # return False if old OCR should be kept
-        return False, ocr_spans
+        return False, ocr_spans, only_text
+    if only_text:
+        # always return False if page has text only
+        return False, ocr_spans, only_text
+    if use_ocr == OCRMode.FORCE_DROP_OLD and ocr_spans and not only_text:
+        # return True if old OCR should be dropped and new OCR done
+        return True, ocr_spans, only_text
 
-    return needs_ocr, 0
+    return needs_ocr, ocr_spans, only_text
 
 
 def parse_document(
     doc,
     filename="",
     image_dpi=150,
-    ocr_dpi=300,
+    ocr_dpi=150,
     image_format="png",
     image_path="",
     pages=None,
@@ -1192,7 +1209,8 @@ def parse_document(
         page_full_ocred = False
         PAGE_ANALYSIS = {}
         OCR_SPANS = 0
-        needs_ocr, OCR_SPANS = make_ocr_decision(page, document.use_ocr)
+        ONLY_TEXT = False
+        needs_ocr, OCR_SPANS, ONLY_TEXT = make_ocr_decision(page, document.use_ocr)
 
         if needs_ocr:
             # execute OCR for the page replacing any previous OCR spans
@@ -1211,9 +1229,7 @@ def parse_document(
         page.get_layout(return_raw=True)
 
         # Determine if any tables are present. If False, we skip any table-related efforts.
-        tables_exist = any(
-            b for b in page.layout_information if b["class_name"] == "table"
-        )
+        tables_exist = False
 
         # Dictionary with details for all tables. Key is the bounding box
         # tuple, value is the original Layout info per table.
@@ -1221,6 +1237,9 @@ def parse_document(
 
         new_layout_info = []  # will contain Layout boxes in non-"raw" format
         for b in page.layout_information:
+            if b["class_name"] == "table" and not b["table_grid"]:
+                # table without a grid: skip it
+                continue
             bbox = tuple(b["group_bbox"] + [b["class_name"]])
             new_layout_info.append(bbox)
 
@@ -1229,6 +1248,7 @@ def parse_document(
             if b["class_name"] == "table":
                 key = tuple(pymupdf.IRect(b["group_bbox"]))
                 table_infos[key] = b
+                tables_exist = True
 
         page.layout_information = new_layout_info
         if not OCR_SPANS:  # some cleaning if no old OCR spans
@@ -1342,10 +1362,12 @@ def parse_document(
     if mydoc != doc:
         mydoc.close()
     msg_text = INFO_MESSAGES.getvalue()
-    if msg_text:
+    if msg_text:  # only print if there are messages
+        print()
         pymupdf.message("=== Document parser messages ===")
-        pymupdf.message(msg_text)
-    INFO_MESSAGES.truncate(0)  # empty the file-like object
+        pymupdf.message(msg_text.strip())
+    INFO_MESSAGES.truncate()  # empty the file-like object
+    INFO_MESSAGES.seek(0)  # reset the file pointer to the beginning
     # Update title/section-header boxes with html header tags
     update_header_tags(document.pages, header_fontsizes)
     return document

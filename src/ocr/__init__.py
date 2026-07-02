@@ -1,4 +1,6 @@
 import enum
+
+
 class OCRMode(enum.IntEnum):
     """
     Enum representing different OCR modes.
@@ -6,11 +8,11 @@ class OCRMode(enum.IntEnum):
     """
 
     NEVER = (0, "Never run OCR")
-    SELECT_DROP_OLD = (1, "Run OCR when needed, remove previous OCR text")
-    SELECT_KEEP_OLD = (2, "Run OCR when needed, preserve previous OCR text")
-    FORCE_DROP_OLD = (3, "Run OCR for all pages, remove previous OCR text")
-    FORCE_KEEP_OLD = (4, "Run OCR for all pages, preserve previous OCR text")
-    
+    SELECT_DROP_OLD = (1, "OCR when needed dropping old OCR text")
+    SELECT_KEEP_OLD = (2, "OCR when needed and there is no old OCR text")
+    FORCE_DROP_OLD = (3, "OCR for all pages dropping old OCR text")
+    FORCE_KEEP_OLD = (4, "OCR for all pages which contain no old OCR text")
+
     SELECT_REMOVING_OLD = SELECT_DROP_OLD
     SELECT_PRESERVING_OLD = SELECT_KEEP_OLD
     ALWAYS_REMOVING_OLD = FORCE_DROP_OLD
@@ -24,4 +26,3 @@ class OCRMode(enum.IntEnum):
 
     def __init__(self, value, description):
         self.__doc__ = description
-

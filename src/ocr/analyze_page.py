@@ -5,6 +5,7 @@ import numpy as np
 import onnxruntime as ort
 import pymupdf
 from pymupdf import mupdf
+
 from .compute_ocr_features import FEATURE_NAMES, compute_features
 
 FLAGS = (
@@ -14,7 +15,7 @@ FLAGS = (
     | pymupdf.TEXT_COLLECT_VECTORS
 )
 GRAY = mupdf.fz_device_gray()  # MuPDF version of standard gray colorspace
-TYPE3_FONT_NAME = "Type3"  # MuPDF starts the fontname with this string
+TYPE3_FONT_NAME = "Type3"  # MuPDF starts Type 3 fontnames with this string
 TESSERACT_FONT_NAME = "GlyphLessFont"
 REPLACEMENT_CHARACTER = chr(0xFFFD)
 TEXT_STROKED = mupdf.FZ_STEXT_STROKED
@@ -23,7 +24,7 @@ BLOCK_TEXT = mupdf.FZ_STEXT_BLOCK_TEXT
 BLOCK_IMAGE = mupdf.FZ_STEXT_BLOCK_IMAGE
 BLOCK_VECTOR = mupdf.FZ_STEXT_BLOCK_VECTOR
 # Thresholds
-BAD_CHAR_THRESHOLD = 0.05  # >=5% bad chars suggests OCR
+BAD_CHAR_THRESHOLD = 0.10  # >=10% bad chars suggests OCR
 
 # Return needs_ocr as True if the probability is at least this:
 OCR_MODEL_THRESHOLD = 0.93
@@ -53,7 +54,7 @@ def predict_ocr_probability(features: dict) -> float:
     return float(probas[0, 1])
 
 
-def check_images(image_blocks, prob, threshold=0.93):
+def check_images(image_blocks, prob, threshold=OCR_MODEL_THRESHOLD):
     """Stage 2: Separate OCR check for large images.
 
     Currently not in use.
@@ -95,28 +96,15 @@ def check_images(image_blocks, prob, threshold=0.93):
     return False, best_prob, i
 
 
-# def get_pixmap(displaylist, dpi=200, rects=[]):
-#     """Make a pixmap from the page removing "good" text."""
-
-#     # Matrix for desired DPI
-#     ctm = mupdf.fz_make_matrix(dpi / 72, 0, 0, dpi / 72, 0, 0)
-
-#     # Returns a GRAY fz_pixmap
-#     pm = mupdf.fz_new_pixmap_from_display_list_culling_text2(
-#         displaylist, ctm, GRAY, 0, rects
-#     )
-
-#     # Convert to a PyMuPDF pixmap
-#     pix = pymupdf.Pixmap(pm, 0)
-#     return pix
-
-
 def is_ocr_span(span):
     """If this is an OCR text span."""
-    return span["font"] == TESSERACT_FONT_NAME or (
-        True
-        and span["char_flags"] & TEXT_STROKED == 0
-        and span["char_flags"] & TEXT_FILLED == 0
+    return (
+        span["font"] == TESSERACT_FONT_NAME
+        or span["alpha"] == 0
+        or (
+            span["char_flags"] & TEXT_STROKED == 0
+            and span["char_flags"] & TEXT_FILLED == 0
+        )
     )
 
 
@@ -155,6 +143,7 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
         "txt_area": float, fraction of sum of text span bbox area sizes
         "vec_joins": float, fraction of area of the joined vector characters
         "vec_area": float, fraction of sum of vectors
+        "vec_norects": int, count of vectors with isrect=False (not in a rectangle)
         "chars_total": int, count of visible characters
         "chars_bad": int, count of Replacement Unicode characters
         "bad_areas": float, fraction of text areas having bad characters
@@ -187,6 +176,7 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
     img_area = 0.0  # sum of image block areas
     txt_area = 0.0  # sum of all text span bbox areas
     vec_area = 0.0  # sum of suspicious vector block areas
+    vec_norects = 0  # count of vectors with isrect=False (not in a rectangle)
     ocr_spans = 0  # count text spans with OCR flags
     ocr_span_boxes = []
     bad_char_boxes = []
@@ -245,6 +235,8 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
             # Vector block
             vec_rect = join_rects(vec_rect, bbox)
             vec_area += area
+            if not b["isrect"]:
+                vec_norects += 1
             continue
 
     # the rectangle on page covered by content
@@ -259,6 +251,7 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
             "txt_area": 0.0,
             "vec_joins": 0.0,
             "vec_area": 0.0,
+            "vec_norects": 0,
             "chars_total": 0,
             "chars_bad": 0,
             "bad_areas": 0.0,
@@ -270,7 +263,17 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
         }
 
     cover_area = (covered[2] - covered[0]) * (covered[3] - covered[1])
-
+    # The page is considered to have an OCR layer only if ALL text spans:
+    # - have been marked as render mode 3, or
+    # - have been written using the GlyphLessFont of Tesseract, or
+    # - are fully transparent (alpha = 0).
+    # We therefore return ocr_spans = 0 if any of the previous is not true.
+    ocr_spans = (
+        ocr_spans
+        if ocr_spans
+        and len(ocr_span_boxes) == len(good_char_boxes) + len(bad_char_boxes)
+        else 0
+    )
     analysis = {
         "covered": covered,
         "img_joins": (abs(img_rect) / cover_area) if cover_area else 0.0,
@@ -284,6 +287,7 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
         "bad_areas": bad_areas / cover_area if cover_area else 0.0,
         "ocr_spans": ocr_spans,
         "pixmap": None,
+        "vec_norects": vec_norects,
     }
 
     # --- final OCR decision ---
@@ -316,19 +320,24 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
     # 2. Bad character check
     # Too many bad characters result in early exit with OCR recommended.
     if (
-        True
-        and chars_total
+        chars_total
         and txt_area
-        and (
-            False
-            or chars_bad / chars_total > BAD_CHAR_THRESHOLD
-            or bad_areas / txt_area > BAD_CHAR_THRESHOLD
-        )
+        and chars_bad / chars_total > BAD_CHAR_THRESHOLD
+        and bad_areas / txt_area > BAD_CHAR_THRESHOLD
     ):
         return {
             **analysis,
             "needs_ocr": True,
             "reason": "chars_bad",
+            "probability": None,
+        }
+
+    if not vec_norects and not img_area:
+        # No suspicious vectors and no images → no OCR needed
+        return {
+            **analysis,
+            "needs_ocr": False,
+            "reason": None,
             "probability": None,
         }
 

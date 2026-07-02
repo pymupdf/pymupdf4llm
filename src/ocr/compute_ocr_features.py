@@ -1,7 +1,6 @@
 import numpy as np
-from numpy.lib.stride_tricks import as_strided
-
 import pymupdf
+from numpy.lib.stride_tricks import as_strided
 from pymupdf import mupdf
 
 FEATURE_NAMES = [

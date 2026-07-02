@@ -16,11 +16,11 @@ import sys
 
 import pymupdf
 from pymupdf4llm.helpers.utils import (
-    is_white,
+    TYPE3_FONT_NAME,
     almost_in_bbox,
     are_disjoint,
     bbox_is_empty,
-    TYPE3_FONT_NAME,
+    is_white,
 )
 
 

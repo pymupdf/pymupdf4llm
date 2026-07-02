@@ -1,7 +1,8 @@
+from pathlib import Path
+
+import numpy as np
 import pymupdf
 from pymupdf import mupdf
-from pathlib import Path
-import numpy as np
 from pymupdf4llm.ocr.analyze_page import analyze_page
 
 TESSERACT_FONT_NAME = "GlyphLessFont"  # Tesseract's font for OCR text layers
@@ -888,9 +889,8 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
 
                 # decode font flags and char_flags properties
                 superscript = span["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
-                mono = (
-                    span["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                    and not is_ocr_text(span)
+                mono = span["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not is_ocr_text(
+                    span
                 )
                 bold = (
                     span["flags"] & pymupdf.TEXT_FONT_BOLD

@@ -1,4 +1,5 @@
 import pymupdf
+
 from .get_culled_pixmap import get_pixmap
 
 TESSDATA = pymupdf.get_tessdata()
@@ -58,7 +59,9 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
         # This is because we cannot distinguish between "good" text and "bad" OCR text.
         return
     # make a Pixmap without "good" text
-    pixmap = get_pixmap(displaylist, dpi=dpi, rects=spans)
+    pixmap, empty = get_pixmap(displaylist, dpi=dpi, rects=spans, empty_threshold=250)
+    if empty:
+        return  # nothing to OCR, the page is empty after removing good text
 
     # OCR the (remainder of the) page and remove everything except the text
     # layer from the OCR result
@@ -70,13 +73,6 @@ def exec_ocr(page, dpi=300, pixmap=None, language="eng", keep_ocr_text=False):
         images=pymupdf.PDF_REDACT_IMAGE_REMOVE,
         graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED,
         text=pymupdf.PDF_REDACT_TEXT_NONE,
-    )
-    # on the target page ONLY remove all text
-    page.add_redact_annot(page.rect)
-    page.apply_redactions(
-        images=pymupdf.PDF_REDACT_IMAGE_NONE,
-        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-        text=pymupdf.PDF_REDACT_TEXT_REMOVE,
     )
     # insert the OCR text layer into the original page
     page.show_pdf_page(page.rect, temp_pdf, 0)
