@@ -1,6 +1,6 @@
 ## Government of lndia - 
 
-> Rules under which a security deposit amount of 25000 INR is levied on a candidate: 
+## Rules under which a security deposit amount of 25000 INR is levied on a candidate: 
 
 # Companies (Acceptance of Deposits) Rules, 2014 
 
