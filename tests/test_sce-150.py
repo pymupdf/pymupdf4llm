@@ -56,4 +56,8 @@ def test_sce_150_3():
         header=False,
         footer=False,
     )
+    
+    actual = Path(__file__).parent / 'test_sce_150_3_actual.md'
+    actual.write_bytes(md.encode())
+    
     assert md == expected
