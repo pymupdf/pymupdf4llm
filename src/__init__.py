@@ -80,6 +80,8 @@ def _layout_to_markdown(
     show_progress=False,
     use_ocr=True,
     write_images=False,
+    render_html_tables=None,
+    edge_threshold=None,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -101,6 +103,8 @@ def _layout_to_markdown(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
+        render_html_tables=render_html_tables,
+        edge_threshold=edge_threshold,
     )
     return parsed_doc.to_markdown(
         header=header,
@@ -129,6 +133,8 @@ def _layout_to_json(
     force_ocr=False,
     ocr_language="eng",
     ocr_function=None,
+    render_html_tables=None,
+    edge_threshold=None,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -146,6 +152,8 @@ def _layout_to_json(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
+        render_html_tables=render_html_tables,
+        edge_threshold=edge_threshold,
     )
     return parsed_doc.to_json()
 
@@ -168,6 +176,7 @@ def _layout_to_text(
     table_max_width=100,
     table_min_col_width=10,
     page_chunks=False,
+    edge_threshold=None,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -183,6 +192,7 @@ def _layout_to_text(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
+        edge_threshold=edge_threshold,
     )
     return parsed_doc.to_text(
         header=header,
@@ -197,6 +207,35 @@ def _layout_to_text(
 
 
 def to_markdown(*args, **kwargs):
+    # `render_html_tables` is an internal flag this wrapper injects for
+    # table_output="html"; it is not a public kwarg. Drop any user-supplied value
+    # so it cannot silently enable/disable HTML tables via **kwargs.
+    kwargs.pop("render_html_tables", None)
+    if kwargs.get("table_output") == "html":
+        # Render tables as HTML via table_html.
+        kwargs = dict(kwargs)
+        kwargs.pop("table_output", None)
+        if _use_layout:
+            # Preferred path: render HTML tables on the layout path, reusing the
+            # GNN layout. Keeps the layout path's text, reading order, and OCR --
+            # only the table rendering is swapped.
+            return _layout_to_markdown(*args, render_html_tables=True, **kwargs)
+        # No layout engine available: fall back to the rag path, which has its own
+        # table_output="html" wiring. OCR is not available on this path.
+        legacy_kwargs = dict(kwargs)
+        for name in (
+            "footer",
+            "header",
+            "ocr_dpi",
+            "ocr_function",
+            "ocr_language",
+            "use_ocr",
+            "force_ocr",
+        ):
+            legacy_kwargs.pop(name, None)
+        return pymupdf4llm.helpers.pymupdf_rag.to_markdown(
+            *args, table_output="html", **legacy_kwargs
+        )
     if _use_layout:
         return _layout_to_markdown(*args, **kwargs)
     else:
@@ -204,6 +243,12 @@ def to_markdown(*args, **kwargs):
 
 
 def to_json(*args, **kwargs):
+    # See to_markdown: `render_html_tables` is internal, not a public kwarg.
+    kwargs.pop("render_html_tables", None)
+    if kwargs.get("table_output") == "html":
+        kwargs = dict(kwargs)
+        kwargs.pop("table_output", None)
+        kwargs["render_html_tables"] = True
     if _use_layout:
         return _layout_to_json(*args, **kwargs)
     else:
