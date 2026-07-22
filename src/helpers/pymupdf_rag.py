@@ -321,6 +321,35 @@ def to_text(*args, **kwargs):
     )
 
 
+# --------------------------------------------------------------------------
+# HTML table output (table_output="html")
+#
+# When requested, tables are detected and rendered as HTML <table> by
+# pymupdf4llm.helpers.table_html. In this mode table_html -- not a direct
+# page.find_tables() call here -- is the source of the page's tables, so it
+# drives emission, reading order, and body-text exclusion. parms.tab_rects
+# index i maps directly to the i-th reconstructed table in parms.html_tables.
+# --------------------------------------------------------------------------
+def _reconstruct_html_tables(page):
+    """Return the ``(bbox, html, rows, cols, cells, extract)`` payload for each
+    table on ``page``. Imported lazily so table_html loads only when
+    table_output="html" is requested."""
+    from pymupdf4llm.helpers.table_html import page_html_tables
+
+    return page_html_tables(page)
+
+
+def _table_string(parms, i, table_output):
+    """Render table ``i`` as markdown (default) or reconstructed HTML.
+
+    In HTML mode ``i`` indexes ``parms.html_tables`` directly, so no bbox
+    matching is needed.
+    """
+    if table_output == "html":
+        return parms.html_tables[i][1]
+    return parms.tabs[i].to_markdown(clean=False)
+
+
 def to_markdown(
     doc,
     *,
@@ -343,6 +372,7 @@ def to_markdown(
     page_width=612,
     page_height=None,
     table_strategy="lines_strict",
+    table_output="markdown",
     graphics_limit=None,
     fontsize_limit=3,
     ignore_code=False,
@@ -370,6 +400,8 @@ def to_markdown(
         page_width: (float) assumption if page layout is variable.
         page_height: (float) assumption if page layout is variable.
         table_strategy: choose table detection strategy
+        table_output: ("markdown" or "html") render tables as markdown (default)
+            or as reconstructed HTML <table> via pymupdf4llm.helpers.table_html.
         graphics_limit: (int) if vector graphics count exceeds this, ignore all.
         ignore_code: (bool) suppress code-like formatting (mono-space fonts)
         extract_words: (bool, False) include "words"-like output in page chunks
@@ -395,6 +427,9 @@ def to_markdown(
     if EXTRACT_WORDS is True:
         page_chunks = True
         ignore_code = True
+    if table_output not in ("markdown", "html"):
+        raise ValueError("'table_output' must be 'markdown' or 'html'.")
+    TABLE_OUTPUT = table_output
     IMG_PATH = image_path
     if IMG_PATH and write_images is True and not os.path.exists(IMG_PATH):
         os.makedirs(IMG_PATH, exist_ok=True)
@@ -577,8 +612,10 @@ def to_markdown(
                     )
                 ]
                 for i, _ in tab_candidates:
-                    out_string += "\n" + parms.tabs[i].to_markdown(clean=False) + "\n"
-                    if EXTRACT_WORDS:
+                    out_string += "\n" + _table_string(parms, i, TABLE_OUTPUT) + "\n"
+                    # HTML mode has no find_tables Table objects to read cell rects
+                    # from, so table cell rects are not wired for "words" output yet.
+                    if EXTRACT_WORDS and TABLE_OUTPUT != "html":
                         # for "words" extraction, add table cells as line rects
                         cells = sorted(
                             set(
@@ -818,8 +855,8 @@ def to_markdown(
             ):
                 if i in parms.written_tables:
                     continue
-                this_md += parms.tabs[i].to_markdown(clean=False) + "\n"
-                if EXTRACT_WORDS:
+                this_md += _table_string(parms, i, TABLE_OUTPUT) + "\n"
+                if EXTRACT_WORDS and TABLE_OUTPUT != "html":
                     # for "words" extraction, add table cells as line rects
                     cells = sorted(
                         set(
@@ -839,8 +876,8 @@ def to_markdown(
             for i, trect in parms.tab_rects.items():
                 if i in parms.written_tables:
                     continue
-                this_md += parms.tabs[i].to_markdown(clean=False) + "\n"
-                if EXTRACT_WORDS:
+                this_md += _table_string(parms, i, TABLE_OUTPUT) + "\n"
+                if EXTRACT_WORDS and TABLE_OUTPUT != "html":
                     # for "words" extraction, add table cells as line rects
                     cells = sorted(
                         set(
@@ -1093,32 +1130,47 @@ def to_markdown(
 
         # Locate all tables on page
         parms.written_tables = []  # stores already written tables
-        omitted_table_rects = []
         parms.tabs = []
+        parms.html_tables = []
+        tab_rects = {}
+
         if IGNORE_GRAPHICS or not table_strategy:
             # do not try to extract tables
             pass
+        elif TABLE_OUTPUT == "html":
+            # table_html detects (via the layout stage, with find_tables repair)
+            # and reconstructs each table as HTML, and drives table emission,
+            # reading order, and body-text exclusion below. It calls
+            # page.find_tables() internally (once); to_markdown does not call it
+            # directly here. Borderless tables the layout stage finds -- which
+            # find_tables alone cannot see -- are emitted too.
+            parms.html_tables = _reconstruct_html_tables(page)
+            for i, (rect, _html, rows, cols, _cells, _extract) in enumerate(parms.html_tables):
+                tab_rects[i] = pymupdf.Rect(rect)
+                parms.tables.append(
+                    {"bbox": tuple(tab_rects[i]), "rows": rows, "columns": cols}
+                )
         else:
             tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
             for t in tabs.tables:
                 # remove tables with too few rows or columns
                 if t.row_count < 2 or t.col_count < 2:
-                    omitted_table_rects.append(pymupdf.Rect(t.bbox))
                     continue
                 parms.tabs.append(t)
             parms.tabs.sort(key=lambda t: (t.bbox[0], t.bbox[1]))
 
-        # Make a list of table boundary boxes.
-        # Must include the header bbox (which may exist outside tab.bbox)
-        tab_rects = {}
-        for i, t in enumerate(parms.tabs):
-            tab_rects[i] = pymupdf.Rect(t.bbox) | pymupdf.Rect(t.header.bbox)
-            tab_dict = {
-                "bbox": tuple(tab_rects[i]),
-                "rows": t.row_count,
-                "columns": t.col_count,
-            }
-            parms.tables.append(tab_dict)
+            # Make a list of table boundary boxes.
+            # Must include the header bbox (which may exist outside tab.bbox)
+            for i, t in enumerate(parms.tabs):
+                tab_rects[i] = pymupdf.Rect(t.bbox) | pymupdf.Rect(t.header.bbox)
+                parms.tables.append(
+                    {
+                        "bbox": tuple(tab_rects[i]),
+                        "rows": t.row_count,
+                        "columns": t.col_count,
+                    }
+                )
+
         parms.tab_rects = tab_rects
         # list of table rectangles
         parms.tab_rects0 = list(tab_rects.values())

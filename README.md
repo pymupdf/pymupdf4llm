@@ -124,6 +124,38 @@ Path("output.md").write_bytes(md.encode())
 | **Plain text** | `to_text(path)` | Search indexing, simple NLP tasks |
 | **LlamaIndex docs** | `LlamaMarkdownReader().load_data(path)` | Direct LlamaIndex integration |
 
+### HTML table output
+
+By default, tables are rendered as GitHub-compatible Markdown. To emit
+reconstructed HTML `<table>` elements instead, use `table_output="html"`:
+
+```python
+import pymupdf4llm
+
+md = pymupdf4llm.to_markdown("document.pdf", table_output="html")
+```
+
+In layout mode this keeps the layout pipeline for reading order, body text, and
+OCR handling, and swaps only table rendering to the HTML table engine. The
+standalone table API is also available:
+
+```python
+from pymupdf4llm.helpers.table_html import to_html
+
+html = to_html("document.pdf", page_index=0)
+```
+
+### Layout edge threshold
+
+Layout mode accepts `edge_threshold`, passed through to `page.get_layout()`
+to adjust the layout model's grouping confidence:
+
+```python
+md = pymupdf4llm.to_markdown("document.pdf", edge_threshold=0.75)
+```
+
+The default remains the library default unless this option is provided.
+
 ### Extraction capabilities
 
 | Feature | Description |
@@ -530,6 +562,5 @@ Contributions are welcome. Please open an issue before submitting large pull req
 If you find this useful, please consider giving it a star — it helps others discover it!
 
 [![Star on GitHub](https://img.shields.io/github/stars/pymupdf/pymupdf4llm.svg?style=for-the-badge&label=Star&logo=github)](https://github.com/pymupdf/pymupdf4llm/)
-
 
 
