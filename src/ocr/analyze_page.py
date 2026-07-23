@@ -137,7 +137,7 @@ def bbox_is_empty(bbox) -> bool:
     return bbox[0] >= bbox[2] or bbox[1] >= bbox[3]
 
 
-def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) -> dict:
+def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=150, stats=None) -> dict:
     """Analyze the page for the OCR decision.
 
     Args:

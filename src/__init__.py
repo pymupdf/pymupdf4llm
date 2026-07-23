@@ -69,13 +69,14 @@ def _layout_to_markdown(
     ignore_code=False,
     image_format="png",
     image_path="",
-    ocr_dpi=300,
+    ocr_dpi=150,
     ocr_function=None,
     ocr_language="eng",
     page_chunks=False,
     page_height=None,
     page_separators=False,
     pages=None,
+    password=None,
     page_width=612,
     show_progress=False,
     use_ocr=True,
@@ -94,6 +95,7 @@ def _layout_to_markdown(
         image_format=image_format,
         image_path=image_path,
         pages=pages,
+        password=password,
         ocr_dpi=ocr_dpi,
         write_images=write_images,
         embed_images=embed_images,
@@ -124,7 +126,8 @@ def _layout_to_json(
     image_format="png",
     image_path="",
     pages=None,
-    ocr_dpi=300,
+    password=None,
+    ocr_dpi=150,
     write_images=False,
     embed_images=False,
     show_progress=False,
@@ -144,6 +147,7 @@ def _layout_to_json(
         image_format=image_format,
         image_path=image_path,
         pages=pages,
+        password=password,
         embed_images=embed_images,
         write_images=write_images,
         show_progress=show_progress,
@@ -166,8 +170,9 @@ def _layout_to_text(
     pages=None,
     ignore_code=False,
     show_progress=False,
+    password=None,
     force_text=True,
-    ocr_dpi=300,
+    ocr_dpi=150,
     use_ocr=True,
     force_ocr=False,
     ocr_language="eng",
@@ -184,6 +189,7 @@ def _layout_to_text(
         doc,
         filename=filename,
         pages=pages,
+        password=password,
         embed_images=False,
         write_images=False,
         show_progress=show_progress,
@@ -279,6 +285,8 @@ def get_key_values(doc, xrefs=False, **kwargs):
         mydoc = doc
     else:
         mydoc = pymupdf.open(doc)
+    if not utils.verify_password(mydoc, password=kwargs.get("password")):
+        raise ValueError("Document is password protected.")
     if mydoc.is_form_pdf:
         rc = utils.extract_form_fields_with_pages(mydoc, xrefs=xrefs)
     else:

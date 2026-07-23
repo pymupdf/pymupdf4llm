@@ -57,6 +57,7 @@ from pymupdf4llm.helpers.utils import (
     are_disjoint,
     bbox_in_bbox,
     intersect_rects,
+    verify_password,
 )
 
 try:
@@ -89,6 +90,7 @@ class IdentifyHeaders:
         pages: list = None,
         body_limit: float = 12,  # force this to be body text
         max_levels: int = 6,  # accept this many header levels
+        password: str = None,
     ):
         """Read all text and make a dictionary of fontsizes.
 
@@ -99,10 +101,14 @@ class IdentifyHeaders:
         """
         if not isinstance(max_levels, int) or max_levels not in range(1, 7):
             raise ValueError("max_levels must be an integer between 1 and 6")
+
         if isinstance(doc, pymupdf.Document):
             mydoc = doc
         else:
             mydoc = pymupdf.open(doc)
+
+        if not verify_password(mydoc, password):
+            raise ValueError("Document is password protected")
 
         if mydoc.is_pdf:
             # remove StructTreeRoot to avoid possible performance degradation
@@ -182,18 +188,21 @@ class TocHeaders:
     Like IdentifyHeaders, this also is no guarantee to find headers, but it
     represents a good chance for appropriately built documents. In such cases,
     this method can be very much faster and more accurate, because we can
-    directly use the hierarchy level of TOC items to ientify the header level.
+    directly use the hierarchy level of TOC items to identify the header level.
     Examples where this works very well are the Adobe PDF documents.
     """
 
-    def __init__(self, doc: str):
+    def __init__(self, doc: str, password: str = None):
         """Read and store the TOC of the document."""
         if isinstance(doc, pymupdf.Document):
             mydoc = doc
         else:
             mydoc = pymupdf.open(doc)
 
-        self.TOC = doc.get_toc()
+        if not verify_password(mydoc, password):
+            raise ValueError("Document is password protected")
+
+        self.TOC = mydoc.get_toc()
         if mydoc != doc:
             # if opened here, close it now
             mydoc.close()
@@ -354,6 +363,7 @@ def to_markdown(
     doc,
     *,
     pages=None,
+    password=None,
     hdr_info=None,
     write_images=False,
     embed_images=False,
@@ -436,6 +446,9 @@ def to_markdown(
 
     if not isinstance(doc, pymupdf.Document):
         doc = pymupdf.open(doc)
+
+    if not verify_password(doc, password):
+        raise ValueError("Document is password protected")
 
     FILENAME = doc.name if filename is None else filename
     GRAPHICS_LIMIT = graphics_limit
