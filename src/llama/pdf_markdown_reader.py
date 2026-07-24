@@ -2,9 +2,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import pymupdf
-from pymupdf import Document as FitzDocument
-
 import pymupdf4llm.helpers.pymupdf_rag
+from pymupdf import Document as FitzDocument
 
 try:
     from llama_index.core.readers.base import BaseReader

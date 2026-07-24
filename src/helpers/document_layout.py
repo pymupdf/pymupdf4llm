@@ -23,6 +23,16 @@ except ImportError:
 
 from dataclasses import dataclass
 
+# "import" marina's converter to PDF
+RUNNING_WITH_MARINA = hasattr(pymupdf, "pro") and hasattr(pymupdf.pro, "office_to_pdf")
+if RUNNING_WITH_MARINA:
+    OFFICE_TO_PDF = pymupdf.pro.office_to_pdf
+else:
+    OFFICE_TO_PDF = None
+
+# Office formats supported by marina
+OFFICE_FORMATS = {"DOCX", "XLSX", "PPTX", "DOC", "XLS", "PPT", "HWPX", "HWP"}
+
 pymupdf.TOOLS.unset_quad_corrections(True)
 _LAYOUT_LOCK = threading.RLock()
 
@@ -241,10 +251,7 @@ def is_monospaced(textlines):
 
     for l in textlines:
         all_mono = all(
-            bool(
-                s["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                and not utils.is_ocr_text(s)
-            )
+            bool(s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not utils.is_ocr_text(s))
             for s in l["spans"]
             if not s["text"].isspace()
         )
@@ -263,7 +270,10 @@ def is_superscripted(line):
         return True
     if len(spans) < 2:  # single span line: skip
         return False
-    if span0["origin"][1] < spans[1]["origin"][1] and span0["size"] < spans[1]["size"]:
+    if (
+        span0["origin"][1] < spans[1]["origin"][1]
+        and span0["size"] <= spans[1]["size"] * 0.8
+    ):
         return True
     return False
 
@@ -436,7 +446,8 @@ def fallback_text_to_text(textlines, ignore_code: bool = False, clip=None):
         lines,
         tablefmt="grid",
         disable_numparse=True,
-        maxcolwidths=int(100 / span_count),
+        # prevents exceptions in corner cases:
+        maxcolwidths=int(100 / span_count) or None,
     )
     output += tab_text + "\n"
     return output + "\n"
@@ -728,8 +739,16 @@ def _html_table_meta(table_item) -> Dict:
     return {
         "bbox": [float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)],
         "html": table_item[1],
-        "rows": int(table_item[2]) if len(table_item) > 2 and table_item[2] is not None else None,
-        "cols": int(table_item[3]) if len(table_item) > 3 and table_item[3] is not None else None,
+        "rows": (
+            int(table_item[2])
+            if len(table_item) > 2 and table_item[2] is not None
+            else None
+        ),
+        "cols": (
+            int(table_item[3])
+            if len(table_item) > 3 and table_item[3] is not None
+            else None
+        ),
         "cells": table_item[4] if len(table_item) > 4 else None,
         "extract": table_item[5] if len(table_item) > 5 else None,
     }
@@ -764,7 +783,13 @@ def _assign_html_tables_to_boxes(layout_boxes, html_tables, threshold: float = 0
                     best_key = key
                     best_score = score
         if best_key is None or best_score < threshold:
-            synthetic = (table_rect.x0, table_rect.y0, table_rect.x1, table_rect.y1, "table")
+            synthetic = (
+                table_rect.x0,
+                table_rect.y0,
+                table_rect.x1,
+                table_rect.y1,
+                "table",
+            )
             augmented_boxes.append(synthetic)
             best_key = tuple(pymupdf.IRect(table_rect))
             table_boxes.append((best_key, table_rect))
@@ -829,7 +854,9 @@ def _split_text_box_around_tables(box, fulltext, table_rects):
             start = index
         elif is_claimed and start is not None:
             end = index - 1
-            y0 = box_rect.y0 if start == 0 else pymupdf.Rect(lines[start - 1]["bbox"]).y1
+            y0 = (
+                box_rect.y0 if start == 0 else pymupdf.Rect(lines[start - 1]["bbox"]).y1
+            )
             y1 = (
                 box_rect.y1
                 if end == len(lines) - 1
@@ -840,7 +867,9 @@ def _split_text_box_around_tables(box, fulltext, table_rects):
                 y0, y1 = rect.y0, rect.y1
             split_box = (box_rect.x0, y0, box_rect.x1, y1, box[4])
             split_boxes.append(split_box)
-            textlines_by_box[tuple(pymupdf.IRect(split_box[:4]))] = lines[start : end + 1]
+            textlines_by_box[tuple(pymupdf.IRect(split_box[:4]))] = lines[
+                start : end + 1
+            ]
             start = None
     return split_boxes, textlines_by_box
 
@@ -1040,6 +1069,7 @@ class ParsedDocument:
     def to_json(self, show_progress=False) -> str:
         # Serialize to JSON
         _ = show_progress
+
         class LayoutEncoder(json.JSONEncoder):
             def default(self, s):
                 if isinstance(s, (bytes, bytearray)):
@@ -1154,6 +1184,8 @@ def select_ocr_function():
 
     Return the best OCR function available or None.
     """
+    from pymupdf4llm.ocr.detect_rapidocr import detect_rapidocr_backend
+
     tessdata = None
     rapidocr_available = False
     paddleocr_available = False
@@ -1162,30 +1194,34 @@ def select_ocr_function():
     except:
         tessdata = None
 
-    try:
-        import rapidocr_onnxruntime
+    rapidocr_backend = detect_rapidocr_backend()
+    if rapidocr_backend and rapidocr_backend != "rapidocr_onnxruntime":
+        # the new RapidOCR backend is available, so use this as default
+        from pymupdf4llm.ocr import rapidocr_api
 
+        print("Using RapidOCR for OCR processing.", file=INFO_MESSAGES)
+        return rapidocr_api.exec_ocr
+
+    if rapidocr_backend is not None:
         rapidocr_available = True
-        paddleocr_available = True
-    except:
-        pass
+        paddleocr_available = True  # for now: we have no own paddleocr yet
+
     if {tessdata, rapidocr_available, paddleocr_available} == {None, False, False}:
         return None
+
     if tessdata:
         if rapidocr_available:
             from pymupdf4llm.ocr import rapidtess_api
 
             print(
-                "Using RapidOCR and Tesseract for OCR processing.",
+                "Using RapidOCR & Tesseract for OCR processing.",
                 file=INFO_MESSAGES,
             )
             return rapidtess_api.exec_ocr
         elif paddleocr_available:
             from pymupdf4llm.ocr import paddletess_api
 
-            print(
-                "Using PaddleOCR and Tesseract for OCR processing.", file=INFO_MESSAGES
-            )
+            print("Using PaddleOCR & Tesseract for OCR processing.", file=INFO_MESSAGES)
             return paddletess_api.exec_ocr
         else:
             from pymupdf4llm.ocr import tesseract_api
@@ -1227,26 +1263,34 @@ def make_ocr_decision(page, use_ocr):
     """
     # OCR not desired at all
     if use_ocr == OCRMode.NEVER:
-        return False, 0
+        return False, 0, False
 
     page_analysis = utils.analyze_page(page)
 
+    only_text = (
+        page_analysis.get("img_area", 0) == 0
+        and page_analysis.get("vec_norects", 0) == 0
+    )
     needs_ocr = page_analysis.get("needs_ocr", False)
-    # may be > 0 even if needs_ocr is False:
-    ocr_spans = page_analysis.get("ocr_spans", 0)
 
+    # if > 0 then all text is from previous OCR
+    ocr_spans = page_analysis.get("ocr_spans", 0)
     if ocr_spans and use_ocr in (OCRMode.FORCE_KEEP_OLD, OCRMode.SELECT_KEEP_OLD):
         # return False if old OCR should be kept
-        return False, ocr_spans
+        return False, ocr_spans, only_text
 
-    return needs_ocr, 0
+    if use_ocr in (OCRMode.FORCE_DROP_OLD, OCRMode.FORCE_KEEP_OLD) and not only_text:
+        # return True if old OCR should be dropped and new OCR done
+        return True, ocr_spans, only_text
+
+    return needs_ocr, ocr_spans, only_text
 
 
 def parse_document(
     doc,
     filename="",
     image_dpi=150,
-    ocr_dpi=300,
+    ocr_dpi=150,
     image_format="png",
     image_path="",
     pages=None,
@@ -1269,6 +1313,10 @@ def parse_document(
     if mydoc.metadata["format"] == "Image":
         # Re-open as PDF to ensure we can successfully OCR the image.
         data = mydoc.convert_to_pdf()
+        mydoc.close()
+        mydoc = pymupdf.open(stream=data)
+    elif mydoc.metadata["format"] in OFFICE_FORMATS and OFFICE_TO_PDF:
+        data = OFFICE_TO_PDF(mydoc)
         mydoc.close()
         mydoc = pymupdf.open(stream=data)
 
@@ -1361,7 +1409,8 @@ def parse_document(
         page_full_ocred = False
         PAGE_ANALYSIS = {}
         OCR_SPANS = 0
-        needs_ocr, OCR_SPANS = make_ocr_decision(page, document.use_ocr)
+        ONLY_TEXT = False
+        needs_ocr, OCR_SPANS, ONLY_TEXT = make_ocr_decision(page, document.use_ocr)
 
         if needs_ocr:
             # execute OCR for the page replacing any previous OCR spans
@@ -1392,6 +1441,7 @@ def parse_document(
             _saved_raw_layout = page.layout_information
             try:
                 from pymupdf4llm.helpers.table_html import page_html_tables
+
                 page_html_tables_list = list(page_html_tables(page))
             except Exception as exc:
                 # HTML table rendering failed on this page -> fall back to the
@@ -1415,6 +1465,9 @@ def parse_document(
 
         new_layout_info = []  # will contain Layout boxes in non-"raw" format
         for b in page.layout_information:
+            if b["class_name"] == "table" and not b["table_grid"]:
+                # table without a grid: skip it
+                continue
             bbox = tuple(b["group_bbox"] + [b["class_name"]])
             new_layout_info.append(bbox)
 
@@ -1425,10 +1478,12 @@ def parse_document(
                 table_infos[key] = b
 
         if _render_html_tables and page_html_tables_list:
-            new_layout_info, html_tables_by_box, textlines_by_box = normalize_layout_boxes(
-                new_layout_info,
-                page_html_tables_list,
-                fulltext=[b for b in blocks if b["type"] == 0],
+            new_layout_info, html_tables_by_box, textlines_by_box = (
+                normalize_layout_boxes(
+                    new_layout_info,
+                    page_html_tables_list,
+                    fulltext=[b for b in blocks if b["type"] == 0],
+                )
             )
 
         page.layout_information = new_layout_info
@@ -1517,7 +1572,12 @@ def parse_document(
                     # box.table["html"] directly).
                     single = html_tables[0] if len(html_tables) == 1 else None
                     layoutbox.table = {
-                        "bbox": [layoutbox.x0, layoutbox.y0, layoutbox.x1, layoutbox.y1],
+                        "bbox": [
+                            layoutbox.x0,
+                            layoutbox.y0,
+                            layoutbox.x1,
+                            layoutbox.y1,
+                        ],
                         "row_count": single.get("rows") if single else None,
                         "col_count": single.get("cols") if single else None,
                         "cells": single.get("cells") if single else None,
@@ -1533,7 +1593,9 @@ def parse_document(
                     # might not match the original exactly, so take the best fit.
                     tab_details = None
                     if table_infos and table_blocks is not None:
-                        key = max(table_infos.keys(), key=lambda k: utils.iou(k, search_key))
+                        key = max(
+                            table_infos.keys(), key=lambda k: utils.iou(k, search_key)
+                        )
                         tab_dict = table_infos.get(key)
                         tab_details = get_table_details(tab_dict, table_blocks)
 
@@ -1548,7 +1610,12 @@ def parse_document(
                         }
                     else:
                         layoutbox.table = {
-                            "bbox": [layoutbox.x0, layoutbox.y0, layoutbox.x1, layoutbox.y1],
+                            "bbox": [
+                                layoutbox.x0,
+                                layoutbox.y0,
+                                layoutbox.x1,
+                                layoutbox.y1,
+                            ],
                             "row_count": None,
                             "col_count": None,
                             "cells": None,
@@ -1587,10 +1654,12 @@ def parse_document(
     if mydoc != doc:
         mydoc.close()
     msg_text = INFO_MESSAGES.getvalue()
-    if msg_text:
+    if msg_text:  # only print if there are messages
+        print()
         pymupdf.message("=== Document parser messages ===")
-        pymupdf.message(msg_text)
-    INFO_MESSAGES.truncate(0)  # empty the file-like object
+        pymupdf.message(msg_text.strip())
+    INFO_MESSAGES.truncate()  # empty the file-like object
+    INFO_MESSAGES.seek(0)  # reset the file pointer to the beginning
     # Update title/section-header boxes with html header tags
     update_header_tags(document.pages, header_fontsizes)
     return document

@@ -1,7 +1,8 @@
+from pathlib import Path
+
+import numpy as np
 import pymupdf
 from pymupdf import mupdf
-from pathlib import Path
-import numpy as np
 from pymupdf4llm.ocr.analyze_page import analyze_page
 
 TESSERACT_FONT_NAME = "GlyphLessFont"  # Tesseract's font for OCR text layers
@@ -249,7 +250,7 @@ def join_rects(rects, bbox_only=False):
     return (x0, y0, x1, y1) if bbox_only else pymupdf.Rect(x0, y0, x1, y1)
 
 
-def almost_in_bbox(bbox, clip, portion=0.8):
+def almost_in_bbox(bbox, clip, portion=0.6):
     intersect = [
         max(bbox[0], clip[0]),
         max(bbox[1], clip[1]),
@@ -260,7 +261,7 @@ def almost_in_bbox(bbox, clip, portion=0.8):
         0, intersect[3] - intersect[1]
     )
     box_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-    if inter_area > box_area * portion:
+    if inter_area >= box_area * portion:
         return True
     return False
 
@@ -888,9 +889,8 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
 
                 # decode font flags and char_flags properties
                 superscript = span["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
-                mono = (
-                    span["flags"] & pymupdf.TEXT_FONT_MONOSPACED
-                    and not is_ocr_text(span)
+                mono = span["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not is_ocr_text(
+                    span
                 )
                 bold = (
                     span["flags"] & pymupdf.TEXT_FONT_BOLD
