@@ -21,12 +21,13 @@ pymupdf_layout_version = VERSION
 PYMUPDF_SETUP_VERSION = os.environ.get("PYMUPDF_SETUP_VERSION")
 if PYMUPDF_SETUP_VERSION:
     # Allow testing with non-matching pymupdf/layout versions.
-    requires_dist = ["tabulate"]
+    requires_dist = ["tabulate", "psutil"]
 else:
     requires_dist = [
         f"pymupdf=={pymupdf_version}",
         f"pymupdf_layout=={pymupdf_layout_version}",
         "tabulate",
+        "psutil",
     ]
 
 
@@ -39,7 +40,7 @@ def build():
             {VERSION_TUPLE=}
             """)
     ret.append((version_info.encode("utf-8"), "pymupdf4llm/versions_file.py"))
-    
+
     _build_py = pipcl.git_info_py('.', check=0, prefix='pymupdf4llm_git_')
     ret.append((_build_py.encode(), 'pymupdf4llm/_build.py'))
 

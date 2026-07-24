@@ -49,14 +49,14 @@ from pymupdf4llm.helpers.multi_column import column_boxes
 from pymupdf4llm.helpers.utils import (
     BULLETS,
     REPLACEMENT_CHARACTER,
-    is_ocr_text,
-    startswith_bullet,
-    is_white,
-    bbox_is_empty,
     almost_in_bbox,
     are_disjoint,
     bbox_in_bbox,
+    bbox_is_empty,
     intersect_rects,
+    is_ocr_text,
+    is_white,
+    startswith_bullet,
 )
 
 try:

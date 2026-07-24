@@ -1,7 +1,7 @@
 """
 This script defines a text-based progress bar to allow watching the advancement
 of Markdown conversion of document pages.
- 
+
 Dependencies
 -------------
 None

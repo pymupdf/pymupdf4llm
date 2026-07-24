@@ -112,7 +112,7 @@ def get_raw_lines(
     if not isinstance(textpage, pymupdf.TextPage) and blocks is None:
         raise ValueError("Either textpage or blocks must be provided.")
 
-    if clip is None:  # use TextPage rect if not provided
+    if clip is None and textpage is not None:  # use TextPage rect if not provided
         clip = textpage.rect
     # extract text blocks - if bbox is not empty
     if blocks is None:
@@ -144,18 +144,15 @@ def get_raw_lines(
                     and ignore_invisible
                 ):
                     continue
-                if not almost_in_bbox(s["bbox"], clip):  # if not in clip
-                    continue
                 sbbox = pymupdf.Rect(s["bbox"])  # span bbox as a Rect
-                if s["flags"] & 1:  # if a superscript, modify bbox
-                    # with that of the preceding or following span
-                    i = 1 if sno == 0 else sno - 1
-                    if len(line["spans"]) > i:
-                        neighbor = line["spans"][i]
-                        sbbox.y1 = neighbor["bbox"][3]
-                    s["text"] = f"{s['text']}"
+                # the y-coords of the line bbox wrap the y-coords of
+                # all spans. Therefore use the line's y coordinates.
+                sbbox.y0 = line["bbox"][1]
+                sbbox.y1 = line["bbox"][3]
                 s["bbox"] = sbbox  # update with the Rect version
-                # include line/block numbers to facilitate separator insertion
+                if not almost_in_bbox(s["bbox"], clip, portion=0.51):
+                    # if not mostly inside clip
+                    continue
                 s["line"] = lno
                 s["block"] = bno
                 s["dir"] = line_dir
