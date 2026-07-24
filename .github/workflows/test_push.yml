@@ -50,9 +50,9 @@ jobs:
             import pipcl
             pipcl.git_get(
                     'aptest',
-                    remote='git@github.com:ArtifexSoftware/aptest.git',
+                    remote='https://github.com/pymupdf/pymupdf4llm.git',
                     branch='main',
-                    key=os.environ['ARTIFEX_SOFTWARE_SSH_KEY'],
+                    #key=os.environ['ARTIFEX_SOFTWARE_SSH_KEY'],
                     )
             
             # Run Aptest.
