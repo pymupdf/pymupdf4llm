@@ -2,6 +2,7 @@ import concurrent.futures
 import copy
 import inspect
 import json
+import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime
@@ -23,9 +24,20 @@ def _derive_stem(input):
     return "document"
 
 
+def _normalize_input_path(input):
+    if isinstance(input, (str, Path)):
+        return str(Path(input).expanduser().resolve())
+    return input
+
+
 def _prepare_doc_dir(input, out_dir):
     stem = _derive_stem(input)
-    doc_dir = Path(out_dir) / stem if out_dir else None
+    if not out_dir:
+        return stem, None
+
+    out_path = Path(out_dir)
+    # If out_dir already points to this document folder, do not nest again.
+    doc_dir = out_path if out_path.name == stem else out_path / stem
     if doc_dir:
         doc_dir.mkdir(parents=True, exist_ok=True)
     return stem, doc_dir
@@ -41,7 +53,8 @@ def _prepare_local_options(base_options, doc_dir, backend):
     elif local_options.get("write_images") and doc_dir:
         image_dir = doc_dir / "images"
         image_dir.mkdir(exist_ok=True)
-        local_options["image_path"] = "./images"
+        # Keep image references relative in markdown (e.g. images/foo.png).
+        local_options["image_path"] = image_dir.name
 
     return local_options
 
@@ -57,13 +70,16 @@ def _conversion_log_context(doc_dir):
 
     old_stdout = sys.stdout
     old_stderr = sys.stderr
+    old_cwd = Path.cwd()
     sys.stdout = log_file
     sys.stderr = log_file
+    os.chdir(doc_dir)
     pymupdf.set_messages(stream=sys.stdout)
 
     try:
         yield
     finally:
+        os.chdir(old_cwd)
         sys.stdout = old_stdout
         sys.stderr = old_stderr
         log_file.close()
@@ -118,12 +134,7 @@ def _apply_consumer(output, consumer, consumer_kwargs, *, input, backend, option
 
 
 def _write_output(output, input, out_dir, backend):
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    stem = _derive_stem(input)
-    doc_dir = out_dir / stem
-    doc_dir.mkdir(parents=True, exist_ok=True)
+    stem, doc_dir = _prepare_doc_dir(input, out_dir)
 
     writers = {
         "md": _write_markdown,
@@ -672,6 +683,20 @@ def _validate_image_output_options(out_dir, options):
         raise ValueError("write_images=True requires out_dir")
 
 
+def _warn_ambiguous_out_dir(inputs, out_dir):
+    if not out_dir or len(inputs) <= 1:
+        return
+
+    out_name = Path(out_dir).name
+    stems = {_derive_stem(inp) for inp in inputs}
+    if out_name in stems:
+        print(
+            "Warning: out_dir looks like a single-document folder "
+            f"('{out_name}') while multiple inputs were provided. "
+            "If this is not intended, use a parent batch output directory."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main batch API
 # ---------------------------------------------------------------------------
@@ -697,6 +722,15 @@ def convert_batch(
         import onnxruntime  # pylint: disable=unused-import
     if not isinstance(inputs, (list, tuple)):
         raise TypeError("inputs must be a list or tuple")
+
+    # Resolve out_dir once so path handling is stable even if cwd changes.
+    if out_dir is not None:
+        out_dir = str(Path(out_dir).expanduser().resolve())
+
+    # Resolve path-like inputs before any strategy potentially changes cwd.
+    inputs = [_normalize_input_path(inp) for inp in inputs]
+
+    _warn_ambiguous_out_dir(inputs, out_dir)
 
     # Load default options if none provided
     if not options:
