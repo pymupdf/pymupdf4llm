@@ -1,18 +1,16 @@
 ## Government of lndia - 
 
-## Rules under which a security deposit amount of 25000 INR is levied on a candidate: 
+Rules under which a security deposit amount of 25000 INR is levied on a candidate: 
 
 # Companies (Acceptance of Deposits) Rules, 2014 
 
 Provided that if such bonds or debenlures are secured by the charge of any asseis referred to in Schedule lll of the Act, excluding intangible assets, the amount of such bonds or debentures shall not exceed the market value of such assets as assessed by a registered valuer: 
 
-> (x) any amount received from an employee of the company not exceeding his annual 
-
-> salary under a contract of employment with the company in the nature of non-interest i:earing security deposit; 
+(x) any amount received from an employee of the company not exceeding his annual salary under a contract of employment with the company in the nature of non-interest i:earing security deposit; 
 
 {xi) any non-interest bearing amount received or held in trust; 
 
-> (xir) any amount received in the course of, or for the purposes of, the business of the company,- 
+(xir) any amount received in the course of, or for the purposes of, the business of the company,- 
 
 Explanation - For the purposes of this clause, any amount.- 
 
@@ -20,7 +18,7 @@ Explanation - For the purposes of this clause, any amount.-
 
 [File<sup>No. 11812013-CL-V]</sup> 
 
-> (Renuka Kumar) 
+(Renuka Kumar) 
 
 Joint Secretary to the Government of lndia 
 

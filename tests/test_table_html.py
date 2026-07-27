@@ -13,14 +13,17 @@ from pymupdf4llm.helpers.table_html.reconstruct import to_html
 
 g_root = os.path.normpath(f"{__file__}/../..")
 TABLE_PDF = os.path.join(g_root, "tests", "test_sce_150_1.pdf")
-
+FIND_TABLES_SIG = inspect.signature(pymupdf.Page.find_tables)
+FIND_TABLES_HAS_LAYOUT = "use_layout" in FIND_TABLES_SIG.parameters
 
 def test_to_html_is_live_only_public_api():
     signature = inspect.signature(to_html)
     assert list(signature.parameters) == ["pdf", "page_index"]
 
-
 def test_page_html_tables_uses_core_union_find_tables():
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_page_html_tables_uses_core_union_find_tables: Page.find_tables is too old")
+        return
     original_find_tables = pymupdf.Page.find_tables
     calls = []
 
@@ -49,6 +52,9 @@ def test_page_html_tables_uses_core_union_find_tables():
 
 
 def test_to_markdown_table_output_html_uses_layout_path():
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_to_markdown_table_output_html_uses_layout_path: Page.find_tables is too old")
+        return
     original_parse_document = document_layout.parse_document
     calls = []
 
@@ -74,6 +80,9 @@ def test_to_markdown_table_output_html_uses_layout_path():
 
 
 def test_to_json_table_output_html_uses_layout_path():
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_to_json_table_output_html_uses_layout_path: Page.find_tables is too old")
+        return
     original_parse_document = document_layout.parse_document
     calls = []
 
@@ -119,6 +128,9 @@ def test_layout_html_env_does_not_enable_table_html(monkeypatch):
 
 
 def test_table_html_parallel_smoke():
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_table_html_parallel_smoke: Page.find_tables is too old")
+        return
     expected = to_html(TABLE_PDF, 0)
 
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -134,6 +146,9 @@ def test_to_json_html_tables_match_to_markdown():
     """VALUE parity: every <table>...</table> emitted into html-mode markdown
     must be byte-identical to (and in the same order as) the html the
     same-mode JSON reports for its table boxes."""
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_to_json_html_tables_match_to_markdown: Page.find_tables is too old")
+        return
     md = pymupdf4llm.to_markdown(
         TABLE_PDF,
         pages=[0],
@@ -181,6 +196,9 @@ def _table_row_width(row_html):
 def test_to_json_html_mode_grid_fields_consistent():
     """row_count/col_count/cells/extract reported next to html must describe the
     SAME grid the html shows; markdown stays unset (html authoritative)."""
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_to_json_html_mode_grid_fields_consistent: Page.find_tables is too old")
+        return
     js = pymupdf4llm.to_json(
         TABLE_PDF,
         pages=[0],
@@ -225,6 +243,9 @@ def test_table_output_html_no_layout_falls_back_to_rag_path(monkeypatch):
     """When the layout engine is unavailable, table_output="html" must still
     work end-to-end by falling back to the legacy pymupdf_rag path (which has
     its own independent table_output="html" wiring)."""
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_table_output_html_no_layout_falls_back_to_rag_path: Page.find_tables is too old")
+        return
     monkeypatch.setattr(pymupdf4llm, "_use_layout", False)
 
     md = pymupdf4llm.to_markdown(TABLE_PDF, table_output="html")
