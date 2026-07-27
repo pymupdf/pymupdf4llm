@@ -41,8 +41,8 @@ def build():
             """)
     ret.append((version_info.encode("utf-8"), "pymupdf4llm/versions_file.py"))
 
-    _build_py = pipcl.git_info_py('.', check=0, prefix='pymupdf4llm_git_')
-    ret.append((_build_py.encode(), 'pymupdf4llm/_build.py'))
+    _build_py = pipcl.git_info_py(".", check=0, prefix="pymupdf4llm_git_")
+    ret.append((_build_py.encode(), "pymupdf4llm/_build.py"))
 
     for p in pipcl.git_items("src"):
         ret.append((f"src/{p}", f"pymupdf4llm/{p}"))
@@ -82,6 +82,11 @@ p = pipcl.Package(
         "Tracker, https://github.com/pymupdf/PyMuPDF/issues",
         "Changelog, https://pymupdf.readthedocs.io/en/latest/changes.html",
     ],
+    # We create a `pymupdf4llm` command.
+    entry_points=textwrap.dedent("""
+        [console_scripts]
+        pymupdf4llm = pymupdf4llm.__main__:main
+        """),
     fn_build=build,
     fn_sdist=sdist,
 )
