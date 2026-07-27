@@ -1465,10 +1465,14 @@ def parse_document(
 
         new_layout_info = []  # will contain Layout boxes in non-"raw" format
         for b in page.layout_information:
+            gbbox = list(b["group_bbox"])
+            if gbbox[2] - gbbox[0] <= 2 or gbbox[3] - gbbox[1] <= 2:
+                # skip tiny boxes
+                continue
             if b["class_name"] == "table" and not b["table_grid"]:
                 # table without a grid: skip it
                 continue
-            bbox = tuple(b["group_bbox"] + [b["class_name"]])
+            bbox = tuple(gbbox + [b["class_name"]])
             new_layout_info.append(bbox)
 
             # store table info for later use in table extraction
