@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass
 from collections import defaultdict
 from pathlib import Path
+import tempfile
 from typing import Dict, List, Optional, Union
 import textwrap
 
@@ -1305,9 +1306,11 @@ def parse_document(
     render_html_tables=None,
     edge_threshold=None,
 ) -> ParsedDocument:
+    original_path = None
     if isinstance(doc, pymupdf.Document):
         mydoc = doc
     else:
+        original_path = doc
         mydoc = pymupdf.open(doc)
 
     if mydoc.metadata["format"] == "Image":
@@ -1316,8 +1319,24 @@ def parse_document(
         mydoc.close()
         mydoc = pymupdf.open(stream=data)
     elif mydoc.metadata["format"] in OFFICE_FORMATS and OFFICE_TO_PDF:
-        data = OFFICE_TO_PDF(mydoc)
-        mydoc.close()
+        if original_path:
+            mydoc.close()
+            data = OFFICE_TO_PDF(original_path)
+        else:
+            temp_path = None
+            try:
+                if mydoc.name:
+                    root, ext = os.path.splitext(mydoc.name)
+                    temp_path = tempfile.mktemp(suffix=ext or root)
+                else:
+                    # todo: figure out extension from mydoc.metadata["format"].
+                    temp_path = tempfile.mktemp()
+                mydoc.save(temp_path)
+                mydoc.close()
+                data = OFFICE_TO_PDF(temp_path)
+            finally:
+                if temp_path:
+                    os.remove(temp_path)
         mydoc = pymupdf.open(stream=data)
 
     if mydoc.is_pdf:
