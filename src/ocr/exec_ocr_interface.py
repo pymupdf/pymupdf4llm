@@ -5,7 +5,11 @@ import pymupdf
 
 from .get_culled_pixmap import get_pixmap
 
-TESSDATA = pymupdf.get_tessdata()
+try:
+    TESSDATA = pymupdf.get_tessdata()
+except Exception as e:
+    TESSDATA = None
+
 FONT = pymupdf.Font("cjk")  # this is the "Droid Sans Fallback" font
 FONTNAME = "myfont"  # its reference name in the page
 REPLACEMENT_UNICODE = chr(0xFFFD)  # Unicode Replacement Character
