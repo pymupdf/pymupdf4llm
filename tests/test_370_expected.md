@@ -24,53 +24,37 @@ To demonstrate the feasibility of our strategy, g- silylallyloxysilane **1a** wa
 
 --- end of page.page_number=1 ---
 
-Red-Al, and (iii) silylation of the corresponding allylic alcohol. When TMSCH2K, which we previously demonstrated to be effective for the deprotonation of a-arylallyloxysilanes,<sup>5</sup> was employed, the desired silyl dienol ether **2aa** was formed in 72% NMR yield (entry 1). Increasing the amount of base to 2.0 equiv led to complete consumption of **1a** and improved the yield of **2aa** to 87% (entry 2). Reducing the amount of benzophenone from 1.5 to 1.3 equiv had no detrimental effect, and **2aa** was isolated in 92% yield (entry 3). In this reaction, a small amount of silyl enol ether **3a** was also detected, presumably formed by protonation of the siloxyallylpotassium intermediate rather than by trapping with benzophenone. Increasing the amount of benzophenone to 2.0 equiv did not suppress the formation of **3a** (entry 4). In contrast, with<sup>_t_</sup> BuLi as the base, **2aa** was not observed, and **1a** was fully recovered (entry 5).<sup>7</sup> Addition of hexamethylphosphoramide (HMPA) to enhance the reactivity of<sup>_t_</sup> BuLi decreased the recovery of **1a** to 28%; however, **2aa** was not detected, and **3a** became the major product (entry 6). Raising the reaction temperature from – 78 °C to 0 °C, in an attempt to promote the reaction of the putative siloxyallyllithium species with benzophenone, resulted in a complex mixture with no formation of **2aa** (entry 7). These results indicate that potassium carbanions are essential for the success of this transformation. 
-
-**Table 1. Optimization of the Reaction Conditions**<sup>**_a_**</sup> 
-
-|Ph<br>OTBS<br>T<br>**1a**|MS<br>base (X equ<br>THF, –78 °C, 1<br>PhCOPh (Y e<br>–78 °C, 10 m|iv)<br>0 min;<br>quiv)<br>in|Ph<br>O|**2aa**<br>TBS<br>P|Ph<br>h<br>Ph<br>OTBS<br>TMS<br>**3a**|
-|---|---|---|---|---|---|
-|entry<br>**1**|base|X|Y||yield (%)<sup>_b_</sup><br> <br>|
-|||||**1a**|**2aa**<br>**3a**|
-|1<br>**1a**|TMSCH2K|1.5|1.5|14|72<br>7|
-|2<br>**1a**|TMSCH2K|2.0|1.5|<1|87<br>5|
-|3<br>**1a**|TMSCH2K|2.0|1.3|<1|89 (92)<sup>_c_</sup><br>6|
-|4<br>**1a**|TMSCH2K|2.0|2.0|<1|90<br>6|
-|5<br>**1a**|_t_BuLi|2.0|1.3|95|0<br>0|
-|6<br>**1a**|_t_BuLi/HMPA|2.0|1.3|28|0<br>48|
-|7<sup>_d_</sup><br>**1a**|_t_BuLi/HMPA|2.0|1.3|19|0<br>5|
-
-
-
-> _a_ Reaction conditions: **1a** (80.2 mg, 0.25 mmol), base, and additive in THF (3 mL) at –78 °C for 10 min, followed by addition of benzophenone at –78 °C for 10 min.<sup>_b_</sup> Determined by<sup>1</sup> H NMR analysis of the crude reaction mixture.<sup>_c_</sup> Isolated yield.<sup>_d_</sup> The reaction with benzophenone was conducted at 0 °C. 
-
-We next examined the influence of the siloxy substituent on the reaction outcome (Scheme 2). When triethylsilyl (TES) derivative **1a′** was used, the reaction proceeded efficiently; however, partial desilylation occurred, affording **2aa′** in 38% yield together with b,g-unsaturated ketone **4** in 51% yield. In contrast, triisopropylsilyl (TIPS) derivative **1a″** underwent complete conversion to provide **2aa″** in 90% isolated yield, despite the steric bulk of the TIPS group. 
-
-**Scheme 2. Influence of the Siloxy Substituent on the Reaction Outcome** 
-
 
 
 <!-- Start of picture text -->
 TMSCH2K (2 equiv) OTES O<br>OTES THF, –78 °C, 10 min Ph Ph<br>Ph Ph<br>Ph TMS PhCOPh (1.3 equiv)<br>1a′ –78 °C, 10 min Ph Ph<br>2aa′ , 38% 4 , 51%<br>OTIPS<br>OTIPS same as above Ph<br>Ph<br>Ph TMS<br>Ph<br>1a″<br>2aa″ , 90%<br><!-- End of picture text -->
 
+Red-Al, and (iii) silylation of the corresponding allylic alcohol. When TMSCH2K, which we previously demonstrated to be effective for the deprotonation of a-arylallyloxysilanes,<sup>5</sup> was employed, the desired silyl dienol ether **2aa** was formed in 72% NMR yield (entry 1). Increasing the amount of base to 2.0 equiv led to complete consumption of **1a** and improved the yield of **2aa** to 87% (entry 2). Reducing the amount of benzophenone from 1.5 to 1.3 equiv had no detrimental effect, and **2aa** was isolated in 92% yield (entry 3). In this reaction, a small amount of silyl enol ether **3a** was also detected, presumably formed by protonation of the siloxyallylpotassium intermediate rather than by trapping with benzophenone. Increasing the amount of benzophenone to 2.0 equiv did not suppress the formation of **3a** (entry 4). In contrast, with<sup>_t_</sup> BuLi as the base, **2aa** was not observed, and **1a** was fully recovered (entry 5).<sup>7</sup> Addition of hexamethylphosphoramide (HMPA) to enhance the reactivity of<sup>_t_</sup> BuLi decreased the recovery of **1a** to 28%; however, **2aa** was not detected, and **3a** became the major product (entry 6). Raising the reaction temperature from – 78 °C to 0 °C, in an attempt to promote the reaction of the putative siloxyallyllithium species with benzophenone, resulted in a complex mixture with no formation of **2aa** (entry 7). These results indicate that potassium carbanions are essential for the success of this transformation. 
+
 The substrate scope of allyloxysilanes was examined using benzophenone as the electrophile (Scheme 3). Allyloxysilanes **1b** – **1h** were readily converted into the corresponding silyl dienol ethers **2ba** – **2ha** in 61–84% yields with excellent _Z_ - selectivity, regardless of the electronic properties of the aryl substituents. _Ortho_ -substituted aryl substrates were also investigated. As a result, 1-naphthyl derivative **1i** furnished **2ia** in 96% yield, whereas _ortho_ -anisyl derivative **1j** gave no desired product and was recovered unchanged, likely due to steric congestion at the a position. The reaction was also applicable to substrates bearing heteroaryl groups, affording **2ka** and **2la** in high yields, although the _Z_ / _E_ ratio of **2la** decreased slightly to 93:7. Unfortunately, no reaction was observed with alkylsubstituted allyloxysilane **1m** , as the alkyl substituent renders the C1–H bond less acidic, preventing the initial deprotonation. 
 
 **Scheme 3. Scope of** g **-Silylallyloxysilanes**<sup>**_a_**</sup> 
 
+**Table 1. Optimization of the Reaction Conditions**<sup>**_a_**</sup> 
+
 
 
 <!-- Start of picture text -->
-TMSCH2K (2 equiv) OTBS<br>OTBS THF, –78 °C, 10 min; Ph<br>R<br>R TMS PhCOPh (1.3 equiv)<br>1 –78 °C, 10 min 2 Ph<br>OTBS<br>OTBS OTBS<br>Me Ph<br>Ph Ph<br>Ph<br>Ph Ph<br>Me<br>2ba 2ca Me 2da<br>83% 84% 84%<br>OTBS OTBS OTBS<br>Ph MeO Ph Ph<br>Ph Ph Ph<br>MeO MeO Me2N<br>2ea 2fa 2ga<br>82% 67% 79%<br>OTBS OTBS OMe OTBS<br>Ph Ph Ph<br>F Ph Ph Ph<br>2ha 2ia 2ja<br>61% 96% N.D.<br>OTBS OTBS<br>OTBS<br>Ph Ph<br>Ph<br>Me<br>O Ph S Ph<br>Ph<br>2ka 2la 2ma<br>83% 83% N.D.<br>( Z / E  = 93:7)<br><!-- End of picture text -->
+TMSCH2K (2 equiv) OTBS<br>OTBS THF, –78 °C, 10 min;base (X equiv) Ph OTBS Ph OTBS R OTBS 1 TMS THF, –78 °C, 10 min;PhCOPh (1.3 equiv)–78 °C, 10 min R 2 PhPh<br>Ph TMS PhCOPh (Y equiv) Ph TMS<br>1a –78 °C, 10 min 2aa Ph 3a OTBS<br>OTBS OTBS<br>Me Ph<br>yield (%) b Ph Ph<br>entry  1  base  X  Y  1a  2aa  3a  Ph Me Ph Ph<br>2ba 2ca Me 2da<br>1  1a  TMSCH2K  1.5  1.5  14  72  7  83% 84% 84%<br>2  1a TMSCH2K  2.0  1.5  <1  87  5  OTBS OTBS OTBS<br>3  1a  TMSCH2K  2.0  1.3  <1  89 (92) c 6  Ph MeO Ph Ph<br>Ph Ph Ph<br>4  1a  TMSCH2K  2.0  2.0  <1  90  6  MeO MeO Me2N<br>2ea 2fa 2ga<br>5  1a  t BuLi   2.0  1.3  95  0  0  82% 67% 79%<br>6  1a  t BuLi/HMPA  2.0  1.3  28  0  48  OTBS OTBS OMe OTBS<br>7 d 1a  t BuLi/HMPA 2.0  1.3  19  0  5  Ph Ph Ph<br>a Reaction conditions:  1a  (80.2 mg, 0.25 mmol), base, and additive  F 2ha Ph 2ia Ph 2ja Ph<br>in THF (3 mL) at –78 °C for 10 min, followed by addition of  61% 96% N.D.<br>benzophenone at –78 °C for 10 min.  b Determined by  1 H NMR<br>OTBS OTBS<br>analysis of the crude reaction mixture.  c Isolated yield.  d The reac- OTBS<br>Ph Ph<br>tion with benzophenone was conducted at 0 °C.  Me Ph<br>O Ph S Ph<br>We next examined the influence of the siloxy substituent on  2ka 2la 2ma Ph<br>the reaction outcome (Scheme 2). When triethylsilyl (TES)  83% 83% N.D.<br>derivative  1a′  was used, the reaction proceeded efficiently;  ( Z / E  = 93:7)<br><!-- End of picture text -->
+
+We next examined the influence of the siloxy substituent on the reaction outcome (Scheme 2). When triethylsilyl (TES) derivative **1a′** was used, the reaction proceeded efficiently; however, partial desilylation occurred, affording **2aa′** in 38% yield together with b,g-unsaturated ketone **4** in 51% yield. In contrast, triisopropylsilyl (TIPS) derivative **1a″** underwent complete conversion to provide **2aa″** in 90% isolated yield, despite the steric bulk of the TIPS group. 
 
 > _a_ Conditions: **1** (0.25 mmol) and TMSCH2K (63.2 mg, 0.50 mmol) in THF (3 mL) at –78 °C for 10 min, followed by addition of benzophenone (59.2 mg, 0.325 mmol) at –78 °C for 10 min. Yields of isolated products are shown. 
 
 Substrate **1i** , which gave the highest yield in Scheme 3, was reacted with benzaldehyde, and the yield and 3 _E_ /3 _Z_ ratio of **5ia** were determined (Scheme 4). The reaction provided **5ia** in 81% yield with a 3 _E_ /3 _Z_ ratio of 1.9:1. Replacing the TMS group on the vinylsilane unit with TBS ( **1i′** ) decreased the 3 _E_ /3 _Z_ ratio slightly to 1.7:1. Substitution with TIPS ( **1i″** ) caused a significant drop in both the yield (45%) and the 3 _E_ /3 _Z_ ratio (1.4:1). To rationalize the diastereoselectivity and 
 
+**Scheme 2. Influence of the Siloxy Substituent on the Reaction Outcome** 
+
 --- end of page.page_number=2 ---
 
 the effect of the silyl substituent in this transformation, we propose the stereochemical models shown in Scheme 4. According to our previous computational study,<sup>5b</sup> the _E_ - configured siloxyallylpotassium isomer is considered less stable than the _Z_ -configured isomer owing to steric repulsion between the C1 aryl substituent and the C3 hydrogen atom. The addition to benzaldehyde is therefore proposed to proceed via the _Z_ -isomer, yielding a _Z_ -configured double bond at C1. As benzaldehyde approaches this _Z_ -configured organopotassium species, the phenyl group is oriented _anti_ to the bulky silyl group. In conformer **A** , the principal steric repulsions are between the phenyl group and the silyl enol ether moiety, and between the carbonyl oxygen and the silyl group. In contrast, conformer **B** involves these interactions as well as an additional repulsion between the carbonyl oxygen and the silyl enol ether moiety. Consequently, addition via conformer **A** is favored, affording (1 _Z_ ,3 _E_ )- **5ia** as the major product. However, increasing the steric bulk of the silyl substituent enhances the repulsion between the silyl group and the carbonyl oxygen and diminishes the relative contribution of other steric interactions. As a result, the energy gap between **A** and **B** narrows, explaining the observed decrease in the 3 _E_ /3 _Z_ ratio. 
 
-#### **Scheme 4. Effect of the Vinylsilane Substituent on Diastereoselectivity and Proposed Stereochemical Models** 
+**Scheme 4. Effect of the Vinylsilane Substituent on Diastereoselectivity and Proposed Stereochemical Models** 
 
 
 
