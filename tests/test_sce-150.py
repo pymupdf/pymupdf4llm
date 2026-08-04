@@ -15,9 +15,11 @@ def test_sce_150_1():
         filename,
         write_images=False,
         embed_images=False,
-        header=False,
-        footer=False,
+        header=True,
+        footer=True,
     )
+    actual = Path(__file__).parent / 'test_sce_150_1.actual.md'
+    actual.write_bytes(md.encode())
     assert md == expected
 
 
@@ -34,9 +36,11 @@ def test_sce_150_2():
         filename,
         write_images=False,
         embed_images=False,
-        header=False,
-        footer=False,
+        header=True,
+        footer=True,
     )
+    actual = Path(__file__).parent / 'test_sce_150_2.actual.md'
+    actual.write_bytes(md.encode())
     assert md == expected
 
 
@@ -53,11 +57,11 @@ def test_sce_150_3():
         filename,
         write_images=False,
         embed_images=False,
-        header=False,
-        footer=False,
+        header=True,
+        footer=True,
     )
-    
+
     actual = Path(__file__).parent / 'test_sce_150_3_actual.md'
     actual.write_bytes(md.encode())
-    
+
     assert md == expected
