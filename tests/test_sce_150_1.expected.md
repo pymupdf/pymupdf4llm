@@ -18,7 +18,7 @@
 |**_`Alternate Calculation with Reinsurance`_**||||
 |---|---|---|---|
 |`COMMISSION_RATE`|||0.00%|
-|`RE_PREM`<br>`-`|-|-|0|
+|`RE_PREM`<br>`-`|-|-|0<br>|
 |`RE_RECOV`<br>`-`|-|-|0|
 |`RE_PREM_PER_EXP`<br>0.00|0.00|0.00|0.00|
 |`RE_RECOV_PER_EXP`<br>0.00|0.00|0.00|0.00|
