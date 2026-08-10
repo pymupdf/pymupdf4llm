@@ -51,8 +51,14 @@ def det_only(img: np.ndarray):
     engine = init_engine()
 
     # Only execute Detection
-    dt_boxes, det_time = engine.text_detector(img)
-
+    dt_boxes, _det_time = engine(
+        img,
+        use_det=True,
+        use_cls=False,
+        use_rec=False,
+    )
+    if dt_boxes is None:
+        return []
     # dt_boxes is an ndarray of shape (N, 4, 2)
     # we assume score 1. because this is a detection-only function.
     results = [(box.tolist(), 1.0) for box in dt_boxes]

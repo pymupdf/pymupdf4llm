@@ -124,7 +124,7 @@ def extract_form_fields_with_pages(doc, xrefs=False):
                 )  # reference to page object
                 page_xref = page_xref_x.pdf_to_num()  # xref of page
 
-                if page_xref:
+                if page_xref in page_xrefs:
                     pages.append(page_xrefs.get(page_xref))
 
                 # Recurse into nested kids
@@ -134,14 +134,15 @@ def extract_form_fields_with_pages(doc, xrefs=False):
         if not kids.pdf_array_len():
             page_ref_x = field.pdf_dict_get(pymupdf.PDF_NAME("P"))
             page_xref = page_ref_x.pdf_to_num()
-            if page_xref:
+            if page_xref in page_xrefs:
                 pages.append(page_xrefs.get(page_xref))
 
         # Store result
         value_dict = {"value": value, "pages": sorted(set(pages))}
         if xrefs:
             value_dict["xref"] = field_xref
-        result[fq_name] = value_dict
+        if value_dict["pages"]:  # only this field if it appears on some page
+            result[fq_name] = value_dict
 
     for i in range(fields.pdf_array_len()):
         field = fields.pdf_array_get(i)
