@@ -18,7 +18,11 @@ FILLED_TEXT = pymupdf.mupdf.FZ_STEXT_FILLED
 
 
 def ocr_text(span) -> bool:
-    if (span["char_flags"] & STROKED_TEXT) or (span["char_flags"] & FILLED_TEXT):
+    if (
+        span["alpha"]
+        or (span["char_flags"] & STROKED_TEXT)
+        or (span["char_flags"] & FILLED_TEXT)
+    ):
         return False
     return True
 
@@ -68,7 +72,7 @@ def get_text(pixmap, irect, language="eng"):
     doc = pymupdf.open("pdf", data)
     page = doc[0]
     # escape MD relevant "|"
-    return page.get_text().strip().replace("|",r"\|")
+    return page.get_text().strip().replace("|", r"\|")
 
 
 def exec_ocr_detection(page, det_only, dpi=150, language="eng", keep_ocr_text=False):
