@@ -71,7 +71,7 @@ FLAGS = (
 def extract_form_fields_with_pages(doc, xrefs=False):
     """
     Traverse /AcroForm/Fields hierarchy and return a dict:
-    fully qualified field name -> {"value": ..., "pages": [...]}
+    fully qualified field name -> {"field_value": ..., "pages": [...]}
     Optionally, the xref of the field is included.
     """
     result = {}
@@ -104,31 +104,44 @@ def extract_form_fields_with_pages(doc, xrefs=False):
             return
         fq_name = f"{prefix}.{name}" if prefix else name
 
+        # Pushbuttons carry no meaningful /V (pure action trigger) - skip
+        # them. Nodes without their own/inherited /FT (hierarchy grouping
+        # nodes) also report as PDF_WIDGET_TYPE_BUTTON with flags == 0, so
+        # only skip when the pushbutton flag is actually set.
+        if mupdf.pdf_field_type(field) == mupdf.PDF_WIDGET_TYPE_BUTTON and (
+            mupdf.pdf_field_flags(field) & mupdf.PDF_BTN_FIELD_IS_PUSHBUTTON
+        ):
+            return
+
         # /V is the value (may be None)
         value_x = field.pdf_dict_get(pymupdf.PDF_NAME("V"))
         if value_x.pdf_is_name():
             value = value_x.pdf_to_name()
         else:
-            value = value_x.pdf_to_text_string()
+            value = value_x.pdf_to_text_string() if value_x else ""
 
         # Collect page numbers from widget annotations
         pages = []
+        terminal = True
         kids = field.pdf_dict_get(pymupdf.PDF_NAME("Kids"))
         if kids.pdf_is_array():
             for i in range(kids.pdf_array_len()):
                 kid = kids.pdf_array_get(i)
-                field_xref = kid.pdf_to_num()
-                # Each kid is a widget annotation dictionary
-                page_xref_x = kid.pdf_dict_get(
-                    pymupdf.PDF_NAME("P")
-                )  # reference to page object
-                page_xref = page_xref_x.pdf_to_num()  # xref of page
-
-                if page_xref in page_xrefs:
-                    pages.append(page_xrefs.get(page_xref))
-
-                # Recurse into nested kids
-                walk_field(kid, fq_name)
+                kid_name_x = kid.pdf_dict_get(pymupdf.PDF_NAME("T"))
+                kid_name = kid_name_x.pdf_to_text_string()
+                if kid_name:
+                    # Kid is a child field (has its own /T) - recurse only,
+                    # its page(s) belong to it, not to this parent field.
+                    terminal = False
+                    walk_field(kid, fq_name)
+                else:
+                    # Kid is a plain widget annotation of this field.
+                    page_xref_x = kid.pdf_dict_get(
+                        pymupdf.PDF_NAME("P")
+                    )  # reference to page object
+                    page_xref = page_xref_x.pdf_to_num()  # xref of page
+                    if page_xref in page_xrefs:
+                        pages.append(page_xrefs.get(page_xref))
 
         # If no kids, check if this field itself has a page reference
         if not kids.pdf_array_len():
@@ -138,11 +151,31 @@ def extract_form_fields_with_pages(doc, xrefs=False):
                 pages.append(page_xrefs.get(page_xref))
 
         # Store result
-        value_dict = {"value": value, "pages": sorted(set(pages))}
+        value_dict = {"field_value": value, "pages": sorted(set(pages))}
         if xrefs:
             value_dict["xref"] = field_xref
-        if value_dict["pages"]:  # only this field if it appears on some page
+        value_dict["terminal"] = terminal
+
+        existing = result.get(fq_name)
+        if existing is None:
             result[fq_name] = value_dict
+        else:
+            # Same fully qualified name already seen: a "flat" radio-button
+            # group (sibling field objects without a common /Kids parent).
+            # Merge instead of overwriting so no field object is lost.
+            if xrefs:
+                ex_xref = existing["xref"]
+                existing["xref"] = (
+                    ex_xref if isinstance(ex_xref, list) else [ex_xref]
+                ) + [field_xref]
+            existing["pages"] = sorted(set(existing["pages"]) | set(pages))
+            existing["terminal"] = existing["terminal"] and terminal
+            if existing["field_value"] in (None, "", "Off") and value not in (
+                None,
+                "",
+                "Off",
+            ):
+                existing["field_value"] = value
 
     for i in range(fields.pdf_array_len()):
         field = fields.pdf_array_get(i)
