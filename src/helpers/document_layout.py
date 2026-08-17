@@ -1017,7 +1017,7 @@ class ParsedDocument:
 
                     # output text in image if requested
                     if box.textlines:
-                        if btype == "picture":
+                        if btype in ("picture", "formula"):
                             md_string += picture_text_to_md(
                                 box.textlines,
                                 ignore_code=ignore_code or page.full_ocred,
@@ -1566,7 +1566,7 @@ def parse_document(
                         layoutbox.image = None
                 else:
                     layoutbox.image = None
-                if layoutbox.boxclass == "picture" and document.force_text:
+                if layoutbox.boxclass in ("picture", "formula") and document.force_text:
                     # extract any text within the image box
                     layoutbox.textlines = [
                         {"bbox": l[0], "spans": l[1]}
