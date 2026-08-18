@@ -82,11 +82,6 @@ p = pipcl.Package(
         "Tracker, https://github.com/pymupdf/PyMuPDF/issues",
         "Changelog, https://pymupdf.readthedocs.io/en/latest/changes.html",
     ],
-    # We create a `pymupdf4llm` command.
-    entry_points=textwrap.dedent("""
-        [console_scripts]
-        pymupdf4llm = pymupdf4llm.__main__:main
-        """),
     fn_build=build,
     fn_sdist=sdist,
 )
