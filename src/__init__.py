@@ -293,3 +293,75 @@ def LlamaMarkdownReader(*args, **kwargs):
     from .llama import pdf_markdown_reader
 
     return pdf_markdown_reader.PDFMarkdownReader(*args, **kwargs)
+
+
+# Engine-internal parse flags; not part of the chunking surface. The HTML
+# table opt-in is exposed as table_output="html" like to_markdown, which
+# translates to the internal render_html_tables parse flag below.
+_CHUNK_INTERNAL_PARSE_FLAGS = {"render_html_tables"}
+
+
+def _layout_to_chunks(
+        doc,
+        **kwargs,
+    ):
+    import inspect
+
+    parse_fn = pymupdf4llm.helpers.document_layout.parse_document
+    # Split kwargs into parse_document args and to_chunks args, following
+    # the current parse_document signature (it has no **kwargs).
+    parse_keys = set(inspect.signature(parse_fn).parameters) - {"doc"}
+    parse_keys -= _CHUNK_INTERNAL_PARSE_FLAGS
+
+    internal = _CHUNK_INTERNAL_PARSE_FLAGS & set(kwargs)
+    if internal:
+        raise TypeError(
+            f"internal parse flags not accepted by to_chunks: {sorted(internal)}"
+        )
+
+    # table_output selects the table content representation, mirroring
+    # to_markdown: "html" routes to the parse-level HTML table engine.
+    table_output = kwargs.pop("table_output", "markdown")
+    if table_output not in ("markdown", "html"):
+        raise ValueError("table_output must be 'markdown' or 'html'")
+
+    # Map external names to parse_document names
+    aliases = {"dpi": "image_dpi"}
+    parse_kwargs = {}
+    chunk_kwargs = {}
+    for k, v in kwargs.items():
+        k = aliases.get(k, k)
+        if k in parse_keys:
+            parse_kwargs[k] = v
+        else:
+            chunk_kwargs[k] = v
+
+    if table_output == "html":
+        parse_kwargs["render_html_tables"] = True
+
+    # extract_images is parse-through sugar: it maps to parse_document's
+    # embed_images and is not a chunking parameter.
+    if chunk_kwargs.pop("extract_images", False) and "embed_images" not in parse_kwargs:
+        parse_kwargs["embed_images"] = True
+
+    parsed_doc = parse_fn(doc, **parse_kwargs)
+    return parsed_doc.to_chunks(**chunk_kwargs)
+
+
+def to_chunks(*args, **kwargs):
+    if _use_layout:
+        return _layout_to_chunks(*args, **kwargs)
+    else:
+        return pymupdf4llm.helpers.pymupdf_rag.to_chunks(*args, **kwargs)
+
+
+def to_chunk(*args, **kwargs):
+    """Deprecated alias of :func:`to_chunks`."""
+    import warnings
+
+    warnings.warn(
+        "to_chunk is deprecated; use to_chunks",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return to_chunks(*args, **kwargs)

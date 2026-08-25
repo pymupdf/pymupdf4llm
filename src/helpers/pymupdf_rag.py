@@ -315,6 +315,12 @@ def to_json(*args, **kwargs):
     )
 
 
+def to_chunks(*args, **kwargs):
+    raise NotImplementedError(
+        "Function 'to_chunks' is only available in PyMuPDF-Layout mode"
+    )
+
+
 def to_text(*args, **kwargs):
     raise NotImplementedError(
         "Function 'to_text' is only available in PyMuPDF-Layout mode"

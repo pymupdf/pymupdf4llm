@@ -1179,6 +1179,11 @@ class ParsedDocument:
                 document_output.append(chunk)
         return document_output
 
+    def to_chunks(self, **kwargs):
+        """Chunk the document into retrieval-friendly pieces using layout signals."""
+        from pymupdf4llm.helpers.chunking import to_chunks
+        return to_chunks(self, **kwargs)
+
 
 def select_ocr_function():
     """Check availability of OCR tools and language data.
