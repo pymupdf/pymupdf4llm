@@ -66,8 +66,7 @@ class ChunkSerializer:
             page_start=pc.page_start,
             page_end=pc.page_end,
             element_ids=[element_id(p, b) for p, b in pc.box_indices],
-            chunk_type=pc.chunk_type_hint or "paragraph",
-            chunk_types=pc.chunk_types or [pc.chunk_type_hint or "paragraph"],
+            types=pc.types or [pc.chunk_type_hint or "paragraph"],
             token_count=pc.token_count,
             bboxes=pc.bboxes,
             lists=_group_list_items(pc._sentences),
@@ -223,7 +222,7 @@ class ChunkSerializer:
         else:
             parts.append(f"[Pages] {pc.page_start}-{pc.page_end}")
 
-        non_para = [t for t in (pc.chunk_types or []) if t != "paragraph"]
+        non_para = [t for t in (pc.types or []) if t != "paragraph"]
         if non_para:
             parts.append(f"[Type] {', '.join(non_para)}")
 

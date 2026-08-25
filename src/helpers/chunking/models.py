@@ -78,10 +78,6 @@ class SentenceUnit:
     _source_box_indices: list = field(default_factory=list, repr=False)
 
 
-# Internal alias: pipeline units (the v2 name; SentenceUnit kept for compat)
-Unit = SentenceUnit
-
-
 @dataclass
 class ProtoChunk:
     """An intermediate chunk before split/merge refinement.
@@ -104,7 +100,7 @@ class ProtoChunk:
 
     # Structure
     chunk_type_hint: Optional[str] = None  # primary type: paragraph, table, list, figure, ...
-    chunk_types: list = field(default_factory=list)  # all types present, e.g. ["heading", "table"]
+    types: list = field(default_factory=list)  # all types present, e.g. ["heading", "table"]
 
     # References to SentenceUnits (kept for split/merge)
     _sentences: list = field(default_factory=list, repr=False)
@@ -218,8 +214,7 @@ class ChunkMetadata:
     page_start: int = 0
     page_end: int = 0
     bboxes: list = field(default_factory=list)  # list of (page, x0, y0, x1, y1)
-    chunk_type: str = "paragraph"               # primary type
-    chunk_types: list = field(default_factory=list)  # all types present, in order
+    types: list = field(default_factory=list)   # element types present, in order
     section_id: Optional[str] = None                 # "s{n}" of innermost section
     section_path: list = field(default_factory=list)  # human-facing citation path
     token_count: int = 0
@@ -239,16 +234,6 @@ class ChunkMetadata:
     file_path: Optional[str] = None
     page_count: Optional[int] = None
 
-    @property
-    def section_hierarchy(self) -> list:
-        """Pre-rename alias of section_path."""
-        return self.section_path
-
-    @property
-    def chunk_type_hint(self) -> str:
-        """Pre-rename alias of chunk_type."""
-        return self.chunk_type
-
 
 _WS_RE = re.compile(r"\s+")
 
@@ -264,11 +249,6 @@ class Chunk:
     _content_hash: Optional[str] = field(default=None, repr=False, compare=False)
 
     @property
-    def chunk_id(self) -> str:
-        """Pre-rename alias of id."""
-        return self.id
-
-    @property
     def content_hash(self) -> str:
         """Lazy sha256 of whitespace-normalized text (D17).
 
@@ -280,10 +260,6 @@ class Chunk:
             norm = _WS_RE.sub(" ", self.text).strip()
             self._content_hash = hashlib.sha256(norm.encode("utf-8")).hexdigest()
         return self._content_hash
-
-
-# Backward-compatible alias (pre-rename name)
-FinalChunk = Chunk
 
 
 def caption_matches_element(caption, element) -> bool:

@@ -385,7 +385,7 @@ class ChunkAssembler:
             box_indices=box_indices,
             bboxes=bboxes,
             chunk_type_hint=primary_type,
-            chunk_types=all_types,
+            types=all_types,
             _sentences=list(sents),
         )
 

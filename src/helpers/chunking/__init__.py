@@ -10,13 +10,11 @@ from .models import (
     ChunkMetadata,
     Element,
     FigureChunk,
-    FinalChunk,
     ProtoChunk,
     SectionChunk,
     SectionNode,
     SentenceUnit,
     TableChunk,
-    Unit,
     element_id,
 )
 from .chunked_document import ChunkedDocument, REASSEMBLY_PARAMS
@@ -55,17 +53,6 @@ DEFAULTS = {
     "tokenizer": None,
     "weights": None,
 }
-
-
-def to_chunk(parsed_doc, **kwargs):
-    """Deprecated alias of :func:`to_chunks`."""
-    import warnings
-    warnings.warn(
-        "to_chunk is deprecated; use to_chunks",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return to_chunks(parsed_doc, **kwargs)
 
 
 def to_chunks(parsed_doc, **kwargs):

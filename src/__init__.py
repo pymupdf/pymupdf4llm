@@ -354,14 +354,3 @@ def to_chunks(*args, **kwargs):
     else:
         return pymupdf4llm.helpers.pymupdf_rag.to_chunks(*args, **kwargs)
 
-
-def to_chunk(*args, **kwargs):
-    """Deprecated alias of :func:`to_chunks`."""
-    import warnings
-
-    warnings.warn(
-        "to_chunk is deprecated; use to_chunks",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return to_chunks(*args, **kwargs)

@@ -1,4 +1,4 @@
-"""P1 tests: ChunkedDocument, views, id contracts, reassemble_chunks, diagnostics.
+"""ChunkedDocument tests: views, id contracts, reassemble_chunks, diagnostics.
 
 The html-mode paths (TableChunk.html, headers from <th>) run on canned
 dicts only — real html tables need the improved PyMuPDF and are gated by
@@ -46,8 +46,6 @@ def test_id_formats(cd):
     assert cd.elements and all(_ID_RES["element"].match(e.id) for e in cd.elements)
     # first element of a 1-based page numbering
     assert cd.elements[0].id == "p1.b0"
-    # pre-rename alias stays readable
-    assert cd[0].chunk_id == cd[0].id
 
 
 # ── Sequence protocol + lazy text ───────────────────────────────────
@@ -173,8 +171,8 @@ def test_content_hash_and_to_dicts(cd):
     assert "contextual_text" in d0
 
     meta = d0["metadata"]
-    for key in ("page_start", "page_end", "bboxes", "chunk_type",
-                "chunk_types", "section_id", "section_path", "token_count",
+    for key in ("page_start", "page_end", "bboxes", "types",
+                "section_id", "section_path", "token_count",
                 "element_ids", "table_ids", "figure_ids", "lists", "ocr",
                 "file_path", "page_count"):
         assert key in meta, key

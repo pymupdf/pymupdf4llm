@@ -81,8 +81,11 @@ to the parse options: html mode re-splits text boxes around tables, so
 `to_markdown` and the side-effect-free guarantee.
 `tests/test_chunking_api.py` — public surface, kwargs router, containment,
 partial-parse addressing.
-`tests/test_chunking_v2.py` — id contracts, view round-trips, reassemble_chunks
-tiers, diagnostics, content_hash, canned html-mode adapter tests.
+`tests/test_chunking_document.py` — id contracts, view round-trips,
+reassemble_chunks tiers, diagnostics, content_hash, canned html-mode
+adapter tests.
+`tests/test_chunking_docs.py` — executes every Python block in
+`CHUNKING.md` in order, so the documented examples cannot silently break.
 `tests/test_chunking_html_tables.py` — live html-mode integration
 (D13 `<th>` header extraction, markdown|html exclusivity, chunk-text
 containment in `to_markdown(table_output="html")`); skipped unless the

@@ -1,7 +1,6 @@
 """P0 API surface and regression tests for the layout-aware chunker.
 
 - public symbol snapshot (to_chunks unification, Chunk rename)
-- to_chunk deprecation shims
 - kwargs router: internal engine flags are rejected, aliases still work
 - chunk text containment in to_markdown (whitespace-normalized)
 - pages= partial parse keeps original page numbers in chunk addresses
@@ -12,13 +11,11 @@
 
 import os
 import re
-import warnings
 
 import pytest
 
 import pymupdf4llm
 from pymupdf4llm.helpers import chunking
-from pymupdf4llm.helpers.document_layout import parse_document
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PDF = os.path.join(HERE, "test_370.pdf")
@@ -33,34 +30,17 @@ def _norm(s):
 
 def test_public_symbols_snapshot():
     # package level
-    for name in ("to_chunks", "to_chunk", "to_markdown", "to_json", "to_text"):
+    for name in ("to_chunks", "to_markdown", "to_json", "to_text"):
         assert callable(getattr(pymupdf4llm, name)), name
 
     # chunking package level
     for name in (
-        "to_chunks", "to_chunk", "Chunk", "FinalChunk", "ChunkMetadata",
+        "to_chunks", "Chunk", "ChunkMetadata",
         "ChunkedDocument", "Element", "TableChunk", "FigureChunk",
-        "SectionChunk", "SentenceUnit", "Unit",
+        "SectionChunk", "SentenceUnit",
     ):
         assert hasattr(chunking, name), name
 
-    # rename contracts
-    assert chunking.FinalChunk is chunking.Chunk
-    assert chunking.Unit is chunking.SentenceUnit
-
-
-def test_to_chunk_shims_warn():
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        chunks = pymupdf4llm.to_chunk(PDF, pages=[0])
-    assert chunks
-    assert any(issubclass(x.category, DeprecationWarning) for x in w)
-
-    doc = parse_document(PDF, pages=[0])
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        chunking.to_chunk(doc)
-    assert any(issubclass(x.category, DeprecationWarning) for x in w)
 
 
 def test_internal_parse_flags_rejected():
