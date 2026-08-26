@@ -15,6 +15,7 @@ class BaseImageAnalyzer(ABC):
         prompt: str = _PROMPT_IMAGE_ANALYSIS,
         max_output_tokens: int = 2048,
         temperature: float = 0.7,
+        reasoning_effort: str = "none",
     ) -> None:
         """
         Initialize the ImageAnalyzer.
@@ -32,7 +33,7 @@ class BaseImageAnalyzer(ABC):
         self.prompt = prompt
         self.max_output_tokens = max_output_tokens
         self.temperature = temperature
-
+        self.reasoning_effort = reasoning_effort
     
     def image_filter(
         self,
@@ -207,6 +208,7 @@ class GroqImageAnalyzer(BaseImageAnalyzer):
             model = self._model_name,
             max_tokens = self.max_output_tokens,
             temperature = self.temperature,
+            reasoning_effort = self.reasoning_effort,
         )
 
         return (response.choices[0].message.content or "").strip()
@@ -265,6 +267,7 @@ class OpenAIImageAnalyzer(BaseImageAnalyzer):
             model = self._model_name,
             max_tokens = self.max_output_tokens,
             temperature = self.temperature,
+            reasoning_effort = self.reasoning_effort,
         )
 
         return (response.choices[0].message.content or "").strip()
