@@ -742,7 +742,7 @@ def to_markdown(
                 prev_lrect
                 and lrect.y1 - prev_lrect.y1 > lrect.height * 1.5
                 or span0["text"].startswith("[")
-                or startswith_bullet(span0["text"])
+                or startswith_bullet(span0["text"], page=parms.page, line_bbox=lrect)
                 or span0["flags"] & 1  # superscript?
             ):
                 out_string += "\n"
@@ -810,7 +810,7 @@ def to_markdown(
                     text = f"{hdr_string}{prefix}{ltext}{suffix} "
                 else:
                     text = f"{hdr_string}{prefix}{s['text'].strip()}{suffix} "
-                if startswith_bullet(text):
+                if startswith_bullet(text, page=parms.page, line_bbox=s["bbox"]):
                     text = "- " + text[1:]
                     text = text.replace("  ", " ")
                     dist = span0["bbox"][0] - clip.x0
