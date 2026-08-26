@@ -17,7 +17,7 @@ analyzer = OpenAIImageAnalyzer(
 def test_image_analyzer():
     
     doc_path = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer.pdf')
-    path_export = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer2.md')
+    path_export = os.path.normpath(f'{__file__}/../../tests/test_image_analyzer.md')
     
     with pymupdf.open(doc_path) as document:
         actual = pymupdf4llm.to_markdown(
