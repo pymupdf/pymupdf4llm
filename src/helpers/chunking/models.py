@@ -99,7 +99,7 @@ class ProtoChunk:
     bboxes: list = field(default_factory=list)  # list of (page, x0, y0, x1, y1)
 
     # Structure
-    chunk_type_hint: Optional[str] = None  # primary type: paragraph, table, list, figure, ...
+    primary_type: Optional[str] = None  # primary type: paragraph, table, list, figure, ...
     types: list = field(default_factory=list)  # all types present, e.g. ["heading", "table"]
 
     # References to SentenceUnits (kept for split/merge)
@@ -243,7 +243,7 @@ class Chunk:
     """A finalized, retrieval-ready chunk."""
     id: str                    # "c{n}" (budget-local: changes across reassemble_chunks)
     text: str
-    contextual_text: str = ""
+    tagged_content: str = ""
     metadata: ChunkMetadata = field(default_factory=ChunkMetadata)
 
     _content_hash: Optional[str] = field(default=None, repr=False, compare=False)

@@ -158,7 +158,7 @@ class ChunkAssembler:
         if not sents:
             return [chunk]
 
-        if chunk.chunk_type_hint == "table" and self.table_mode == "preserve":
+        if chunk.primary_type == "table" and self.table_mode == "preserve":
             return [chunk]
 
         result = []
@@ -243,7 +243,7 @@ class ChunkAssembler:
 
     def _is_semantic_pair(self, a: ProtoChunk, b: ProtoChunk) -> bool:
         """Check if (a, b) form a semantic pair that should stay together."""
-        if a.chunk_type_hint == "header_footer" or b.chunk_type_hint == "header_footer":
+        if a.primary_type == "header_footer" or b.primary_type == "header_footer":
             return False
         if a.token_count + b.token_count > self.max_tokens:
             return False
@@ -253,22 +253,22 @@ class ChunkAssembler:
             return False
 
         # heading + following content (any non-heading type)
-        if a.chunk_type_hint == "heading" and b.chunk_type_hint != "heading":
+        if a.primary_type == "heading" and b.primary_type != "heading":
             return True
 
         # consecutive list chunks → merge into one logical list
-        if a.chunk_type_hint == "list" and b.chunk_type_hint == "list":
+        if a.primary_type == "list" and b.primary_type == "list":
             return True
 
         # caption + element (caption first)
         a_is_caption = bool(a._sentences) and all(s.is_caption for s in a._sentences)
-        if a_is_caption and b.chunk_type_hint in _ELEMENT_TYPES:
-            return self._caption_target_matches(a, b.chunk_type_hint)
+        if a_is_caption and b.primary_type in _ELEMENT_TYPES:
+            return self._caption_target_matches(a, b.primary_type)
 
         # element + caption (element first)
         b_is_caption = bool(b._sentences) and all(s.is_caption for s in b._sentences)
-        if a.chunk_type_hint in _ELEMENT_TYPES and b_is_caption:
-            return self._caption_target_matches(b, a.chunk_type_hint)
+        if a.primary_type in _ELEMENT_TYPES and b_is_caption:
+            return self._caption_target_matches(b, a.primary_type)
 
         return False
 
@@ -320,13 +320,13 @@ class ChunkAssembler:
         NOT checked here — budget merge is purely about filling token
         capacity with sequentially adjacent chunks.
         """
-        if a.chunk_type_hint == "header_footer" or b.chunk_type_hint == "header_footer":
+        if a.primary_type == "header_footer" or b.primary_type == "header_footer":
             return False
-        if b.chunk_type_hint == "heading":
+        if b.primary_type == "heading":
             return False
         # A chunk opening with a heading is a section start; merging it
         # backward would attach a section's head to the previous section's
-        # tail. (chunk_type_hint is "heading" only for lone headings, so
+        # tail. (primary_type is "heading" only for lone headings, so
         # the check above does not cover heading+content chunks — D18.)
         if (self.respect_section_starts and b._sentences
                 and b._sentences[0].is_heading_hint):
@@ -334,7 +334,7 @@ class ChunkAssembler:
         # table_mode="isolate": table chunks stay separate in budget merge
         # (semantic merge heading+table / caption+table is still allowed)
         if self.table_mode == "isolate":
-            if a.chunk_type_hint == "table" or b.chunk_type_hint == "table":
+            if a.primary_type == "table" or b.primary_type == "table":
                 return False
         if a.token_count + b.token_count > self.max_tokens:
             return False
@@ -384,7 +384,7 @@ class ChunkAssembler:
             page_end=sents[-1].page_no,
             box_indices=box_indices,
             bboxes=bboxes,
-            chunk_type_hint=primary_type,
+            primary_type=primary_type,
             types=all_types,
             _sentences=list(sents),
         )

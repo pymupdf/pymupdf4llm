@@ -122,9 +122,9 @@ rejects them — re-parse via `to_chunks()` to change them.
 | `tokenizer` | `None` | tiktoken encoding name (unknown names raise `ValueError`), a `callable(text) -> int`, or `None` (character estimate) |
 | `weights` | `None` | Boundary-score weight overrides |
 
-Whether `contextual_text` is included in exports is decided at export
+Whether `tagged_content` is included in exports is decided at export
 time: `ChunkedDocument.to_dicts()` / `.to_json()` take a keyword-only
-`include_contextual` (default `True`).
+`include_tagged` (default `True`).
 
 ### Choosing a budget
 
@@ -195,7 +195,7 @@ cd.get("nope", default=None)   # KeyError without default=
 # Exports (JSON-safe; content_hash included)
 cd.to_dicts()                  # list[dict], schema below
 cd.to_json(indent=2)           # json.dumps(cd.to_dicts()); extra kwargs go to json.dumps
-cd.to_dicts(include_contextual=False)   # drop contextual_text from the payload
+cd.to_dicts(include_tagged=False)   # drop tagged_content from the payload
 # Framework exports need optional dependencies (recipe 7):
 #   cd.to_langchain_documents()   -> list[langchain_core.documents.Document]
 #   cd.to_llama_nodes()           -> list[llama_index.core.schema.TextNode]
@@ -204,7 +204,6 @@ cd.to_dicts(include_contextual=False)   # drop contextual_text from the payload
 cd.reassemble_chunks(max_tokens=200)   # new ChunkedDocument from retained units, no re-parse
 cd.diagnostics                 # dict for an ingestion gate (keys below)
 cd.params                      # read-only mapping of the parameters cd was built with
-cd.contextualize(cd[0])        # == cd[0].contextual_text
 ```
 
 `reassemble_chunks()` accepts assembly-tier parameters only (`max_tokens`,
@@ -220,7 +219,7 @@ cd.contextualize(cd[0])        # == cd[0].contextual_text
 Chunk:
     id: str                    # "c0", "c1", ... (position in this ChunkedDocument)
     text: str                  # markdown, identical to to_markdown's rendering
-    contextual_text: str       # text with [Section], [Page], [Type] tags (format below)
+    tagged_content: str       # text with [Section], [Page], [Type] tags (format below)
     content_hash: str          # lazy sha256 of whitespace-normalized text
     metadata: ChunkMetadata
 ```
@@ -253,7 +252,7 @@ One dict per chunk; `metadata` carries every `ChunkMetadata` field as-is:
     "id": "c0",
     "text": "...",
     "content_hash": "6adc89bf...",
-    "contextual_text": "...",          # omitted with include_contextual=False
+    "tagged_content": "...",          # omitted with include_tagged=False
     "metadata": {
         "page_start": 1, "page_end": 1, "bboxes": [...],
         "types": ["heading", "paragraph", "table"],
@@ -425,17 +424,17 @@ for c in cd:
 
 ### 1. Embed with context and upsert with stable ids
 
-Embed `contextual_text`, not `text`: it prefixes the section path, page
+Embed `tagged_content`, not `text`: it prefixes the section path, page
 and element types, so the vector carries where the chunk sits in the
 document. `[Section]` comes from the layout-detected heading structure;
 this document has no PDF bookmarks, and none are needed.
 
 ```python
-print(cd[0].contextual_text[:130])
+print(cd[0].tagged_content[:130])
 # -> [Section] World Capital Cities
 #    [Page] 1
 #    [Type] heading, table
-#    [Content]
+#    [Markdown]
 #    # **World Capital Cities**
 #    _Percent "%" is city population
 ```
@@ -469,7 +468,7 @@ def point_id(c, *, tenant, kb, doc_id, emb_ver):
 for c, payload in zip(cd, cd.to_dicts()):
     store.upsert(
         id=point_id(c, tenant="acme", kb="manuals", doc_id=doc_id, emb_ver="e5-large-v2"),
-        vector=embed(c.contextual_text),
+        vector=embed(c.tagged_content),
         payload={**payload, "citation": {
             "section": " > ".join(c.metadata.section_path),
             "pages": [c.metadata.page_start, c.metadata.page_end]}},
@@ -703,13 +702,13 @@ nodes = cd.to_llama_nodes()          # needs llama-index-core
 #    metadata: the ChunkMetadata fields (page_start, page_end, bboxes, types, ...)
 ```
 
-## contextual_text Format
+## tagged_content Format
 
 ```
 [Section] Chapter 1 > Section 1.2
 [Page] 5
 [Type] heading, table
-[Content]
+[Markdown]
 {chunk.text}
 ```
 

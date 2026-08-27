@@ -149,10 +149,10 @@ def test_get_semantics(cd):
     assert cd.get("x123", "fallback") == "fallback"
 
 
-def test_contextualize(cd):
+def test_tagged_content(cd):
     c = cd[0]
-    assert cd.contextualize(c) == c.contextual_text
-    assert "[Content]" in c.contextual_text
+    assert "[Markdown]" in c.tagged_content
+    assert c.text in c.tagged_content
 
 
 # ── content_hash (D17) + serialization ──────────────────────────────
@@ -168,7 +168,7 @@ def test_content_hash_and_to_dicts(cd):
     d0 = dicts[0]
     assert d0["id"] == "c0"
     assert d0["content_hash"] == h1
-    assert "contextual_text" in d0
+    assert "tagged_content" in d0
 
     meta = d0["metadata"]
     for key in ("page_start", "page_end", "bboxes", "types",
@@ -178,13 +178,13 @@ def test_content_hash_and_to_dicts(cd):
         assert key in meta, key
     # internals must not leak into the payload
     for key in ("box_indices", "sent_ids", "toc_items", "is_table_related",
-                "chunk_type_hint"):
+                "primary_type"):
         assert key not in meta, key
     assert meta["token_count"] > 0
     assert meta["ocr"] is False
 
-    lean = cd.to_dicts(include_contextual=False)
-    assert "contextual_text" not in lean[0]
+    lean = cd.to_dicts(include_tagged=False)
+    assert "tagged_content" not in lean[0]
 
     parsed = json.loads(cd.to_json())
     assert parsed[0]["content_hash"] == h1
@@ -291,7 +291,7 @@ def test_section_path_from_headings_without_bookmarks():
     owned = cd.get(s0.child_chunk_ids[0])
     assert owned.metadata.section_path == s0.path
     assert s0.path and s0.path[-1] == s0.title
-    assert f"[Section] {' > '.join(s0.path)}" in owned.contextual_text
+    assert f"[Section] {' > '.join(s0.path)}" in owned.tagged_content
     # reassemble_chunks keeps the derivation (serializer runs per assembly)
     for c in cd.reassemble_chunks(max_tokens=1200):
         if c.metadata.section_id == s0.id:

@@ -53,7 +53,7 @@ class ChunkSerializer:
         # section_path is known only after the views pass assigned each
         # chunk its innermost section, so contextual text renders last.
         for pc, chunk in zip(proto_chunks, chunks):
-            chunk.contextual_text = self._build_contextual_text(
+            chunk.tagged_content = self._build_tagged_content(
                 pc, chunk.metadata.section_path)
 
         return chunks, tables, figures, sections
@@ -66,7 +66,7 @@ class ChunkSerializer:
             page_start=pc.page_start,
             page_end=pc.page_end,
             element_ids=[element_id(p, b) for p, b in pc.box_indices],
-            types=pc.types or [pc.chunk_type_hint or "paragraph"],
+            types=pc.types or [pc.primary_type or "paragraph"],
             token_count=pc.token_count,
             bboxes=pc.bboxes,
             lists=_group_list_items(pc._sentences),
@@ -79,7 +79,7 @@ class ChunkSerializer:
         return Chunk(
             id=f"c{pc.chunk_id}",
             text=pc.text,
-            contextual_text="",   # rendered in serialize() after views
+            tagged_content="",   # rendered in serialize() after views
             metadata=metadata,
         )
 
@@ -210,7 +210,7 @@ class ChunkSerializer:
 
     # ── Contextual text ─────────────────────────────────────────────
 
-    def _build_contextual_text(self, pc: ProtoChunk, hierarchy: list[str]) -> str:
+    def _build_tagged_content(self, pc: ProtoChunk, hierarchy: list[str]) -> str:
         """Build context-enriched text for embedding."""
         parts = []
 
@@ -226,7 +226,7 @@ class ChunkSerializer:
         if non_para:
             parts.append(f"[Type] {', '.join(non_para)}")
 
-        parts.append(f"[Content]\n{pc.text}")
+        parts.append(f"[Markdown]\n{pc.text}")
 
         return "\n".join(parts)
 

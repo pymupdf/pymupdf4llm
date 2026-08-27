@@ -135,22 +135,16 @@ class ChunkedDocument(Sequence):
             return default
         return found
 
-    # ── Contextual text ─────────────────────────────────────────────
-
-    def contextualize(self, chunk) -> str:
-        """Context-enriched text for a chunk (== chunk.contextual_text)."""
-        return chunk.contextual_text
-
     # ── Serialization ───────────────────────────────────────────────
 
-    def to_dicts(self, *, include_contextual: bool = True) -> list:
+    def to_dicts(self, *, include_tagged: bool = True) -> list:
         """Chunks as flat, json-safe, payload-ready dicts (schema §4.5)."""
-        return [_chunk_to_dict(c, include_contextual) for c in self._chunks]
+        return [_chunk_to_dict(c, include_tagged) for c in self._chunks]
 
-    def to_json(self, *, include_contextual: bool = True, **json_kwargs) -> str:
+    def to_json(self, *, include_tagged: bool = True, **json_kwargs) -> str:
         json_kwargs.setdefault("default", _json_default)
         return json.dumps(
-            self.to_dicts(include_contextual=include_contextual),
+            self.to_dicts(include_tagged=include_tagged),
             **json_kwargs,
         )
 
@@ -239,7 +233,7 @@ class ChunkedDocument(Sequence):
         ]
 
 
-def _chunk_to_dict(chunk, include_contextual: bool) -> dict:
+def _chunk_to_dict(chunk, include_tagged: bool) -> dict:
     d = {
         "id": chunk.id,
         "text": chunk.text,
@@ -249,8 +243,8 @@ def _chunk_to_dict(chunk, include_contextual: bool) -> dict:
             for f in fields(chunk.metadata)
         },
     }
-    if include_contextual:
-        d["contextual_text"] = chunk.contextual_text
+    if include_tagged:
+        d["tagged_content"] = chunk.tagged_content
     return d
 
 
