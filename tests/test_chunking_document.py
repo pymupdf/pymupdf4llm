@@ -8,12 +8,30 @@ W0-0-final integration tests.
 import json
 import os
 import re
+from dataclasses import dataclass, field
+from typing import Optional
 
+import pymupdf
 import pytest
 
 import pymupdf4llm
-from pymupdf4llm.helpers.chunking import ChunkedDocument, SectionNode
+from pymupdf4llm.helpers import chunking
+from pymupdf4llm.helpers.chunking import (
+    Chunk,
+    ChunkedDocument,
+    SectionNode,
+    SentenceUnit,
+)
+from pymupdf4llm.helpers.chunking.chunk_assembler import ChunkAssembler
+from pymupdf4llm.helpers.chunking.sentence_builder import (
+    _SENT_END_EN,
+    _SENT_END_MULTI,
+    SentenceBuilder,
+    _split_sentence_text,
+)
+from pymupdf4llm.helpers.chunking.serializer import _group_list_items
 from pymupdf4llm.helpers.chunking.text_source import (
+    box_to_markdown,
     extract_table_headers,
     table_content,
 )
@@ -72,10 +90,12 @@ def test_views_round_trip(cd):
     chunk_ids = {c.id for c in cd}
 
     for t in cd.tables:
-        assert t.chunk_id in chunk_ids
-        assert t.id in cd.get(t.chunk_id).metadata.table_ids
+        # chunk_id is None only for a table box that rendered to nothing
+        assert t.chunk_id is None or t.chunk_id in chunk_ids
+        if t.chunk_id:
+            assert t.id in cd.get(t.chunk_id).metadata.table_ids
+            assert t.section_id == cd.get(t.chunk_id).metadata.section_id
         assert cd.get(t.element_id) is not None
-        assert t.section_id == cd.get(t.chunk_id).metadata.section_id
 
     for f in cd.figures:
         assert f.chunk_id in chunk_ids
@@ -94,9 +114,15 @@ def test_views_round_trip(cd):
         for tid in c.metadata.table_ids:
             assert cd.get(tid).chunk_id == c.id
         for fid in c.metadata.figure_ids:
-            assert cd.get(fid).chunk_id == c.id
+            # a figure whose text spans several chunks is listed by all of
+            # them; its own chunk_id names the first one
+            assert cd.get(fid) is not None
         if c.metadata.section_id:
             assert c.id in cd.get(c.metadata.section_id).child_chunk_ids
+
+    for f in cd.figures:
+        holders = [c.id for c in cd if f.id in c.metadata.figure_ids]
+        assert holders and f.chunk_id == holders[0]
 
 
 def test_section_fields_and_lazy_text(cd):
@@ -322,3 +348,356 @@ def test_heading_depth_from_engine_levels(cd):
     if deepest.child_chunk_ids:
         c = cd.get(deepest.child_chunk_ids[0])
         assert c.metadata.section_path == deepest.path
+
+
+# ════════════════════════════════════════════════════════════════════
+# Review regressions
+#
+# Each case below reproduces one reported defect on the smallest input
+# that shows it.  Layout-shaped inputs (an empty middle page, a table
+# that renders to nothing, a list continuing across a page break) are
+# built here instead of searched for in a PDF, so the case stays exact.
+# ════════════════════════════════════════════════════════════════════
+
+@dataclass
+class _LayoutBox:
+    """LayoutBox stand-in (only the attributes chunking reads)."""
+    x0: float = 0.0
+    y0: float = 0.0
+    x1: float = 300.0
+    y1: float = 20.0
+    boxclass: str = "text"
+    image: Optional[bytes] = None
+    table: Optional[dict] = None
+    textlines: Optional[list] = None
+    header_level: Optional[int] = 1
+    max_fontsize: Optional[float] = None
+
+
+@dataclass
+class _PageLayout:
+    page_number: int = 1
+    width: float = 612.0
+    height: float = 792.0
+    boxes: list = field(default_factory=list)
+    full_ocred: bool = False
+    text_ocred: bool = False
+    fulltext: Optional[list] = None
+    words: Optional[list] = None
+    links: Optional[list] = None
+
+
+@dataclass
+class _ParsedDoc:
+    filename: Optional[str] = "synthetic.pdf"
+    page_count: int = 1
+    toc: list = field(default_factory=list)
+    pages: list = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+
+def _textlines(text, size=10.0, x0=0.0, x1=300.0, y0=0.0):
+    """One textline per line of *text*, in the shape the renderers expect."""
+    lines = []
+    y = y0
+    for line_no, line_text in enumerate(text.split("\n")):
+        y1 = y + size + 2
+        lines.append({
+            "bbox": pymupdf.Rect(x0, y, x1, y1),
+            "spans": [{
+                "text": line_text, "bbox": (x0, y, x1, y1),
+                "font": "Helvetica", "size": size, "flags": 0,
+                "char_flags": 0, "origin": (x0, y1 - 2),
+                "block": 0, "line": line_no,
+            }],
+        })
+        y += size + 4
+    return lines
+
+
+def _unit(sent_id, text, *, page=1, box=0, tokens=None, boxclass="text",
+          bbox=(0.0, 0.0, 300.0, 20.0), **hints):
+    return SentenceUnit(
+        sent_id=sent_id, text=text, norm_text=text.lower(), page_no=page,
+        box_index=box, boxclass=boxclass, bbox=bbox,
+        token_count=tokens if tokens is not None else max(1, len(text) // 4),
+        font_size_dominant=10.0, **hints,
+    )
+
+
+def _nows(text):
+    return "".join(text.split())
+
+
+# ── 1.2  sentence splitting must not drop characters ────────────────
+
+_QUOTE_CASES = [
+    'He said, "Yes." Then he left.',
+    'She replied, "No!" He nodded. [1] Later they agreed.',
+    "The result (see Fig. 1.) was clear. Another sentence follows.",
+    "Values differ [a]. Others match.",
+    "Ends with a quote. 'Quoted!' And continues.",
+]
+
+
+@pytest.mark.parametrize("pattern", [_SENT_END_EN, _SENT_END_MULTI])
+@pytest.mark.parametrize("text", _QUOTE_CASES)
+def test_sentence_split_keeps_every_non_whitespace_character(pattern, text):
+    """Splitting may drop whitespace, never text (both splitters)."""
+    pieces = _split_sentence_text(text, pattern)
+    assert _nows(" ".join(pieces)) == _nows(text)
+
+
+@pytest.mark.parametrize("pattern", [_SENT_END_EN, _SENT_END_MULTI])
+def test_closing_quote_stays_with_its_sentence(pattern):
+    assert _split_sentence_text('He said, "Yes." Then he left.', pattern) == [
+        'He said, "Yes."', "Then he left."]
+
+
+def test_box_sentences_reproduce_the_rendered_markdown():
+    """The units of one box must carry the box's whole rendering."""
+    source = ('He said, "Yes." Then he left. '
+              'She asked, "Why?" Nobody answered.')
+    doc = _ParsedDoc(pages=[_PageLayout(boxes=[_LayoutBox(textlines=_textlines(source))])])
+    units = SentenceBuilder().build_from_document(doc)
+    rendered = box_to_markdown(doc.pages[0], doc.pages[0].boxes[0], 0).strip()
+
+    assert len(units) == 4
+    assert _nows(" ".join(u.text for u in units)) == _nows(rendered)
+    assert units[0].text.endswith('"Yes."')
+
+
+# ── 1.3  splitting an oversized chunk must respect the budget ───────
+
+def test_split_keeps_every_chunk_within_budget():
+    """Carrying a shared box forward must not push the next chunk over.
+
+    Review repro: units (box_index, tokens) = (0,10) (1,10) (2,40)
+    (2,40) (2,40) with max_tokens=100.  Assembly keeps the box-2 run
+    together, so the split step has to break inside the box rather than
+    carry all of it into the next chunk.
+    """
+    specs = [(0, 10), (1, 10), (2, 40), (2, 40), (2, 40)]
+    units = [_unit(i, "x" * (tokens * 4), box=box, tokens=tokens)
+             for i, (box, tokens) in enumerate(specs)]
+
+    assembler = ChunkAssembler(max_tokens=100, min_tokens=0)
+    proto = assembler.assemble(units, [0.0] * (len(units) - 1))
+    assert [p.token_count for p in proto] == [140]      # one oversized chunk
+
+    refined = assembler.refine(proto)
+    assert all(p.token_count <= 100 for p in refined), \
+        [p.token_count for p in refined]
+    # nothing dropped or duplicated by the split
+    assert [s.sent_id for p in refined for s in p._sentences] == \
+        [u.sent_id for u in units]
+
+
+# ── 1.1  framework exports: id scope and chunk_id round trip ────────
+
+def _second_document(cd):
+    """A different ChunkedDocument reusing the same (document-local) ids."""
+    return ChunkedDocument([Chunk(id=c.id, text=c.text) for c in cd[:2]])
+
+
+def test_llama_export_ids_can_be_document_scoped(cd):
+    pytest.importorskip("llama_index.core")
+    other = _second_document(cd)
+
+    unscoped = cd.to_llama_nodes() + other.to_llama_nodes()
+    assert len({n.id_ for n in unscoped}) < len(unscoped)   # ids are local
+
+    scoped = cd.to_llama_nodes(doc_id="docA") + other.to_llama_nodes(doc_id="docB")
+    assert len({n.id_ for n in scoped}) == len(scoped)
+    assert scoped[0].id_ == f"docA:{cd[0].id}"
+
+    for node in cd.to_llama_nodes(doc_id="docA"):
+        assert cd.get(node.metadata["chunk_id"]).text == node.text
+
+
+def test_langchain_export_ids_can_be_document_scoped(cd):
+    pytest.importorskip("langchain_core")
+    other = _second_document(cd)
+
+    unscoped = cd.to_langchain_documents() + other.to_langchain_documents()
+    assert len({d.id for d in unscoped}) < len(unscoped)
+
+    scoped = (cd.to_langchain_documents(doc_id="docA")
+              + other.to_langchain_documents(doc_id="docB"))
+    assert len({d.id for d in scoped}) == len(scoped)
+    assert scoped[0].id == f"docA:{cd[0].id}"
+
+    for doc in cd.to_langchain_documents(doc_id="docA"):
+        assert cd.get(doc.metadata["chunk_id"]).text == doc.page_content
+
+
+# ── §3  diagnostics: empty pages, empty tables ──────────────────────
+
+def _page_gap_document():
+    """Pages 1 and 3 carry text; page 2 is empty and was OCR'd."""
+    return _ParsedDoc(page_count=3, pages=[
+        _PageLayout(page_number=1, boxes=[
+            _LayoutBox(y0=700.0, y1=720.0,
+                 textlines=_textlines("First page body.", y0=700.0))]),
+        _PageLayout(page_number=2, boxes=[], full_ocred=True),
+        _PageLayout(page_number=3, boxes=[
+            _LayoutBox(y0=20.0, y1=40.0,
+                 textlines=_textlines("Third page body.", y0=20.0))]),
+    ])
+
+
+def test_empty_middle_page_is_reported_as_uncovered():
+    cd = chunking.to_chunks(_page_gap_document())
+    chunk = cd[0]
+    # one chunk spanning the gap: the span says 1-3, the content does not
+    assert (chunk.metadata.page_start, chunk.metadata.page_end) == (1, 3)
+    assert cd.diagnostics["pages_without_chunks"] == [2]
+
+
+def test_ocr_flag_follows_contributing_pages():
+    cd = chunking.to_chunks(_page_gap_document())
+    # page 2 is the OCR'd one and it put nothing into the chunk
+    assert not any(c.metadata.ocr for c in cd)
+
+
+def test_degenerate_table_stays_addressable_and_reported():
+    """A table box that renders to nothing must not vanish silently."""
+    doc = _ParsedDoc(pages=[_PageLayout(boxes=[
+        _LayoutBox(boxclass="table", y0=100.0, y1=140.0,
+             table={"markdown": "|a|b|\n|---|---|\n|1|2|"}),
+        _LayoutBox(boxclass="table", y0=200.0, y1=240.0, table={"markdown": ""}),
+        _LayoutBox(y0=300.0, y1=320.0,
+             textlines=_textlines("Body text.", y0=300.0)),
+    ])])
+    cd = chunking.to_chunks(doc)
+
+    assert [t.element_id for t in cd.tables] == ["p1.b0", "p1.b1"]
+    empty = cd.tables[1]
+    assert empty.chunk_id is None and empty.text == ""
+    assert cd.get(empty.id) is empty
+    assert cd.get(empty.element_id).text == ""
+    assert cd.diagnostics["degenerate_tables"] == [empty.id]
+    # the rendered table keeps its chunk link and its id ordering
+    assert cd.tables[0].chunk_id
+    assert cd.get(cd.tables[0].chunk_id).metadata.table_ids == [cd.tables[0].id]
+
+
+# ── §3  provenance: figures across chunks, lists across pages ───────
+
+def test_figure_split_across_chunks_links_every_chunk():
+    """Every chunk holding part of a figure's text carries its id."""
+    body = " ".join(f"{word} " * 12 for word in ("Alpha.", "Bravo.", "Charlie."))
+    doc = _ParsedDoc(pages=[_PageLayout(boxes=[
+        _LayoutBox(boxclass="formula", y0=100.0, y1=300.0,
+             textlines=_textlines(body, y0=100.0))])])
+    cd = chunking.to_chunks(doc, max_tokens=25, min_tokens=0)
+
+    assert len(cd) > 1
+    figure = cd.figures[0]
+    holders = [c.id for c in cd if figure.id in c.metadata.figure_ids]
+    assert holders == [c.id for c in cd]        # complete back-links
+    assert figure.chunk_id == holders[0]        # primary link is the first
+
+
+def test_multi_page_list_keeps_a_bbox_per_page():
+    items = [
+        _unit(0, "- first", page=1, boxclass="list-item",
+              bbox=(50.0, 700.0, 300.0, 712.0), is_list_item=True),
+        _unit(1, "- second", page=2, boxclass="list-item",
+              bbox=(50.0, 20.0, 300.0, 32.0), is_list_item=True),
+    ]
+    group, = _group_list_items(items)
+
+    assert group["bboxes"] == [(1, 50.0, 700.0, 300.0, 712.0),
+                               (2, 50.0, 20.0, 300.0, 32.0)]
+    assert [i["page"] for i in group["items"]] == [1, 2]
+    # no rectangle that exists on neither page
+    assert all(len(b) == 5 for b in group["bboxes"])
+
+
+# ── §3  min_tokens and section-start protection ─────────────────────
+
+def _two_paragraph_chunks(assembler, tokens=(150, 150)):
+    units = [
+        _unit(0, "A" * (tokens[0] * 4), box=0, tokens=tokens[0],
+              bbox=(0.0, 100.0, 300.0, 200.0)),
+        _unit(1, "B" * (tokens[1] * 4), box=1, tokens=tokens[1],
+              bbox=(0.0, 300.0, 300.0, 400.0)),
+    ]
+    return [assembler._make_proto_chunk(i, [u]) for i, u in enumerate(units)]
+
+
+def test_min_tokens_controls_budget_merge():
+    """Two self-sufficient chunks are only merged below the floor."""
+    def merged(min_tokens):
+        assembler = ChunkAssembler(max_tokens=400, min_tokens=min_tokens)
+        return assembler.refine(_two_paragraph_chunks(assembler))
+
+    assert [c.token_count for c in merged(0)] == [300]     # floor disabled
+    assert [c.token_count for c in merged(120)] == [150, 150]
+    assert [c.token_count for c in merged(200)] == [300]   # both below floor
+
+
+def test_small_chunk_still_merges_into_its_neighbour():
+    assembler = ChunkAssembler(max_tokens=400, min_tokens=120)
+    protos = _two_paragraph_chunks(assembler, tokens=(50, 150))
+    assert [c.token_count for c in assembler.refine(protos)] == [200]
+
+
+def test_semantic_merge_does_not_cross_a_section_start():
+    """A lone parent heading must not swallow the next section's head."""
+    assembler = ChunkAssembler(max_tokens=400, min_tokens=0,
+                               respect_section_starts=True)
+    parent = _unit(0, "# Parent", boxclass="title", tokens=5,
+                   bbox=(0.0, 100.0, 300.0, 120.0),
+                   is_heading_hint=True, heading_level_hint=1)
+    child = _unit(1, "## Child", boxclass="section-header", box=1, tokens=5,
+                  bbox=(0.0, 140.0, 300.0, 160.0),
+                  is_heading_hint=True, heading_level_hint=2)
+    body = _unit(2, "Child body text.", box=2, tokens=20,
+                 bbox=(0.0, 170.0, 300.0, 200.0))
+
+    kept = assembler.refine([assembler._make_proto_chunk(0, [parent]),
+                             assembler._make_proto_chunk(1, [child, body])])
+    assert [[s.text for s in c._sentences] for c in kept] == [
+        ["# Parent"], ["## Child", "Child body text."]]
+
+    # a heading followed by plain content still merges
+    paragraph = _unit(1, "Body text follows.", box=1, tokens=20,
+                      bbox=(0.0, 130.0, 300.0, 160.0))
+    joined = assembler.refine([assembler._make_proto_chunk(0, [parent]),
+                               assembler._make_proto_chunk(1, [paragraph])])
+    assert len(joined) == 1
+
+    # ... and without the guard the old greedy behaviour is available
+    loose = ChunkAssembler(max_tokens=400, min_tokens=0,
+                           respect_section_starts=False)
+    assert len(loose.refine([loose._make_proto_chunk(0, [parent]),
+                             loose._make_proto_chunk(1, [child, body])])) == 1
+
+
+# ── §3  parameter validation ────────────────────────────────────────
+
+_INVALID_PARAMS = [
+    {"max_tokens": 0},
+    {"max_tokens": -5},
+    {"min_tokens": -1},
+    {"header_footer_mode": "exlcude"},
+    {"table_mode": "isolated"},
+    {"sentence_splitter": "multi"},
+]
+
+
+@pytest.mark.parametrize("params", _INVALID_PARAMS)
+def test_to_chunks_rejects_invalid_values(params):
+    name = next(iter(params))
+    with pytest.raises(ValueError, match=name):
+        chunking.to_chunks(_page_gap_document(), **params)
+
+
+@pytest.mark.parametrize("params", [{"max_tokens": 0}, {"min_tokens": -1},
+                                    {"table_mode": "isolated"}])
+def test_reassemble_chunks_rejects_invalid_values(cd, params):
+    name = next(iter(params))
+    with pytest.raises(ValueError, match=name):
+        cd.reassemble_chunks(**params)

@@ -182,8 +182,7 @@ class ChunkedDocument(Sequence):
         pages = [p.page_number for p in self._doc.pages] if self._doc else []
         pages_with_chunks = set()
         for c in self._chunks:
-            pages_with_chunks.update(
-                range(c.metadata.page_start, c.metadata.page_end + 1))
+            pages_with_chunks.update(_chunk_pages(c))
 
         zero_chunk_causes = []
         if not self._chunks:
@@ -212,25 +211,71 @@ class ChunkedDocument(Sequence):
 
     # ── Framework exports (stretch, import-guarded) ─────────────────
 
-    def to_langchain_documents(self):
-        """Chunks as langchain Documents (requires langchain-core)."""
+    def to_langchain_documents(self, *, doc_id: str | None = None):
+        """Chunks as langchain Documents (requires langchain-core).
+
+        See :meth:`to_llama_nodes` for what *doc_id* is for.
+        """
         from langchain_core.documents import Document
 
         return [
-            Document(page_content=c.text,
-                     metadata=_chunk_to_dict(c, False)["metadata"])
+            Document(id=_export_id(c.id, doc_id),
+                     page_content=c.text,
+                     metadata=_export_metadata(c))
             for c in self._chunks
         ]
 
-    def to_llama_nodes(self):
-        """Chunks as llama-index TextNodes (requires llama-index-core)."""
+    def to_llama_nodes(self, *, doc_id: str | None = None):
+        """Chunks as llama-index TextNodes (requires llama-index-core).
+
+        Chunk ids are document-local ("c0" starts every document), so two
+        documents in one store collide on the exported id and the later
+        write replaces the earlier record. Pass *doc_id* — any stable
+        per-document key — to export ``"{doc_id}:{chunk.id}"`` instead.
+
+        The chunk's own id is always in ``metadata["chunk_id"]``, so a
+        retrieved record still addresses ``ChunkedDocument.get()``.
+        """
         from llama_index.core.schema import TextNode
 
         return [
-            TextNode(id_=c.id, text=c.text,
-                     metadata=_chunk_to_dict(c, False)["metadata"])
+            TextNode(id_=_export_id(c.id, doc_id), text=c.text,
+                     metadata=_export_metadata(c))
             for c in self._chunks
         ]
+
+
+def _export_id(chunk_id: str, doc_id) -> str:
+    """Store-facing id: document-scoped when a doc_id is given."""
+    return f"{doc_id}:{chunk_id}" if doc_id else chunk_id
+
+
+def _export_metadata(chunk) -> dict:
+    """Framework metadata: the ChunkMetadata fields plus the chunk id."""
+    metadata = _chunk_to_dict(chunk, False)["metadata"]
+    metadata["chunk_id"] = chunk.id
+    return metadata
+
+
+def _chunk_pages(chunk) -> set:
+    """Pages that actually put content into *chunk*.
+
+    ``page_start..page_end`` is a span, not a coverage claim: a chunk
+    bridging pages 1 and 3 says nothing about page 2, so counting the span
+    would hide an empty page from ``pages_without_chunks``. The pages come
+    from the chunk's own bbox/element addresses instead.
+    """
+    pages = {b[0] for b in chunk.metadata.bboxes if b}
+    for element in chunk.metadata.element_ids:
+        page = element.partition(".b")[0]
+        try:
+            pages.add(int(page[1:]))
+        except ValueError:
+            continue
+    if not pages:
+        pages = set(range(chunk.metadata.page_start,
+                          chunk.metadata.page_end + 1))
+    return pages
 
 
 def _chunk_to_dict(chunk, include_tagged: bool) -> dict:
