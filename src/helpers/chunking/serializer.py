@@ -22,7 +22,7 @@ from .models import (
     TableChunk,
     element_id,
 )
-from .text_source import extract_table_headers
+from .text_source import extract_table_headers, table_content
 
 # Markdown decoration around section titles (both ends: "# **Title**")
 _MD_DECOR_RE = re.compile(r'^[#>*_`\s]+')
@@ -70,8 +70,10 @@ class ChunkSerializer:
             token_count=pc.token_count,
             bboxes=pc.bboxes,
             lists=_group_list_items(pc._sentences),
-            ocr=any(p in self._ocr_pages
-                    for p in range(pc.page_start, pc.page_end + 1)),
+            # Pages that actually contributed units — not the page span: a
+            # chunk bridging pages 1 and 3 must not inherit page 2's OCR
+            # flag when page 2 put nothing in it.
+            ocr=any(s.page_no in self._ocr_pages for s in pc._sentences),
             file_path=self.doc.filename,
             page_count=self.doc.page_count,
         )
@@ -153,6 +155,11 @@ class ChunkSerializer:
                         if not s.text.startswith("[Figure"):
                             fig.ocr_text = ((fig.ocr_text + "\n" + s.text).strip()
                                             if fig.ocr_text else s.text)
+                        # A figure's text can be split across chunks; every
+                        # chunk holding part of it links back to it, while
+                        # FigureChunk.chunk_id keeps naming the first one.
+                        if fig.id not in chunk.metadata.figure_ids:
+                            chunk.metadata.figure_ids.append(fig.id)
 
                 elif s.is_heading_hint:
                     level = s.heading_level_hint or 1
@@ -198,6 +205,13 @@ class ChunkSerializer:
                     break
             sec.element_span = (sec.element_span[0], end)
 
+        # Table boxes whose rendering was empty produced no unit and would
+        # otherwise be missing from the view and from the diagnostics that
+        # are supposed to report them.
+        unchunked = self._unchunked_tables(proto_chunks)
+        if unchunked:
+            tables = _merge_unchunked_tables(tables, unchunked, chunks)
+
         # Tables/figures inherit the section of their owning chunk.
         chunk_by_id = {c.id: c for c in chunks}
         for view in (tables, figures):
@@ -207,6 +221,42 @@ class ChunkSerializer:
                     item.section_id = owner.metadata.section_id
 
         return tables, figures, sections
+
+    def _unchunked_tables(self, proto_chunks) -> list:
+        """Table boxes that produced no unit, as chunk-less TableChunks.
+
+        A table box whose rendering is empty yields no SentenceUnit, so no
+        chunk carries it. It stays in the element registry, but without
+        this it would also disappear from ``tables`` and therefore from
+        ``diagnostics["degenerate_tables"]`` — exactly the case the
+        diagnostic exists to surface. Such a table is exposed with
+        ``chunk_id=None``: it is addressable and reported, and its empty
+        rendering is visible in ``TableChunk.text``.
+        """
+        chunked = {(s.page_no, s.box_index)
+                   for pc in proto_chunks for s in pc._sentences
+                   if s.is_table_content}
+        missing = []
+        for page in self.doc.pages:
+            for box_idx, box in enumerate(page.boxes):
+                if box.boxclass not in ("table", "table-fallback"):
+                    continue
+                if (page.page_number, box_idx) in chunked:
+                    continue
+                markdown, html = table_content(box)
+                if markdown is None and html is None:
+                    markdown = ""       # nothing rendered at all
+                missing.append(TableChunk(
+                    id="",              # numbered in reading order below
+                    chunk_id=None,
+                    element_id=element_id(page.page_number, box_idx),
+                    page=page.page_number,
+                    bbox=(box.x0, box.y0, box.x1, box.y1),
+                    markdown=markdown,
+                    html=html,
+                    headers=extract_table_headers(html),
+                ))
+        return missing
 
     # ── Contextual text ─────────────────────────────────────────────
 
@@ -233,6 +283,32 @@ class ChunkSerializer:
 
 # ── Module-level helpers ────────────────────────────────────────────
 
+def _table_address(table) -> tuple:
+    """(page, box) reading-order key from a TableChunk's element id."""
+    return (table.page, int(table.element_id.rsplit(".b", 1)[-1]))
+
+
+def _merge_unchunked_tables(tables, unchunked, chunks) -> list:
+    """Insert chunk-less tables into the view, keeping ids in reading order.
+
+    Ids are re-issued over the merged, reading-ordered list and the chunk
+    back-links (``metadata.table_ids``) are rebuilt from it, so ``t{n}``
+    still numbers tables the way the document reads.
+    """
+    merged = sorted(list(tables) + list(unchunked), key=_table_address)
+    for i, table in enumerate(merged):
+        table.id = f"t{i}"
+
+    by_id = {c.id: c for c in chunks}
+    for chunk in chunks:
+        chunk.metadata.table_ids.clear()
+    for table in merged:
+        owner = by_id.get(table.chunk_id) if table.chunk_id else None
+        if owner is not None:
+            owner.metadata.table_ids.append(table.id)
+    return merged
+
+
 def _nearest_caption(sents, idx, target_type):
     """Nearest caption unit to sents[idx] targeting *target_type* (or untyped)."""
     best = None
@@ -251,11 +327,19 @@ def _nearest_caption(sents, idx, target_type):
 def _group_list_items(sents) -> list[dict]:
     """Group consecutive list-item sentences into logical list groups.
 
-    Each group gets a union bbox and an ordered items list.
+    Each group gets one union bbox *per page* and an ordered items list.
     Non-list sentences break the current group, so two separate
     runs of list-items produce two distinct list groups.
 
-    Returns: [{"items": [{"text": str, "bbox": tuple}], "bbox": (page, x0, y0, x1, y1)}]
+    Returns::
+
+        [{"items":  [{"text": str, "page": int, "bbox": (x0, y0, x1, y1)}],
+          "bboxes": [(page, x0, y0, x1, y1), ...]}]
+
+    A list continuing across a page break yields one entry in ``bboxes``
+    per page, in page order — unioning across pages would place the whole
+    group in a rectangle that exists on neither page. Item bboxes stay
+    4-tuples and carry their page next to them, matching ``Element.bbox``.
     """
     groups = []
     current_items = []
@@ -276,12 +360,22 @@ def _group_list_items(sents) -> list[dict]:
 
 def _finalize_list_group(items) -> dict:
     """Build a list group dict from consecutive list-item sentences."""
-    entries = [{"text": s.text, "bbox": s.bbox} for s in items]
-    # Union bbox with page (use first item's page)
-    page = items[0].page_no
-    x0 = min(s.bbox[0] for s in items)
-    y0 = min(s.bbox[1] for s in items)
-    x1 = max(s.bbox[2] for s in items)
-    y1 = max(s.bbox[3] for s in items)
-    return {"items": entries, "bbox": (page, x0, y0, x1, y1)}
+    entries = [{"text": s.text, "page": s.page_no, "bbox": s.bbox}
+               for s in items]
+
+    by_page = {}
+    for s in items:
+        by_page.setdefault(s.page_no, []).append(s.bbox)
+
+    bboxes = []
+    for page_no in sorted(by_page):
+        page_boxes = by_page[page_no]
+        bboxes.append((
+            page_no,
+            min(b[0] for b in page_boxes),
+            min(b[1] for b in page_boxes),
+            max(b[2] for b in page_boxes),
+            max(b[3] for b in page_boxes),
+        ))
+    return {"items": entries, "bboxes": bboxes}
 

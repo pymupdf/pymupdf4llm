@@ -55,12 +55,49 @@ DEFAULTS = {
 }
 
 
+# Accepted values for the enum-valued parameters. A typo ("exlcude") must
+# fail loudly instead of silently selecting the fallback behaviour.
+_ENUM_VALUES = {
+    "header_footer_mode": ("exclude", "auto", "include"),
+    "sentence_splitter": ("default", "multilingual"),
+    "table_mode": ("preserve", "isolate"),
+    "table_output": ("markdown", "html"),
+}
+
+
+def _validate_params(params):
+    """Reject invalid parameter values, naming the parameter.
+
+    Validates only the keys present in *params*, so it can screen partial
+    kwargs before parsing as well as a fully merged parameter set.
+    """
+    for name, allowed in _ENUM_VALUES.items():
+        if name in params and params[name] not in allowed:
+            raise ValueError(
+                f"{name} must be one of {list(allowed)}, got {params[name]!r}"
+            )
+
+    max_tokens = params.get("max_tokens")
+    if max_tokens is not None and (
+            not isinstance(max_tokens, int) or isinstance(max_tokens, bool)
+            or max_tokens <= 0):
+        raise ValueError(f"max_tokens must be a positive int, got {max_tokens!r}")
+
+    min_tokens = params.get("min_tokens")
+    if min_tokens is not None and (
+            not isinstance(min_tokens, int) or isinstance(min_tokens, bool)
+            or min_tokens < 0):
+        raise ValueError(
+            f"min_tokens must be a non-negative int, got {min_tokens!r}")
+
+
 def to_chunks(parsed_doc, **kwargs):
     """Chunk a ParsedDocument; returns a :class:`ChunkedDocument`."""
     unknown = set(kwargs) - set(DEFAULTS)
     if unknown:
         raise TypeError(f"unknown to_chunks parameters: {sorted(unknown)}")
     params = {**DEFAULTS, **kwargs}
+    _validate_params(params)
 
     # Step A: Box → SentenceUnit (all units, header/footer included — the
     # element registry must keep everything the parser saw)
@@ -72,6 +109,7 @@ def to_chunks(parsed_doc, **kwargs):
 
 def _chunk_units(parsed_doc, all_units, params):
     """Steps B–E from prebuilt units (shared by to_chunks and reassemble_chunks)."""
+    _validate_params(params)
     elements = _build_elements(parsed_doc, all_units)
 
     # Header/footer handling

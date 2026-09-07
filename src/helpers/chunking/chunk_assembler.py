@@ -86,7 +86,8 @@ class ChunkAssembler:
 
         1. Split  — break oversized chunks at sentence boundaries
         2. Semantic merge — heading+content, caption+element
-        3. Budget merge  — greedily combine within max_tokens
+        3. Budget merge  — combine undersized neighbours within max_tokens
+           (a pair is merged only while one side is below min_tokens)
         """
         # Step 1: Split oversized chunks
         split: list[ProtoChunk] = []
@@ -151,8 +152,15 @@ class ChunkAssembler:
     def _split_chunk(self, chunk: ProtoChunk) -> list[ProtoChunk]:
         """Split an oversized chunk at sentence boundaries.
 
-        Prefers splitting at box boundaries (where box_index changes)
-        to avoid the same box's bbox appearing in two chunks.
+        Prefers splitting at box boundaries (where box_index changes) to
+        avoid the same box's bbox appearing in two chunks — but only when
+        carrying the whole shared-box run forward still fits the budget.
+        Otherwise the box is split at a sentence boundary instead: a
+        cosmetic bbox split is cheaper than a chunk over max_tokens.
+
+        With every unit within the budget, every chunk this returns is
+        within the budget too.  Units larger than max_tokens (and, in
+        table_mode="preserve", tables) are the documented exceptions.
         """
         sents = chunk._sentences
         if not sents:
@@ -177,9 +185,11 @@ class ChunkAssembler:
             if current_tokens + sent.token_count > self.max_tokens and current:
                 # Prefer splitting at a box boundary: if the new sentence
                 # shares box_index with the last sentence in current, move
-                # those shared sentences to the next chunk.
+                # those shared sentences to the next chunk — but only if
+                # the moved run plus this sentence still fits the budget.
                 split_point = len(current)
-                if current and sent.box_index == current[-1].box_index:
+                if (sent.box_index == current[-1].box_index
+                        and sent.page_no == current[-1].page_no):
                     # Find where this box_index started in current
                     bi = sent.box_index
                     pg = sent.page_no
@@ -187,7 +197,9 @@ class ChunkAssembler:
                     while j > 0 and current[j].box_index == bi and current[j].page_no == pg:
                         j -= 1
                     if j > 0:  # don't empty the entire current
-                        split_point = j + 1
+                        carry_tokens = sum(s.token_count for s in current[j + 1:])
+                        if carry_tokens + sent.token_count <= self.max_tokens:
+                            split_point = j + 1
 
                 keep = current[:split_point]
                 carry = current[split_point:]
@@ -245,6 +257,13 @@ class ChunkAssembler:
         """Check if (a, b) form a semantic pair that should stay together."""
         if a.primary_type == "header_footer" or b.primary_type == "header_footer":
             return False
+        # A chunk *opening* with a heading is a section start. primary_type
+        # is "heading" only for lone headings, so without this a lone parent
+        # heading would swallow the following "child heading + body" chunk
+        # and cross the section boundary respect_section_starts protects.
+        if (self.respect_section_starts and b._sentences
+                and b._sentences[0].is_heading_hint):
+            return False
         if a.token_count + b.token_count > self.max_tokens:
             return False
         if abs(a.page_end - b.page_start) > 1:
@@ -286,7 +305,7 @@ class ChunkAssembler:
     # ── Budget merge ─────────────────────────────────────────────────
 
     def _merge_budget(self, chunks: list[ProtoChunk]) -> list[ProtoChunk]:
-        """Greedily merge adjacent chunks that fit within max_tokens.
+        """Merge adjacent undersized chunks that fit within max_tokens.
 
         Preserves bbox structure from earlier phases: instead of rebuilding
         bboxes from scratch, concatenates the bbox lists of both chunks.
@@ -319,6 +338,11 @@ class ChunkAssembler:
         Spatial proximity (bbox overlap, page distance) is intentionally
         NOT checked here — budget merge is purely about filling token
         capacity with sequentially adjacent chunks.
+
+        min_tokens is the floor this step works towards: a pair is merged
+        only while at least one side is still below it, so two chunks that
+        already stand on their own are left alone (merge_small_chunks
+        semantics).  min_tokens=0 restores unconditional greedy packing.
         """
         if a.primary_type == "header_footer" or b.primary_type == "header_footer":
             return False
@@ -337,6 +361,11 @@ class ChunkAssembler:
             if a.primary_type == "table" or b.primary_type == "table":
                 return False
         if a.token_count + b.token_count > self.max_tokens:
+            return False
+        # Nothing to gain: both sides already reach the floor.
+        if (self.min_tokens > 0
+                and a.token_count >= self.min_tokens
+                and b.token_count >= self.min_tokens):
             return False
         return True
 

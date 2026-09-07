@@ -70,6 +70,32 @@ def test_table_output_router():
         chunks.reassemble_chunks(table_output="markdown")
 
 
+_INVALID_KWARGS = [
+    {"max_tokens": 0},
+    {"max_tokens": -5},
+    {"min_tokens": -1},
+    {"header_footer_mode": "exlcude"},   # a typo must not select "include"
+    {"table_mode": "isolated"},
+    {"sentence_splitter": "multi"},
+    {"table_output": "csv"},
+]
+
+
+@pytest.mark.parametrize("kwargs", _INVALID_KWARGS)
+def test_invalid_values_rejected_and_named(kwargs):
+    name = next(iter(kwargs))
+    with pytest.raises(ValueError, match=name):
+        pymupdf4llm.to_chunks(PDF, pages=[0], **kwargs)
+
+
+@pytest.mark.parametrize("kwargs", _INVALID_KWARGS)
+def test_invalid_values_rejected_before_the_parse(kwargs):
+    # a missing file would fail in parse_document; reaching ValueError
+    # proves the value was checked before any parsing happened
+    with pytest.raises(ValueError):
+        pymupdf4llm.to_chunks(os.path.join(HERE, "no-such-file.pdf"), **kwargs)
+
+
 def test_kwargs_router_aliases():
     # dpi → image_dpi and chunking kwargs must both route without error
     chunks = pymupdf4llm.to_chunks(PDF, pages=[0], dpi=96, max_tokens=200)

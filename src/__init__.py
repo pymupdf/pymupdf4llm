@@ -307,6 +307,8 @@ def _layout_to_chunks(
     ):
     import inspect
 
+    from .helpers.chunking import _validate_params
+
     parse_fn = pymupdf4llm.helpers.document_layout.parse_document
     # Split kwargs into parse_document args and to_chunks args, following
     # the current parse_document signature (it has no **kwargs).
@@ -322,8 +324,7 @@ def _layout_to_chunks(
     # table_output selects the table content representation, mirroring
     # to_markdown: "html" routes to the parse-level HTML table engine.
     table_output = kwargs.pop("table_output", "markdown")
-    if table_output not in ("markdown", "html"):
-        raise ValueError("table_output must be 'markdown' or 'html'")
+    _validate_params({"table_output": table_output})
 
     # Map external names to parse_document names
     aliases = {"dpi": "image_dpi"}
@@ -335,6 +336,11 @@ def _layout_to_chunks(
             parse_kwargs[k] = v
         else:
             chunk_kwargs[k] = v
+
+    # Chunking values are checked before the parse, so a bad budget or a
+    # misspelled mode fails immediately instead of after a full document
+    # parse.
+    _validate_params(chunk_kwargs)
 
     if table_output == "html":
         parse_kwargs["render_html_tables"] = True

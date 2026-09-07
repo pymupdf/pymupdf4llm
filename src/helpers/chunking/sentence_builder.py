@@ -12,20 +12,51 @@ from .text_source import (
     table_content,
 )
 
-# Sentence-ending patterns
+# Sentence-ending patterns.
+#
+# The match covers the sentence-ending punctuation *and* any closing
+# quotes/brackets, so those stay with the sentence they close; group 1 is
+# the boundary whitespace and is the only span a split removes (see
+# _split_sentence_text).  Splitting therefore never drops a non-whitespace
+# character of the rendered markdown, which the chunk-text contract
+# requires (chunk text == to_markdown rendering, up to whitespace).
 _SENT_END_EN = re.compile(
-    r'(?<=[.!?])'        # after sentence-ending punctuation
-    r'(?:\s*["\'\)\]]*)'  # optional closing quotes/brackets
-    r'\s+'                # followed by whitespace
+    r'[.!?]'              # sentence-ending punctuation
+    r'\s*["\'\)\]]*'      # optional closing quotes/brackets
+    r'(\s+)'              # boundary whitespace (the only removed span)
     r'(?=[A-Z"\'\(\[])'   # before uppercase or opening quote/bracket
 )
 
 _SENT_END_MULTI = re.compile(
-    r'(?<=[.!?。！？])'
-    r'(?:\s*["\'\)\]」』]*)'
-    r'\s*'
+    r'[.!?。！？]'
+    r'\s*["\'\)\]」』]*'
+    r'(\s*)'
     r'(?=[A-Z가-힣ㄱ-ㅎㅏ-ㅣ一-鿿"\'\(\[「『]|$)'
 )
+
+
+def _split_sentence_text(text: str, pattern) -> list[str]:
+    """Split *text* into sentences at *pattern*, losing only whitespace.
+
+    ``pattern`` matches a sentence end and marks the boundary whitespace as
+    group 1; everything else the match consumed (the punctuation and any
+    closing quote/bracket) stays with the preceding sentence.  Re-joining
+    the returned pieces reproduces *text* up to whitespace.
+
+    ``re.split`` cannot be used for this: it discards the whole match, which
+    is what dropped closing quotes and brackets from chunk text.
+    """
+    pieces = []
+    pos = 0
+    for m in pattern.finditer(text):
+        piece = text[pos:m.start(1)].strip()
+        if piece:
+            pieces.append(piece)
+        pos = m.end(1)
+    tail = text[pos:].strip()
+    if tail:
+        pieces.append(tail)
+    return pieces
 
 # Whitespace normalization
 _MULTI_SPACE = re.compile(r'[ \t]+')
@@ -329,8 +360,7 @@ class SentenceBuilder:
         )
 
         if not keep_single:
-            sentences = self._split_re.split(joined)
-            sentences = [s.strip() for s in sentences if s.strip()]
+            sentences = _split_sentence_text(joined, self._split_re)
             if not sentences:
                 return []
             keep_single = len(sentences) == 1

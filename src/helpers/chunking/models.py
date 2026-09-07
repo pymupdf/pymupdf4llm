@@ -240,7 +240,17 @@ _WS_RE = re.compile(r"\s+")
 
 @dataclass
 class Chunk:
-    """A finalized, retrieval-ready chunk."""
+    """A finalized, retrieval-ready chunk.
+
+    Treat a chunk as read-only once ``to_chunks()`` has returned it.
+    ``content_hash`` is computed once and cached, and
+    ``ChunkedDocument.text`` / ``ChunkedDocument.get()`` cache over the
+    chunk list, so assigning to ``text`` (or mutating ``metadata``) leaves
+    those caches describing the previous content. To change chunk
+    boundaries call ``reassemble_chunks()``; to carry your own fields,
+    keep them beside the chunk (its id is the stable key) rather than on
+    it.
+    """
     id: str                    # "c{n}" (budget-local: changes across reassemble_chunks)
     text: str
     tagged_content: str = ""
