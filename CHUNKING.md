@@ -50,13 +50,14 @@ raise `TypeError`.
 
 ## At a Glance
 
-One slow layout extraction feeds one reusable substrate; everything
+One slow layout extraction feeds one reusable set of parsed layout
+data; everything
 downstream — assembly, views, exports, re-chunking — is cheap:
 
 ```mermaid
 flowchart LR
     pdf["PDF"] -->|"parse parameters<br/>slow · runs once"| parse["parse_document()<br/>layout extraction"]
-    parse --> sub["substrate<br/>element registry + units"]
+    parse --> sub["parsed layout<br/>element registry + units"]
     sub -->|"chunk parameters<br/>fast"| asm["assembly"]
     asm --> cd["ChunkedDocument"]
     cd --> chunks["chunks<br/>text == to_markdown"]
@@ -66,7 +67,7 @@ flowchart LR
 ```
 
 The two parameter tiers below map onto the two arrows: parse parameters
-change the substrate (re-parse required), chunk parameters only change
+change the parsed layout (re-parse required), chunk parameters only change
 assembly (`reassemble_chunks()` is enough).
 
 Assembly itself works in stages. Layout signals (box boundaries, box
@@ -104,15 +105,16 @@ Passed to `parse_document()` internally.
 | `edge_threshold` | `None` | Layout GNN edge-probability cut for box grouping (engine default 0.55; lower merges more, higher fragments more) |
 | `show_progress` | `False` | Show progress bar |
 
-`table_output` and `edge_threshold` are substrate options: `reassemble_chunks()`
-rejects them — re-parse via `to_chunks()` to change them.
+`table_output` and `edge_threshold` change the parsed layout itself, so
+`reassemble_chunks()` rejects them; re-parse via `to_chunks()` to change
+them.
 
 ### Chunk Parameters
 
 | Parameter | Default | Description |
 |---|---|---|
-| `max_tokens` | `400` | Maximum tokens per chunk. The default targets embedding-model inputs; larger budgets (800–2000) suit long-context synthesis, rerankers, and section-first keyword retrieval — see recipes 5 and 6 |
-| `min_tokens` | `120` | Minimum tokens (merge threshold) |
+| `max_tokens` | `400` | Target tokens per chunk. The default is a starting point sized for common embedding inputs; larger budgets are typical for long-context synthesis or section-shaped retrieval — compare sizes with recipe 5 and check final inputs against your model's tokenizer |
+| `min_tokens` | `120` | Budget-merge floor: neighbouring chunks combine only while one of them is below this size. `0` disables the floor; `min_tokens=max_tokens` packs greedily up to the budget |
 | `breakpoint_threshold` | `0.5` | Boundary score threshold for splitting |
 | `merge_small_chunks` | `True` | Merge undersized chunks with neighbors |
 | `table_mode` | `"preserve"` | `"preserve"`: table = one chunk; `"isolate"`: tables never budget-merge |
@@ -128,19 +130,17 @@ time: `ChunkedDocument.to_dicts()` / `.to_json()` take a keyword-only
 
 ### Choosing a budget
 
-The 400-token default sits in the evidence-supported band for
-general-purpose retrieval: chunking ablations find ~200 tokens best for
-precision-oriented fact QA and 512–1024 for synthesis/analytical tasks,
-with both extremes losing (Chroma, *Evaluating Chunking Strategies*;
-NVIDIA, *Finding the Best Chunking Strategy*, 2025). Long-context
-embedding models did not move this — their windows go to context
-conditioning (late chunking, contextualized chunk embeddings), not to
-bigger retrieval units. Layout-aware boundaries matter more than the
-exact number (structure-based splitting beats size tuning in 2025–26
-studies), and on layout-rich documents only ~10–40% of chunks hit the
-budget cap at all — the rest end at headings, tables, and boxes. When a
-different consumer needs a different size, `reassemble_chunks()` is the intended
-answer (recipes 5 and 6), not a changed default.
+The 400-token default is a starting point, not a recommendation for
+every task: published chunking ablations (Chroma, *Evaluating Chunking
+Strategies*; NVIDIA, *Finding the Best Chunking Strategy*, 2025) place
+useful sizes for retrieval roughly between ~200 and ~1024 tokens
+depending on the task and the embedding model, and report that
+structure-aware boundaries matter more than the exact number. On
+layout-rich documents most chunk boundaries here come from headings,
+tables, and boxes rather than from the budget cap. Evaluate candidate
+sizes on your own corpus and retrieval task; `reassemble_chunks()`
+exists so that comparison costs seconds instead of a re-parse (recipes
+5 and 6).
 
 ## IDs Are a Contract
 
@@ -202,16 +202,17 @@ cd.to_dicts(include_tagged=False)   # drop tagged_content from the payload
 
 # Re-chunking, diagnostics, provenance
 cd.reassemble_chunks(max_tokens=200)   # new ChunkedDocument from retained units, no re-parse
-cd.diagnostics                 # dict for an ingestion gate (keys below)
+cd.diagnostics                 # extraction checks before indexing (keys below)
 cd.params                      # read-only mapping of the parameters cd was built with
 ```
 
 `reassemble_chunks()` accepts assembly-tier parameters only (`max_tokens`,
 `min_tokens`, `breakpoint_threshold`, `table_mode`, `merge_small_chunks`,
-`respect_section_starts`). Substrate parameters (`sentence_splitter`,
-`header_footer_mode`, `tokenizer`, `weights`) and parse options raise
-`ValueError` — call `to_chunks()` on a new parse instead. It returns a new
-`ChunkedDocument`; the original is unchanged.
+`respect_section_starts`). The remaining parameters (`sentence_splitter`,
+`header_footer_mode`, `tokenizer`, `weights`) and parse options change
+the parsed layout data itself and raise `ValueError` — call `to_chunks()`
+on a new parse instead. It returns a new `ChunkedDocument`; the original
+is unchanged.
 
 ### Chunk
 
@@ -237,7 +238,7 @@ ChunkMetadata:
     types: list[str]           # element types present, in order:
                                # "heading", "paragraph", "table", "list", "figure", "caption", ...
     bboxes: list[tuple]        # (page, x0, y0, x1, y1)
-    lists: list[dict]          # logical list groups
+    lists: list[dict]          # list groups: {"items": [{text, page, bbox}], "bboxes": [(page, ...)]}
     token_count: int           # per-chunk token count
     ocr: bool                  # True when a source page went through OCR
     file_path, page_count
@@ -266,9 +267,9 @@ One dict per chunk; `metadata` carries every `ChunkMetadata` field as-is:
 
 ### diagnostics
 
-`cd.diagnostics` reports facts about the parse for an ingestion gate; your
-pipeline owns the thresholds (recipe 2). Values shown are for the example
-document:
+`cd.diagnostics` reports facts about the parse so you can check
+extraction results before indexing; your pipeline owns the thresholds
+(recipe 2). Values shown are for the example document:
 
 ```text
 {
@@ -359,13 +360,13 @@ for s in cd_p.sections:
 ```
 
 ```text
-s0 L1 'Synthesis of Silyl Die' own=['c0'] subtree=21ch/4711tok
-   s1 L2 'Masahiro Sai' own=['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'c10'] subtree=20ch/4688tok
-      s2 L3 'AUTHOR INFORMATION' own=['c11'] subtree=3ch/43tok
-         s3 L4 'Corresponding Author' own=['c12'] subtree=1ch/21tok
-         s4 L4 'Notes' own=['c13'] subtree=1ch/16tok
-      s5 L3 'ACKNOWLEDGMENT' own=['c14'] subtree=1ch/24tok
-      s6 L3 'REFERENCES' own=['c15', 'c16', 'c17', 'c18', 'c19', 'c20'] subtree=6ch/1637tok
+s0 L1 'Synthesis of Silyl Die' own=['c0'] subtree=22ch/4711tok
+   s1 L2 'Masahiro Sai' own=['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'c10', 'c11'] subtree=21ch/4688tok
+      s2 L3 'AUTHOR INFORMATION' own=['c12'] subtree=3ch/43tok
+         s3 L4 'Corresponding Author' own=['c13'] subtree=1ch/21tok
+         s4 L4 'Notes' own=['c14'] subtree=1ch/16tok
+      s5 L3 'ACKNOWLEDGMENT' own=['c15'] subtree=1ch/24tok
+      s6 L3 'REFERENCES' own=['c16', 'c17', 'c18', 'c19', 'c20', 'c21'] subtree=6ch/1637tok
 ```
 
 `s5` shows the stack popping back: after the level-4 `Notes`, a level-3
@@ -373,15 +374,15 @@ heading closes both `s4` and `s2` and becomes a sibling of `s2`.
 
 - **Ownership is innermost.** Content attaches at whatever depth it
   appears: the `Corresponding Author` heading and the e-mail line under
-  it form chunk `c12` with `section_id="s3"` and
+  it form chunk `c13` with `section_id="s3"` and
   `section_path=[..., "AUTHOR INFORMATION", "Corresponding Author"]`,
   one unambiguous address per chunk.
 - **Heading-only sections** still exist in the tree, owning just their
-  own heading chunk (`s2` owns `c11`, the 6-token `### **AUTHOR
+  own heading chunk (`s2` owns `c12`, the 6-token `### **AUTHOR
   INFORMATION**` line) until a same-or-shallower heading closes them;
   the content lives in the child sections `s3` and `s4`.
 - **Ancestors aggregate.** `child_chunk_ids` and `token_count` cover the
-  whole subtree (`s2` rolls up `["c11", "c12", "c13"]`, 43 tokens), and
+  whole subtree (`s2` rolls up `["c12", "c13", "c14"]`, 43 tokens), and
   `element_span`s nest: `s2` `(34, 39)` contains `s3` `(35, 37)`. Feed a
   whole branch to an LLM via `SectionChunk.text` (recipe 6).
 - **Before the first heading**, chunks stay unowned: `section_id=None`,
@@ -391,316 +392,282 @@ heading closes both `s4` and `s2` and becomes a sibling of `s2`.
 
 ## Cookbook
 
-The recipes below are for people building a retrieval pipeline on top of
-`to_chunks()`. Each one runs as-is from the repository root against a PDF
-shipped with the repository, and every `# ->` line is real output
-captured on pymupdf 1.28.2.
+These examples show how to prepare chunks for search, inspect extraction
+results, and add context to search results. Run the setup below from the
+repository root before using a recipe. Each recipe then stands on its own.
+Recipe 7 also requires the framework packages it uses.
 
-**Reader-side placeholders.** The recipes need things pymupdf4llm does
-not provide: an embedding model, a vector store, a keyword index, a
-retriever, an LLM. Each recipe defines the ones it needs as tiny stand-in
-stubs between a `# --- your code: ... ---` and a `# --- end of your code ---`
-comment; replace those with your own implementations. Everything outside
-those markers is pymupdf4llm API: every attribute or method called on
-`cd`, on a chunk, or on a table/figure/section view is documented in the
-sections above.
-
-`cd` in the recipes is the example document, six pages of capital-city
-tables; recipes that use another PDF parse it themselves:
+The examples build ordinary Python dictionaries and lists. Connect these
+to your own embedding model, search index, or application as needed.
 
 ```python
+from pathlib import Path
+from hashlib import sha256
+
 import pymupdf4llm
 
-cd = pymupdf4llm.to_chunks("examples/country-capitals/national-capitals.pdf")
-for c in cd:
-    print(c.id, c.metadata.types, c.metadata.token_count, c.metadata.element_ids)
-# -> c0 ['heading', 'paragraph', 'table'] 351 ['p1.b0', 'p1.b1', 'p1.b2']
-#    c1 ['table'] 377 ['p2.b0']
-#    c2 ['table'] 365 ['p3.b0']
-#    c3 ['table'] 373 ['p4.b0']
-#    c4 ['table'] 399 ['p5.b0']
-#    c5 ['table'] 369 ['p6.b0']
+pdf_path = "examples/country-capitals/national-capitals.pdf"
+cd = pymupdf4llm.to_chunks(pdf_path, max_tokens=400)
 ```
 
-### 1. Embed with context and upsert with stable ids
+### 1. Prepare chunks for indexing
 
-Embed `tagged_content`, not `text`: it prefixes the section path, page
-and element types, so the vector carries where the chunk sits in the
-document. `[Section]` comes from the layout-detected heading structure;
-this document has no PDF bookmarks, and none are needed.
+Use `chunk.text` for the extracted Markdown. Use `chunk.tagged_content`
+when you also want section titles, page numbers, and content types in
+the text sent to your embedding model. Choose the input that works best
+for your retrieval task, and apply any formatting your model requires.
+
+Chunk IDs such as `c0` belong to one `ChunkedDocument`. For a shared
+index, combine them with a document ID, document version, and processing
+version. The processing version should identify the package versions,
+parse options, chunk settings, and embedding setup you used.
 
 ```python
-print(cd[0].tagged_content[:130])
-# -> [Section] World Capital Cities
-#    [Page] 1
-#    [Type] heading, table
-#    [Markdown]
-#    # **World Capital Cities**
-#    _Percent "%" is city population
+document_id = "national-capitals"
+document_version = sha256(Path(pdf_path).read_bytes()).hexdigest()
+index_version = "layout-400-v1"        # your processing configuration version
+embedding_config = "my-model-v1"      # include model and input-format settings
+
+records = {}
+for chunk, payload in zip(cd, cd.to_dicts()):
+    record_id = f"{document_id}:{document_version}:{index_version}:{chunk.id}"
+    embedding_text = chunk.tagged_content
+    records[record_id] = {
+        **payload,
+        "embedding_text": embedding_text,
+        "embedding_config": embedding_config,
+        "embedding_input_hash": sha256(embedding_text.encode("utf-8")).hexdigest(),
+        "citation": {
+            "section": " > ".join(chunk.metadata.section_path),
+            "pages": [chunk.metadata.page_start, chunk.metadata.page_end],
+        },
+    }
+
+print(len(records))
 ```
 
-Assemble the vector-store point id from stable scopes; re-ingesting the
-same document version then *updates* instead of duplicating. Keep ids for
-machines and citations (`section_path`, pages) for humans: never show a
-point id to a user, never parse a citation back into an id. Treat the id
-assembly rule as immutable code, since changing it re-keys the whole
-collection.
+Send each record's `embedding_text` to your model, then save the returned
+vector with the record's ID and metadata. Adding a record with an existing
+ID should replace that record. Some databases call this operation `upsert`.
+
+To reuse an existing embedding, compare both `embedding_config` and
+`embedding_input_hash` with the values saved previously. Hash the exact
+text sent to the model, after adding any required prefix or other formatting.
+`chunk.content_hash` covers only whitespace-normalized `chunk.text`, so it
+does not detect changes to the section or page information in
+`tagged_content`. Refresh citation metadata even when an embedding is reused.
+
+When replacing a document in your index, also remove its previous records
+that are no longer current. Saving new records alone does not remove old
+chunks after a document or configuration change. If you retain multiple
+versions, search only the version you intend to use.
+
+### 2. Check extraction results before indexing
+
+`cd.diagnostics` lists potential gaps in the extracted content. Use these
+details to decide whether to index the document, inspect it, or request OCR.
+An empty page or a figure without text may be expected, so adapt the checks
+to your documents.
 
 ```python
-# --- your code: replace with your embedding model and vector store ---
-def embed(text):
-    return [0.0] * 8                 # stand-in for an embedding vector
+diagnostics = cd.diagnostics
 
-class VectorStore:
-    def __init__(self):
-        self.points = {}
+if diagnostics["chunk_count"] == 0:
+    print("No chunks to index:", diagnostics["zero_chunk_causes"])
+else:
+    print("Chunks available:", diagnostics["chunk_count"])
 
-    def upsert(self, id, vector, payload):
-        self.points[id] = (vector, payload)
-
-store = VectorStore()
-doc_id = "9f2d"                      # your document identity, e.g. sha256 of the file bytes
-# --- end of your code ---
-
-def point_id(c, *, tenant, kb, doc_id, emb_ver):
-    return f"{tenant}:{kb}:{doc_id}:{c.metadata.page_start}:{c.id}:{emb_ver}"
-
-for c, payload in zip(cd, cd.to_dicts()):
-    store.upsert(
-        id=point_id(c, tenant="acme", kb="manuals", doc_id=doc_id, emb_ver="e5-large-v2"),
-        vector=embed(c.tagged_content),
-        payload={**payload, "citation": {
-            "section": " > ".join(c.metadata.section_path),
-            "pages": [c.metadata.page_start, c.metadata.page_end]}},
-    )
-
-pid = point_id(cd[0], tenant="acme", kb="manuals", doc_id=doc_id, emb_ver="e5-large-v2")
-print(pid)
-# -> acme:manuals:9f2d:1:c0:e5-large-v2
-print(store.points[pid][1]["citation"])
-# -> {'section': 'World Capital Cities', 'pages': [1, 1]}
+if diagnostics["pages_without_chunks"]:
+    print("Check these pages:", diagnostics["pages_without_chunks"])
+if diagnostics["degenerate_tables"]:
+    print("Check these empty tables:", diagnostics["degenerate_tables"])
+if diagnostics["figures_without_text"]:
+    print("Figures to consider for OCR:", diagnostics["figures_without_text"])
 ```
 
-On re-ingest, `content_hash` (sha256 of whitespace-normalized chunk text)
-tells you which chunks actually changed, so only those are re-embedded:
+### 3. Retrieve and cite tables and figures
 
-```python
-# --- your code: content hashes stored by the previous ingest, keyed by chunk id ---
-previous = {c.id: c.content_hash for c in cd}      # here: the same document, unchanged
-# --- end of your code ---
-
-changed = [c for c in cd if previous.get(c.id) != c.content_hash]
-print(len(changed), cd[0].content_hash[:16])
-# -> 0 6adc89bfaeef7db4
-```
-
-### 2. Ingestion gate wiring
-
-`cd.diagnostics` is the machine-readable input for a PROCEED/HOLD/REJECT
-decision. It reports facts; your pipeline owns the thresholds. This is
-how you catch "a perfectly fine document quietly produced 0 chunks"
-before it poisons an index:
-
-```python
-def gate(d):
-    """Verdict from cd.diagnostics; the rules are yours to tune."""
-    if d["chunk_count"] == 0:
-        return "REJECT", d["zero_chunk_causes"]                 # nothing usable
-    if d["pages_without_chunks"] or d["degenerate_tables"]:
-        return "HOLD", {"pages": d["pages_without_chunks"],
-                        "tables": d["degenerate_tables"]}      # human review
-    if d["figures_without_text"]:
-        return "PROCEED_WITH_OCR_QUEUE", d["figures_without_text"]
-    return "PROCEED", None
-
-print(cd.diagnostics)
-# -> {'chunk_count': 6, 'element_count': 14, 'table_count': 6, 'figure_count': 0,
-#     'section_count': 1, 'page_count': 6, 'pages_without_chunks': [],
-#     'zero_chunk_causes': [], 'figures_without_text': [], 'degenerate_tables': [],
-#     'header_footer_excluded': 6}
-print(gate(cd.diagnostics))
-# -> ('PROCEED', None)
-```
-
-### 3. Tables and figures as first-class citations
-
-`cd.tables` and `cd.figures` give every table and figure its own id, page
-and bbox, plus the chunk that holds it, so they can be indexed and cited
-on their own. `tests/test_tablulate_bug.pdf` is a one-page document with
-two tables and two figures:
+Tables and figures have their own IDs and source locations. This lets you
+index a table separately while keeping its surrounding chunk as context,
+or locate a figure that may need OCR.
 
 ```python
 cd_t = pymupdf4llm.to_chunks("tests/test_tablulate_bug.pdf")
-print(cd_t)
-# -> ChunkedDocument(chunks=4, tables=2, figures=2, sections=4)
 
-# --- your code: replace with your table index and OCR queue ---
-table_index = {}
-ocr_queue = []
-# --- end of your code ---
+table_records = {}
+for table in cd_t.tables:
+    table_records[table.id] = {
+        "text": table.text,
+        "headers": table.headers,
+        "page": table.page,
+        "bbox": table.bbox,
+        "context": cd_t.get(table.chunk_id).text,
+    }
 
-for t in cd_t.tables:
-    table_index[t.id] = {"text": t.text, "headers": t.headers,
-                         "cite": (t.page, t.bbox),
-                         "context": cd_t.get(t.chunk_id).text}   # the whole owning chunk
-    print(t.id, t.chunk_id, t.page, t.headers, t.text[:27])
-# -> t0 c1 1 [] |**Targets**|**Weighting**|
-#    t1 c3 1 [] ||||||||**Total value of**|
+figures_to_check = [
+    {"id": figure.id, "page": figure.page, "bbox": figure.bbox}
+    for figure in cd_t.figures
+    if not figure.has_text
+]
 
-for f in cd_t.figures:
-    if not f.has_text:                                        # no extractable text
-        ocr_queue.append((f.id, f.page, f.bbox))
-print(ocr_queue)
-# -> [('f1', 1, (758.0, 152.0, 1021.0, 265.0)), ('f2', 1, (758.0, 336.0, 1021.0, 372.0))]
-print(cd_t.diagnostics["figures_without_text"])
-# -> ['f1', 'f2']      (the same ids, if you prefer to read them from diagnostics)
+print(table_records.keys())
+print(figures_to_check)
 ```
 
-For header-aware table retrieval, parse with `table_output="html"`:
-`t.text` becomes the engine's HTML (colspan/rowspan preserved) and
-`t.headers` carries the `<th>` cell texts, but only when the engine's
-header detection fires; otherwise `headers` stays `[]`, exactly as on
-markdown parses:
+The IDs in these local dictionaries also need document and version scopes
+before being used in a shared index, as in recipe 1.
+
+Use `table_output="html"` when you need HTML table structure, including
+merged cells. On a supported engine, `table.text` contains the HTML and
+`table.headers` contains any cells detected as headers. Header lists may
+still be empty. Engines without HTML table support fall back to Markdown.
 
 ```python
 cd_h = pymupdf4llm.to_chunks("tests/test_sce_150_1.pdf", table_output="html")
-t1 = cd_h.get("t1")
-print(t1.markdown, "<th" in t1.html, t1.headers)
-# -> None True ['Alternate Calculation with Reinsurance', '', '', '']
+for table in cd_h.tables:
+    print(table.id, table.headers, table.text[:100])
 ```
 
-### 4. Context window around a hit
+### 4. Add neighboring chunks to a search result
 
-A `ChunkedDocument` is a list in reading order, so the chunks around a
-search hit are just a slice around its position. Nothing is stored per
-chunk for this; `c{n}` is the position, and `cd.index()` gives it for a
-chunk object.
+A `ChunkedDocument` is a sequence in reading order. Given a chunk ID
+returned by your search, select nearby chunks to provide more context.
+This example uses `c3` as the search result.
 
 ```python
-hit = cd.get("c3")                    # the chunk id your search returned
-i = cd.index(hit)                     # 3
-window = cd[max(0, i - 2): i + 3]     # two before, the hit, two after
-print([c.id for c in window])
-# -> ['c1', 'c2', 'c3', 'c4', 'c5']
+hit = cd.get("c3")
+position = cd.index(hit)
+neighbors = cd[max(0, position - 2):position + 3]
+context = "\n\n".join(chunk.text for chunk in neighbors)
 
-edge = cd[max(0, 0 - 2): 0 + 3]       # a hit on c0: the slice simply clamps
-print([c.id for c in edge])
-# -> ['c0', 'c1', 'c2']
+print([chunk.id for chunk in neighbors])
+print(context[:200])
 ```
 
-### 5. Budget tuning and small-to-big retrieval
+This includes up to two chunks before and after the hit. The slice stops
+at the document edges; it may cross section boundaries. Use recipe 6
+when you want context from the hit's section instead.
 
-Different budgets serve different consumers: the default 400 targets
-embedding-model inputs; 800–1200 suits rerankers and long-context
-synthesis; ~2000 suits section-first keyword retrieval (recipe 6).
-`reassemble_chunks()` re-runs assembly from the retained units, so one
-parse serves them all:
+### 5. Compare chunk sizes and expand search results
+
+`reassemble_chunks()` creates new chunks from the layout already extracted.
+You can compare sizes without parsing the PDF again. Choose a size based
+on your retrieval results and the model's input limit.
 
 ```python
 for budget in (200, 400, 800):
-    print(budget, len(cd.reassemble_chunks(max_tokens=budget)))
-# -> 200 7
-#    400 6
-#    800 3        (about a millisecond each; no re-parse)
+    candidate = cd.reassemble_chunks(max_tokens=budget)
+    largest = max((chunk.metadata.token_count for chunk in candidate), default=0)
+    print("Target:", budget, "Chunks:", len(candidate), "Largest:", largest)
 ```
 
-Measured on a 1,003-page reference PDF (pymupdf 1.28.2): parse ~36 min
-once, then `reassemble_chunks()` 0.7–1.2 s per budget — three orders of
-magnitude cheaper than re-parsing per configuration.
+Token budgets are targets. A preserved table or an indivisible text unit
+can exceed the target, and `metadata.token_count` sums the per-unit counts.
+Check the final input with your model's tokenizer when enforcing an input
+limit, including any context tags you add.
 
-Small-to-big retrieval is the same idea at query time: search precisely
-over small chunks, feed the LLM the surrounding big chunk. Both
-granularities come from the same parse and share element addresses, so
-the mapping is a set intersection, no extra bookkeeping:
+You can also search smaller chunks and use larger chunks for context.
+The two results share source element IDs. Find all larger chunks that
+share an element with the search result:
 
 ```python
-big = cd.reassemble_chunks(max_tokens=1200)     # 2 chunks: c0 pages 1-3, c1 pages 4-6
+larger = cd.reassemble_chunks(max_tokens=1200)
+hit = cd.get("c1")                    # an example result from the original index
+source_elements = set(hit.metadata.element_ids)
 
-# --- your code: replace with your retriever and LLM ---
-def search(query):
-    return "c1"                       # a small-chunk id from your index
+matches = [
+    chunk for chunk in larger
+    if source_elements.intersection(chunk.metadata.element_ids)
+]
+context = "\n\n".join(chunk.text for chunk in matches)
 
-def llm(query, context):
-    return f"answer grounded in {len(context)} characters"
-# --- end of your code ---
-
-query = "What is the capital of Belgium?"
-small = cd.get(search(query))                   # from cd, the 400-token index
-context = next(b for b in big
-               if set(small.metadata.element_ids) & set(b.metadata.element_ids))
-answer = llm(query, context.text)
-print(small.id, small.metadata.token_count, "->", context.id,
-      context.metadata.token_count, context.metadata.page_start, context.metadata.page_end)
-# -> c1 377 -> c0 1093 1 3
+print("Search result:", hit.id)
+print("Larger chunks:", [chunk.id for chunk in matches])
 ```
 
-### 6. Section-first chunking for keyword search and browsing
+Element IDs identify layout boxes, not individual sentences. A long box
+can span several chunks, so the first match may not contain the hit's
+text. Collecting all matches avoids that omission, but can produce a
+large context. Use neighboring chunks or the owning section when you
+need a different expansion rule. Chunk IDs themselves cannot be matched
+across sizes because each result starts numbering at `c0`.
 
-Keyword search without embeddings, and browsing a document by section,
-usually want section-shaped units around ~2000 tokens rather than
-embedding-sized ones. Large budgets keep section purity because a
-section-opening chunk never budget-merges backward
-(`respect_section_starts=True`, the default). `tests/test_370.pdf` is a
-five-page paper with 7 sections:
+### 6. Browse and search by section
+
+Use a larger token budget when you want longer passages. With
+`respect_section_starts=True`, the default, a section-opening chunk is
+not merged backward into the previous section during the budget merge.
 
 ```python
 cd_p = pymupdf4llm.to_chunks("tests/test_370.pdf")
-big = cd_p.reassemble_chunks(max_tokens=2000)
-by_section = {}
-for c in big:
-    by_section.setdefault(c.metadata.section_id, []).append(c.id)
-print(len(big), by_section)
-# -> 8 {'s0': ['c0'], 's1': ['c1', 'c2'], 's2': ['c3'], 's3': ['c4'],
-#       's4': ['c5'], 's5': ['c6'], 's6': ['c7']}
-#    every chunk sits inside exactly one section
+longer = cd_p.reassemble_chunks(max_tokens=2000)
 
-glued = cd_p.reassemble_chunks(max_tokens=2000, respect_section_starts=False)
-print(len(glued), [c.metadata.section_id for c in glued])
-# -> 3 ['s1', 's1', 's6']      sections packed together
+chunks_by_section = {}
+for chunk in longer:
+    chunks_by_section.setdefault(chunk.metadata.section_id, []).append(chunk.id)
+
+print(chunks_by_section)
 ```
 
-Index each entry under `" > ".join(chunk.metadata.section_path)` so a hit
-can be shown and navigated by section.
-
-The sections view itself is often the better keyword-search unit. A
-chunk hit can be a heading-only chunk (a heading followed directly by a
-subheading carries no body text), but a section is never under-evidenced:
-`SectionChunk.text` assembles the section's whole subtree, its heading
-plus every child section's content, and `token_count` is the subtree
-rollup, so oversized branches are easy to filter before indexing:
+For a section browser or a keyword index, `cd.sections` also provides
+complete section text and title paths:
 
 ```python
-# --- your code: replace with your keyword index ---
-keyword_index = {}
-# --- end of your code ---
+section_records = {
+    section.id: {
+        "title": section.title,
+        "path": " > ".join(section.path),
+        "text": section.text,
+        "pages": [section.page_start, section.page_end],
+    }
+    for section in cd_p.sections
+}
 
-for s in cd_p.sections:
-    if s.token_count <= 4000:              # whole subtree fits the budget
-        keyword_index[s.id] = {"text": s.text, "path": " > ".join(s.path)}
-print(sorted(keyword_index))
-# -> ['s2', 's3', 's4', 's5', 's6']      (s0 and s1 span the whole paper: 4711 / 4688 tokens)
+print(section_records.keys())
+```
 
-# Or expand a chunk hit to its owning section at query time:
+Section text includes its nested sections. Indexing both a parent and its
+children therefore repeats some content; choose the section levels your
+application needs. If a section is too long, use its chunks instead of
+dropping its content from the index.
+
+To expand a search result to its owning section:
+
+```python
 hit = cd_p.get("c11")
-print(repr(hit.text), hit.metadata.token_count, hit.metadata.section_id)
-# -> '### **AUTHOR INFORMATION**' 6 s2           (a heading-only chunk)
-section = cd_p.get(hit.metadata.section_id)
-print(section.token_count, section.child_chunk_ids, section.text[:87])
-# -> 43 ['c11', 'c12', 'c13'] ### **AUTHOR INFORMATION**
-#
-#    #### **Corresponding Author**
-#
-#    *saimasa@mat.shimane-u.ac.jp
+section_id = hit.metadata.section_id
+section = cd_p.get(section_id) if section_id is not None else None
+context = section.text if section is not None else hit.text
+
+print(context[:200])
 ```
 
-### 7. Framework export
+Chunks before the first detected heading, or in documents without detected
+headings, have no owning section. Check the final section text against your
+model's input limit before using it as context.
+
+### 7. Export to LangChain or LlamaIndex
+
+Install the package for the framework you use, then call its export
+method. Pass `doc_id` when the exported objects will share an index with
+other documents; exported IDs then become `"{doc_id}:{chunk.id}"`, which
+keeps them unique across documents. Without it, IDs are the local chunk
+IDs, and two documents both start at `c0`.
 
 ```python
-docs = cd.to_langchain_documents()   # needs langchain-core
-nodes = cd.to_llama_nodes()          # needs llama-index-core
-# -> 6 Documents / 6 TextNodes; docs[0].page_content == cd[0].text,
-#    metadata: the ChunkMetadata fields (page_start, page_end, bboxes, types, ...)
+# Requires langchain-core.
+documents = cd.to_langchain_documents(doc_id="national-capitals")
 ```
+
+```python
+# Requires llama-index-core.
+nodes = cd.to_llama_nodes(doc_id="national-capitals")
+```
+
+Both methods export `chunk.text` and the fields in `ChunkMetadata`.
+They do not use `tagged_content` as the document text. The original
+local chunk ID is always available as `metadata["chunk_id"]`, so a
+search result maps back to this document through `cd.get()`.
 
 ## tagged_content Format
 
@@ -719,11 +686,13 @@ nodes = cd.to_llama_nodes()          # needs llama-index-core
 ## Token counting
 
 Chunk budgets sum precomputed per-unit token counts (no re-tokenizing of
-joined text). The sum may differ from tokenizing the final chunk text by
-at most the number of unit joins — budgets are targets, not guarantees.
-Pass `tokenizer="cl100k_base"` (tiktoken) or a callable for exact counts
-per unit; the default is a 4-chars-per-token estimate. An unknown tiktoken
-encoding name raises `ValueError` rather than silently falling back.
+joined text), so `metadata.token_count` can differ slightly from
+tokenizing the final chunk text — budgets are targets, not guarantees.
+Pass `tokenizer="cl100k_base"` (tiktoken) or a callable to count with
+your own tokenizer; the default is a 4-chars-per-token estimate. An
+unknown tiktoken encoding name raises `ValueError` rather than silently
+falling back. When enforcing a hard model input limit, tokenize the
+exact final input you send, including any tags or prefixes you add.
 
 The resulting total is exposed as `metadata.token_count`, and on the
 `TableChunk` / `SectionChunk` views as `token_count`.
