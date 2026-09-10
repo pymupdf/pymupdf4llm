@@ -51,6 +51,34 @@ FLAGS = (
 )
 BULLETS = tuple(utils.BULLETS)
 
+# pymupdf.layout processes each page independently, so a single logical
+# table that spans multiple layout boxes -- several boxes on one page, or
+# one box ending at the bottom of a page and another picking up at the top
+# of the next -- has no continuity information between the boxes. These
+# tolerances (in PDF points) drive `_is_table_continuation()`'s geometric
+# guess at whether two consecutive table boxes are really one table split
+# by the model, so its later box's own row 0 can be emitted as a plain
+# body row instead of a second header.
+#
+# Column matching uses each box's OUTER x0/x1 (its overall left/right table
+# edge), not pymupdf.layout's interior column grid (table_grid.v_lines).
+# Empirically (6634064.pdf's WP 3-2 budget table, split by the model across
+# 3 boxes on 3 consecutive pages), a table's outer x0/x1 stays put across
+# its boxes to within ~1pt, while the model's *interior* column-boundary
+# detection is noisy enough between boxes of the very same table to drift
+# 10+ points and even disagree on the number of columns (one box's row
+# grid under/over-splitting a column relative to the next box's) -- that
+# per-box grid noise is the separate, out-of-scope "Bug 2" (grid boundary
+# under-prediction), and requiring interior-grid agreement here made this
+# continuation check fail on exactly the real-world case it exists for.
+# The outer bbox is a much more stable signal, and a genuinely different
+# table sitting at roughly the same x-position still gets caught by the
+# vertical-contiguity check below plus the intervening-content break in
+# parse_document.
+TABLE_CONTINUATION_X_TOLERANCE = 15.0  # matching outer x0/x1
+TABLE_CONTINUATION_SAME_PAGE_GAP = 20.0  # vertical gap between boxes
+TABLE_CONTINUATION_PAGE_EDGE_MARGIN = 120.0  # "near" the page's top/bottom
+
 
 def get_layout_locked(page: pymupdf.Page, **kwargs):
     """Serialize PyMuPDF layout inference, which uses process-global state."""
@@ -96,11 +124,85 @@ def _cluster_rawdict_lines(table_blocks, clip):
     )
 
 
-def get_table_details(tab_dict, table_blocks):
+def _table_outer_x_bounds(tab_dict):
+    """A table box's outer (x0, x1) -- its overall left/right table edge --
+    for comparing two table boxes' horizontal extent. See the module-level
+    comment on `TABLE_CONTINUATION_X_TOLERANCE` for why this is used instead
+    of the interior column grid."""
+    gbbox = tab_dict.get("group_bbox") if tab_dict else None
+    if not gbbox:
+        return None
+    return (gbbox[0], gbbox[2])
+
+
+def _table_continuation_state(tab_dict, page_number, page_height):
+    """Snapshot of a table box's geometry needed to later decide whether
+    the *next* table box is a direct continuation of it. `page_number` is
+    1-based (matches `PageLayout.page_number`)."""
+    gbbox = tab_dict["group_bbox"]
+    return {
+        "x_bounds": _table_outer_x_bounds(tab_dict),
+        "y1": gbbox[3],
+        "page_number": page_number,
+        "page_height": page_height,
+    }
+
+
+def _is_table_continuation(prev_table, tab_dict, page_number, page_height):
+    """Whether `tab_dict`'s table box is a direct continuation of the
+    immediately preceding table box, described by `prev_table` (a
+    `_table_continuation_state()` snapshot, or None if there wasn't one, or
+    if something else -- text, a picture, a page break with no table
+    resuming right at the top -- came between them; callers are
+    responsible for resetting `prev_table` to None whenever such
+    intervening content is seen).
+
+    Two conditions must both hold:
+    - near-identical outer x0/x1 (each within `TABLE_CONTINUATION_X_TOLERANCE`
+      points), and
+    - vertical contiguity: either adjacent on the same page (within
+      `TABLE_CONTINUATION_SAME_PAGE_GAP` points), or the previous table ran
+      to within `TABLE_CONTINUATION_PAGE_EDGE_MARGIN` points of the bottom
+      of its page and this one starts within that same margin of the top
+      of the very next page.
+    """
+    if prev_table is None:
+        return False
+    cur_bounds = _table_outer_x_bounds(tab_dict)
+    prev_bounds = prev_table["x_bounds"]
+    if not cur_bounds or not prev_bounds:
+        return False
+    if any(
+        abs(a - b) > TABLE_CONTINUATION_X_TOLERANCE
+        for a, b in zip(cur_bounds, prev_bounds)
+    ):
+        return False
+
+    cur_y0 = tab_dict["group_bbox"][1]
+    if page_number == prev_table["page_number"]:
+        gap = cur_y0 - prev_table["y1"]
+        return -TABLE_CONTINUATION_SAME_PAGE_GAP <= gap <= TABLE_CONTINUATION_SAME_PAGE_GAP
+    if page_number == prev_table["page_number"] + 1:
+        prev_near_bottom = (
+            prev_table["page_height"] - prev_table["y1"]
+        ) <= TABLE_CONTINUATION_PAGE_EDGE_MARGIN
+        cur_near_top = cur_y0 <= TABLE_CONTINUATION_PAGE_EDGE_MARGIN
+        return prev_near_bottom and cur_near_top
+    return False
+
+
+def get_table_details(tab_dict, table_blocks, is_continuation=False):
     """Create a TableDetails object.
 
     The table dictionary is as returned by the Layout module with option
-    "return_raw=True".
+    "return_raw=True". `is_continuation` marks this box as the direct
+    continuation of an already-started table (see
+    `_is_table_continuation()`): its own row 0 is a genuine body row, not a
+    header, so it is emitted without header/`|---|` treatment and is never
+    considered for the swallowed-foreign-header exclusion below (that
+    exclusion targets a title/footer that leaked into a table's own first
+    box, which doesn't apply to a later box that is itself just more of
+    the same table's body).
     """
     tab_det = TableDetails()
     tab_det.bbox = tab_dict["group_bbox"]  # bounding box
@@ -147,7 +249,7 @@ def get_table_details(tab_dict, table_blocks):
     # drop row 0 from the grid entirely and emit its lines as a plain text
     # block ahead of the table.
     excluded_header_text = None
-    if len(h_lines) > 1 and table_blocks:
+    if not is_continuation and len(h_lines) > 1 and table_blocks:
         row0_rect = pymupdf.Rect(x0, h_lines[0], x1, h_lines[1])
         try:
             row0_lines = _cluster_rawdict_lines(table_blocks, row0_rect)
@@ -204,7 +306,7 @@ def get_table_details(tab_dict, table_blocks):
         md_cells.append(md_row)
     tab_det.cells = cells
     tab_det.extract = extract
-    table_markdown = utils.table_to_markdown(md_cells)
+    table_markdown = utils.table_to_markdown(md_cells, skip_header=is_continuation)
     if excluded_header_text:
         tab_det.markdown = excluded_header_text + "\n\n" + table_markdown
     else:
@@ -1147,6 +1249,27 @@ class ParsedDocument:
                     if page.full_ocred:
                         # remove code style if page was OCR'd
                         table_text = table_text.replace("`", "")
+                    if box.table.get("is_continuation"):
+                        # Join directly onto the previous table box's last
+                        # row -- a blank-line gap here would terminate the
+                        # GFM table early even though skip_header already
+                        # dropped this box's own header/separator (see
+                        # TABLE_CONTINUATION_* above). The previous box is
+                        # usually earlier in this same page's md_string, but
+                        # for a table split across a page break the
+                        # continuation box is the first thing on its page --
+                        # md_string is still empty here, and the gap to close
+                        # is at the tail of document_output (the previous
+                        # page's text, already flushed). That string-joining
+                        # only applies when we're not chunking per page --
+                        # with page_chunks, each page is its own independent
+                        # chunk and there is nothing to join across pages.
+                        if md_string.strip("\n"):
+                            md_string = md_string.rstrip("\n") + "\n"
+                            if string_lengths:
+                                string_lengths[-1] = len(md_string)
+                        elif not page_chunks and document_output:
+                            document_output = document_output.rstrip("\n") + "\n"
                     md_string += table_text + "\n\n"
                     string_lengths.append(len(md_string))
                     continue
@@ -1535,6 +1658,13 @@ def parse_document(
         print(f"Parsing {len(page_filter)} pages of '{document.filename}'...")
         page_filter = ProgressBar(page_filter)
 
+    # Tracks the immediately preceding table box's geometry (across pages
+    # too), for `_is_table_continuation()` below. Reset to None whenever
+    # anything other than a table box or page-header/-footer furniture is
+    # seen, since that breaks continuity between two table boxes.
+    prev_table_state = None
+    table_continuity_broken = True
+
     for pno in page_filter:
         page = mydoc.load_page(pno)
         page.remove_rotation()
@@ -1661,6 +1791,13 @@ def parse_document(
             layoutbox = LayoutBox(*box)
             clip = pymupdf.Rect(box[:4])
 
+            # Page-header/-footer furniture doesn't break table continuity
+            # (it appears between the table and the page edge on purpose);
+            # anything else in between means the next table box, even if
+            # its geometry matches, isn't really a continuation.
+            if layoutbox.boxclass not in ("page-header", "page-footer", "table"):
+                table_continuity_broken = True
+
             if layoutbox.boxclass in ("picture", "formula"):
                 if document.embed_images or document.write_images:
                     pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
@@ -1722,6 +1859,12 @@ def parse_document(
                         "html_tables": html_tables,
                         "html": "\n\n".join(item["html"] for item in html_tables),
                     }
+                    # This table went through the HTML rendering path, whose
+                    # geometry isn't tracked by `prev_table_state` -- treat it
+                    # like intervening non-table content so a later grid-based
+                    # table box is never matched against a stale, unrelated
+                    # table's state.
+                    table_continuity_broken = True
                 else:
                     # Non-HTML path (to_text, or a layout table box table_html did
                     # not render): keep the layout-grid extraction that feeds
@@ -1733,7 +1876,21 @@ def parse_document(
                             table_infos.keys(), key=lambda k: utils.iou(k, search_key)
                         )
                         tab_dict = table_infos.get(key)
-                        tab_details = get_table_details(tab_dict, table_blocks)
+                        is_continuation = not table_continuity_broken and (
+                            _is_table_continuation(
+                                prev_table_state,
+                                tab_dict,
+                                pagelayout.page_number,
+                                page.rect.height,
+                            )
+                        )
+                        tab_details = get_table_details(
+                            tab_dict, table_blocks, is_continuation=is_continuation
+                        )
+                        prev_table_state = _table_continuation_state(
+                            tab_dict, pagelayout.page_number, page.rect.height
+                        )
+                        table_continuity_broken = False
 
                     if tab_details is not None:
                         layoutbox.table = {
@@ -1743,6 +1900,7 @@ def parse_document(
                             "cells": tab_details.cells,
                             "extract": tab_details.extract,
                             "markdown": tab_details.markdown,
+                            "is_continuation": is_continuation,
                         }
                     else:
                         layoutbox.table = {
