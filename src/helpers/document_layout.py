@@ -58,6 +58,44 @@ def get_layout_locked(page: pymupdf.Page, **kwargs):
         return page.get_layout(**kwargs)
 
 
+def _cluster_rawdict_lines(table_blocks, clip):
+    """Cluster RAWDICT-format text (char-level, used for exact cell-boundary
+    extraction elsewhere) into visual lines via get_raw_lines(), which
+    expects DICT-shaped spans (a "text" field; RAWDICT spans have "chars"
+    instead). Builds fresh block/line/span dict copies scoped to `clip` --
+    never mutates table_blocks itself, since that list is shared and reused
+    for every cell's char-level text extraction across the whole table.
+    """
+    converted_blocks = []
+    for block in table_blocks:
+        if not pymupdf.Rect(block["bbox"]).intersects(clip):
+            continue
+        new_lines = []
+        for line in block["lines"]:
+            if not pymupdf.Rect(line["bbox"]).intersects(clip):
+                continue
+            new_spans = []
+            for span in line["spans"]:
+                if not pymupdf.Rect(span["bbox"]).intersects(clip):
+                    continue
+                text = "".join(c["c"] for c in span.get("chars", ()))
+                if not text:
+                    continue
+                new_spans.append({**span, "text": text})
+            if new_spans:
+                new_lines.append({**line, "spans": new_spans})
+        if new_lines:
+            converted_blocks.append({**block, "lines": new_lines})
+    if not converted_blocks:
+        return []
+    return get_raw_lines(
+        textpage=None,
+        blocks=converted_blocks,
+        clip=clip,
+        require_x_continuity=True,
+    )
+
+
 def get_table_details(tab_dict, table_blocks):
     """Create a TableDetails object.
 
@@ -73,6 +111,77 @@ def get_table_details(tab_dict, table_blocks):
     md_cells = []  # cell markdown content
     h_lines = [y0] + [h + y0 for h in grid.h_lines] + [y1]
     v_lines = [x0] + [v + x0 for v in grid.v_lines] + [x1]
+
+    # The model's own row-0 boundary can be an outlier: it sometimes swallows
+    # unrelated content sitting just above the real table (a page header, a
+    # decorative title bar) because that content happens to fall inside the
+    # model's proposed table bbox. Detect this by re-clustering row 0's own
+    # text with require_x_continuity -- the same guard the legacy (non-AI)
+    # extraction path uses to stop cross-column/cross-line splicing (see
+    # pymupdf_rag.py's get_raw_lines call). A swallowed title doesn't always
+    # split into multiple visually distinct lines -- a single-line title
+    # (e.g. "PRACOVNÝ BALÍK: 3-2 ...") reconstructs as one clean line, but
+    # that line still spans across several of the table's *column*
+    # boundaries (v_lines), which describe the real table body further down
+    # and have nothing to do with this content. A genuine one-value-per-
+    # column header row instead has each line's x-range fall inside a
+    # single column, crossing none of them. So one signal is: does any
+    # reconstructed line in row 0 cross an interior column boundary?
+    #
+    # But that alone false-positives on a genuine, legitimately-multi-line
+    # column-header row: two adjacent header labels with little gap between
+    # them (e.g. "Jednotková cena bez DPH" / "Celkové oprávnené výdavky")
+    # can cluster into one line that also crosses a column boundary, even
+    # though the row as a whole is one-value-per-column and belongs in the
+    # table. The discriminator is line *count* relative to column count: a
+    # swallowed title/header decomposes into far fewer lines than there are
+    # columns (a title can't have one value per column), while a real
+    # (if messily wrapped) header row decomposes into roughly as many lines
+    # as columns. So only treat row 0 as swallowed when it is BOTH sparse
+    # relative to col_count AND (fragmented across multiple lines, or a
+    # single line bleeding across a column boundary) -- never a row that
+    # already has close to one line per column.
+    #
+    # When it is swallowed, splitting it into sub-rows would still force it
+    # through the column grid and come out interleaved either way. Instead,
+    # drop row 0 from the grid entirely and emit its lines as a plain text
+    # block ahead of the table.
+    excluded_header_text = None
+    if len(h_lines) > 1 and table_blocks:
+        row0_rect = pymupdf.Rect(x0, h_lines[0], x1, h_lines[1])
+        try:
+            row0_lines = _cluster_rawdict_lines(table_blocks, row0_rect)
+        except Exception:
+            row0_lines = []
+        interior_v_lines = v_lines[1:-1]
+        row0_spans_column = any(
+            any(rect.x0 < v < rect.x1 for v in interior_v_lines)
+            for rect, _ in row0_lines
+        )
+        col_count = len(v_lines) - 1
+        row0_is_sparse = bool(row0_lines) and len(row0_lines) < col_count
+        if row0_is_sparse and (len(row0_lines) > 1 or row0_spans_column):
+            row0_lines.sort(key=lambda l: l[0].y0)
+            # Group lines that visually share one row (overlapping y-ranges,
+            # e.g. a left-aligned and a right-aligned header fragment at the
+            # same height) so they read left-to-right instead of in
+            # arbitrary y0 order; distinct rows (title vs. subtitle bar)
+            # stay on their own line.
+            row_groups = []
+            for rect, spans in row0_lines:
+                if row_groups and rect.y0 < row_groups[-1][-1][0].y1:
+                    row_groups[-1].append((rect, spans))
+                else:
+                    row_groups.append([(rect, spans)])
+            text_lines = []
+            for group in row_groups:
+                group.sort(key=lambda item: item[0].x0)
+                text_lines.append(
+                    " ".join("".join(s["text"] for s in spans) for _, spans in group)
+                )
+            excluded_header_text = "\n".join(text_lines)
+            h_lines = h_lines[1:]  # drop row 0's boundary; table now starts at row 1
+
     tab_det.row_count = len(h_lines) - 1
     tab_det.col_count = len(v_lines) - 1
     for i in range(tab_det.row_count):
@@ -95,7 +204,11 @@ def get_table_details(tab_dict, table_blocks):
         md_cells.append(md_row)
     tab_det.cells = cells
     tab_det.extract = extract
-    tab_det.markdown = utils.table_to_markdown(md_cells)
+    table_markdown = utils.table_to_markdown(md_cells)
+    if excluded_header_text:
+        tab_det.markdown = excluded_header_text + "\n\n" + table_markdown
+    else:
+        tab_det.markdown = table_markdown
     return tab_det
 
 
