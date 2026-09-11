@@ -15,6 +15,7 @@ import tabulate
 from pymupdf import mupdf
 from pymupdf4llm.helpers import utils
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+from pymupdf4llm.helpers.table_grid_repair import _cluster_rawdict_lines, repair_grid_gaps
 from pymupdf4llm.ocr import OCRMode
 
 try:
@@ -68,9 +69,11 @@ BULLETS = tuple(utils.BULLETS)
 # detection is noisy enough between boxes of the very same table to drift
 # 10+ points and even disagree on the number of columns (one box's row
 # grid under/over-splitting a column relative to the next box's) -- that
-# per-box grid noise is the separate, out-of-scope "Bug 2" (grid boundary
-# under-prediction), and requiring interior-grid agreement here made this
-# continuation check fail on exactly the real-world case it exists for.
+# per-box grid noise is a separate, unrelated defect (the model's own
+# row/column boundary detection under- or over-splitting a table's grid;
+# see table_grid_repair.py for the fix), and requiring interior-grid
+# agreement here made this continuation check fail on exactly the
+# real-world case it exists for.
 # The outer bbox is a much more stable signal, and a genuinely different
 # table sitting at roughly the same x-position still gets caught by the
 # vertical-contiguity check below plus the intervening-content break in
@@ -84,44 +87,6 @@ def get_layout_locked(page: pymupdf.Page, **kwargs):
     """Serialize PyMuPDF layout inference, which uses process-global state."""
     with _LAYOUT_LOCK:
         return page.get_layout(**kwargs)
-
-
-def _cluster_rawdict_lines(table_blocks, clip):
-    """Cluster RAWDICT-format text (char-level, used for exact cell-boundary
-    extraction elsewhere) into visual lines via get_raw_lines(), which
-    expects DICT-shaped spans (a "text" field; RAWDICT spans have "chars"
-    instead). Builds fresh block/line/span dict copies scoped to `clip` --
-    never mutates table_blocks itself, since that list is shared and reused
-    for every cell's char-level text extraction across the whole table.
-    """
-    converted_blocks = []
-    for block in table_blocks:
-        if not pymupdf.Rect(block["bbox"]).intersects(clip):
-            continue
-        new_lines = []
-        for line in block["lines"]:
-            if not pymupdf.Rect(line["bbox"]).intersects(clip):
-                continue
-            new_spans = []
-            for span in line["spans"]:
-                if not pymupdf.Rect(span["bbox"]).intersects(clip):
-                    continue
-                text = "".join(c["c"] for c in span.get("chars", ()))
-                if not text:
-                    continue
-                new_spans.append({**span, "text": text})
-            if new_spans:
-                new_lines.append({**line, "spans": new_spans})
-        if new_lines:
-            converted_blocks.append({**block, "lines": new_lines})
-    if not converted_blocks:
-        return []
-    return get_raw_lines(
-        textpage=None,
-        blocks=converted_blocks,
-        clip=clip,
-        require_x_continuity=True,
-    )
 
 
 def _table_outer_x_bounds(tab_dict):
@@ -283,6 +248,12 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
                 )
             excluded_header_text = "\n".join(text_lines)
             h_lines = h_lines[1:]  # drop row 0's boundary; table now starts at row 1
+
+    if table_blocks and len(h_lines) > 1 and len(v_lines) > 1:
+        try:
+            h_lines, v_lines = repair_grid_gaps(table_blocks, h_lines, v_lines)
+        except Exception:
+            pass  # keep the model's own grid; this repair is an enhancement, not a prerequisite
 
     tab_det.row_count = len(h_lines) - 1
     tab_det.col_count = len(v_lines) - 1
