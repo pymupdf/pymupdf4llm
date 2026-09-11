@@ -1158,11 +1158,21 @@ def to_markdown(
                 )
         else:
             tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
-            for t in tabs.tables:
-                # remove tables with too few rows or columns
-                if t.row_count < 2 or t.col_count < 2:
-                    continue
-                parms.tabs.append(t)
+            found = [t for t in tabs.tables if t.row_count >= 2 and t.col_count >= 2]
+            if not found and table_strategy == "lines_strict":
+                # "lines_strict" requires an unbroken ruled border on every cell
+                # edge, so a table with thin, partial, or gray-fill-only borders
+                # (e.g. sparse budget/form tables) is not merely under-segmented
+                # but missed entirely -- find_tables() returns zero tables for
+                # the whole page region, not a degraded one. Falling through
+                # silently drops the table's content into loose paragraph text
+                # (see fork issue: page 65 of 6634064.pdf loses its whole budget
+                # table this way). Retry with the more lenient "lines" strategy,
+                # which still requires ruled lines but tolerates gaps/partial
+                # borders, before giving up on the table.
+                tabs = page.find_tables(clip=parms.clip, strategy="lines")
+                found = [t for t in tabs.tables if t.row_count >= 2 and t.col_count >= 2]
+            parms.tabs = found
             parms.tabs.sort(key=lambda t: (t.bbox[0], t.bbox[1]))
 
             # Make a list of table boundary boxes.

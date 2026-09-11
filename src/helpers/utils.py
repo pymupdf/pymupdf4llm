@@ -988,16 +988,23 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
     return text.strip()
 
 
-def table_to_markdown(cells):
+def table_to_markdown(cells, skip_header=False):
     output = ""
 
-    header = "|" + "|".join(cells[0]) + "|\n"
-    output += header
-    # insert GitHub header line separator
-    output += "|" + "|".join("---" for i in range(len(cells[0]))) + "|\n"
+    if skip_header:
+        # This box is a continuation of a table that started in an earlier
+        # layout box (see document_layout.py's `_is_table_continuation`):
+        # row 0 here is a genuine body row, not a header, so no row/no
+        # "|---|" separator is emitted for it.
+        j = 0
+    else:
+        header = "|" + "|".join(cells[0]) + "|\n"
+        output += header
+        # insert GitHub header line separator
+        output += "|" + "|".join("---" for i in range(len(cells[0]))) + "|\n"
 
-    # skip first row in details if header is part of the table
-    j = 1  # if self.header.external else 1
+        # skip first row in details if header is part of the table
+        j = 1  # if self.header.external else 1
 
     # iterate over detail rows
     for row in cells[j:]:
