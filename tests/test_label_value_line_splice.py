@@ -130,20 +130,29 @@ def test_end_to_end_glossary_page_via_to_markdown():
 
     # Some other test modules (e.g. test_137.py) call use_layout(True) and
     # leave that global toggle set for the rest of the pytest session; be
-    # explicit so this test's outcome doesn't depend on run order.
+    # explicit so this test's outcome doesn't depend on run order. Restore
+    # whatever was in effect before this test afterward -- this toggle is
+    # process-global (it even flips pymupdf._get_layout, see
+    # test_table_grid_repair_real_fixtures.py's _find_table()), so leaving
+    # it at False here would silently break any later test in the same
+    # session that needs the real layout engine.
+    prev_use_layout = pymupdf4llm._use_layout
     pymupdf4llm.use_layout(False)
 
     doc = pymupdf.open()
-    page = doc.new_page()
-    y = 140.0
-    for i in range(4):
-        page.insert_text((131.5, y), "Term Label", fontsize=11)
-        page.insert_text((131.5, y + 13), f"Row {i}", fontsize=11)
-        page.insert_text((230.7, y), f"value clause number {i} here", fontsize=11)
-        y += 32.0
+    try:
+        page = doc.new_page()
+        y = 140.0
+        for i in range(4):
+            page.insert_text((131.5, y), "Term Label", fontsize=11)
+            page.insert_text((131.5, y + 13), f"Row {i}", fontsize=11)
+            page.insert_text((230.7, y), f"value clause number {i} here", fontsize=11)
+            y += 32.0
 
-    md = pymupdf4llm.to_markdown(doc)
-    for i in range(4):
-        assert f"Row {i}" in md
-        assert f"value clause number {i}" in md
-    doc.close()
+        md = pymupdf4llm.to_markdown(doc)
+        for i in range(4):
+            assert f"Row {i}" in md
+            assert f"value clause number {i}" in md
+    finally:
+        doc.close()
+        pymupdf4llm.use_layout(prev_use_layout)
