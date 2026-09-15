@@ -1,6 +1,6 @@
-"""Regression tests for two related table-extraction bugs, both found while
+"""Regression tests for four related table-extraction bugs, all found while
 diagnosing table corruption in a real Slovak public-procurement PDF, and
-both fixed on this branch.
+all fixed on this branch.
 
 Fix 1 (legacy, non-AI-layout path -- src/helpers/pymupdf_rag.py):
 `to_markdown()` locates tables via `page.find_tables(strategy=table_strategy)`
@@ -34,7 +34,57 @@ genuine multi-line column-header row where two adjacent header labels
 happen to be typeset with a small gap and cluster into one line that
 crosses their shared boundary. Both conditions are required jointly.
 
-No true end-to-end test exists for Fix 2 through `pymupdf4llm.use_layout(True)`:
+Fix 3 (AI-layout path -- src/helpers/document_layout.py, `get_table_details`):
+Fix 2's sparsity check still false-positived on a genuine ONE-line header
+row (no wrapping at all) whenever just two of its labels happened to sit
+close enough together to cluster into one crossing line -- e.g. the very
+document that motivated Fix 2, "Por. c." / "Typ vozidla" / "Technicka
+specifikacia": the first two glue into one line 42.12pt apart (just under
+the ~42.24pt clustering threshold), dropping row 0 to 2 reconstructed
+lines for 3 columns, even though every column genuinely has its own
+label. The root defect: `_cluster_rawdict_lines` clusters purely by
+inter-span x-gap, with zero awareness of the table's own v_lines -- it
+cannot distinguish "two words in one cell" from "two different columns'
+headers sitting close together". The fix splits a reconstructed line
+back apart wherever an interior v_line falls strictly in the GAP between
+two of its spans (never through the middle of one indivisible span --
+that's still the genuine swallowed-title case from Fix 2), *before* the
+sparsity/crossing checks run. This corrects Fix 2's false positive for
+the right reason without weakening it: a real leaked title is still one
+atomic span with no inter-span gap to split at, so it is still correctly
+excluded; a genuine multi-line wrapped header (Fix 2's own
+counter-example) still has its glued pair split apart, only now for the
+right reason instead of by the coincidence of already having enough
+other sub-lines to avoid the sparsity threshold.
+
+Fix 4 (AI-layout path -- src/helpers/document_layout.py, `get_table_details`):
+Fix 2/3's row-0 decision was still made at the *row* level (sparse count vs.
+column count, plus whether any one line crosses a boundary), which cannot
+express a genuine merged/colspan header cell: a real colspan cell crossing
+a boundary makes the row "look" foreign under the old check even though it
+belongs in the grid, and Markdown has no colspan syntax to render it with
+anyway. The fix reclassifies each row-0 line (after Fix 3's split)
+independently by how much of the table's own width and column grid it
+covers: a line covering (nearly) the whole table width, or all columns, is
+still definitely foreign (a title/running header) and forces the whole row
+out as plain text, same as before. A line crossing more than one column
+without reaching that threshold is a real colspan cell -- IF everything
+else in row 0, taken together, still covers every column (so nothing is
+missing, it's genuinely just spread across cells of different widths); its
+own text is then duplicated into every column its bbox touches instead of
+being dropped or cut in half. But if such a crossing line's own columns,
+combined with row 0's other content, still leave some column completely
+untouched, the row reads as foreign after all (real-world titles are
+routinely split into several disconnected pieces -- a left title, a
+centered subtitle, a right-aligned reference number -- each individually
+falling short of the "whole table width" threshold, yet together leaving
+gaps a genuine header never would) and the whole row is hoisted out as
+before. A line that never crosses a boundary at all is untouched by any of
+this and is extracted normally by the per-cell loop below, regardless of
+how sparse row 0 otherwise is (a lone single-column note with nothing else
+in row 0 is legitimate content, not a foreign row).
+
+No true end-to-end test exists for these AI-layout fixes through `pymupdf4llm.use_layout(True)`:
 that path needs PyMuPDF's real trained Layout model (and typically a GPU),
 which isn't practically invokable in this environment, so `get_table_details()`
 is exercised directly instead -- see the label/value splice test's aside
@@ -349,6 +399,230 @@ def test_genuine_multiline_header_row_with_glued_adjacent_labels_is_not_excluded
     assert "Celkove" not in det.extract[0][1]
     assert "Jednotkova" not in det.extract[0][2]
     assert not det.markdown.startswith("Jednotkova")
+
+
+
+def test_genuine_single_line_header_row_where_glued_labels_make_it_falsely_sparse_is_not_excluded():
+    """Regression test for the real-world false positive this discriminator
+    still had (found in a Slovak public-procurement PDF: "Por. c." / "Typ
+    vozidla" / "Technicka specifikacia"). Unlike the wrapped 2-line header
+    above, row 0 here is a genuine ONE-line, one-value-per-column header --
+    but two ADJACENT labels ("Por. c." and "Typ vozidla") are typeset close
+    enough together (42.12pt apart, just under the ~42.24pt clustering
+    threshold at their font size) that `_cluster_rawdict_lines` merges them
+    into a single reconstructed line straddling their shared column
+    boundary, while the third label sits far enough away to stay separate.
+    That alone drops the line count to 2 for 3 columns -- sparse -- even
+    though every column genuinely has its own label; `_cluster_rawdict_lines`
+    has no notion of the table's own v_lines at all, so it cannot tell "two
+    words in one cell" apart from "two different columns' headers that
+    happen to sit close together".
+
+    The fix: before judging sparsity, split any reconstructed line wherever
+    an interior v_line falls strictly in the GAP between two of its spans
+    (not through the middle of one indivisible span -- that's the separate,
+    still-valid swallowed-title case above). That turns the false 2-lines-
+    for-3-columns count back into the true 3-lines-for-3-columns, so this
+    genuine header is no longer hoisted out as leading plain text."""
+    x0, y0 = 100.0, 100.0
+    col_w, ncols = 100.0, 3
+    row0_h, data_row_h, nrows_data = 20.0, 20.0, 2
+    x1 = x0 + col_w * ncols  # 400.0
+    y_after_row0 = y0 + row0_h  # 120.0
+    y1 = y_after_row0 + data_row_h * nrows_data
+    boundary_0_1 = x0 + col_w  # 200.0
+    boundary_1_2 = x0 + col_w * 2  # 300.0
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[boundary_0_1, boundary_1_2],
+        interior_h_abs=[y_after_row0 + data_row_h * i for i in range(nrows_data)],
+    )
+    header_blocks = [
+        # Columns 0/1's labels are 20pt apart -- comfortably under the
+        # clustering threshold (max(5, 9*4)=36 at this test font's default
+        # 9pt size) -- so they merge into one line straddling x=200.
+        _text_block("Label1", x0 + 5, y0 + 5, boundary_0_1 - 10, y0 + 13),
+        _text_block("Label2", boundary_0_1 + 10, y0 + 5, boundary_1_2 - 5, y0 + 13),
+        # Column 2's label sits far enough from column 1's (45pt) that it
+        # stays its own reconstructed line even before any fix.
+        _text_block("Label3", boundary_1_2 + 40, y0 + 5, x1 - 5, y0 + 13),
+    ]
+    blocks = header_blocks + _data_row_blocks(
+        x0, y_after_row0, col_w, data_row_h, ncols, nrows_data
+    )
+
+    det = get_table_details(tab_dict, blocks)
+
+    assert det.col_count == 3
+    assert det.row_count == 3  # row 0 kept intact, never hoisted out
+    assert det.extract == [
+        ["Label1", "Label2", "Label3"],
+        ["R0C0", "R0C1", "R0C2"],
+        ["R1C0", "R1C1", "R1C2"],
+    ]
+    assert not det.markdown.startswith("Label1")
+
+
+def test_genuine_colspan_header_cell_is_duplicated_into_every_column_it_spans():
+    """A real merged/colspan-style header cell -- ONE indivisible span (no
+    inter-span gap to split at, unlike the glued-adjacent-labels case above)
+    that genuinely covers 2 of 4 columns but not (nearly) the table's whole
+    width -- must stay part of the table grid rather than being hoisted out
+    as plain text (it isn't a leaked title: it doesn't cover enough of the
+    table's width for that), and since Markdown tables have no colspan, the
+    only faithful rendering is to repeat its own text into every column its
+    own bbox visually spans, not silently drop it in just one of them."""
+    x0, y0 = 100.0, 100.0
+    col_w, ncols = 100.0, 4
+    row0_h, data_row_h, nrows_data = 20.0, 20.0, 1
+    x1 = x0 + col_w * ncols  # 500.0
+    y_after_row0 = y0 + row0_h
+    y1 = y_after_row0 + data_row_h * nrows_data
+    boundary_1_2 = x0 + col_w * 2  # 300.0 -- the boundary the merged cell straddles
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[x0 + col_w, boundary_1_2, x0 + col_w * 3],
+        interior_h_abs=[y_after_row0 + data_row_h * i for i in range(nrows_data)],
+    )
+    header_blocks = [
+        _text_block("Label0", x0 + 5, y0 + 5, x0 + col_w - 10, y0 + 13),
+        # Column 1 and column 2's shared boundary (x=300) falls INSIDE this
+        # one span, not in a gap between two spans -- there is nothing to
+        # split it back apart at, unlike the false-merge case above.
+        _text_block("Combined Header", x0 + col_w + 10, y0 + 5, boundary_1_2 + col_w - 10, y0 + 13),
+        _text_block("Label3", x0 + col_w * 3 + 10, y0 + 5, x1 - 10, y0 + 13),
+    ]
+    blocks = header_blocks + _data_row_blocks(
+        x0, y_after_row0, col_w, data_row_h, ncols, nrows_data
+    )
+
+    det = get_table_details(tab_dict, blocks)
+
+    assert det.col_count == 4
+    assert det.row_count == 1 + nrows_data  # row 0 kept, not hoisted out
+    assert det.extract[0] == ["Label0", "Combined Header", "Combined Header", "Label3"]
+    assert det.markdown.count("Combined Header") == 2
+
+
+def test_single_fragment_title_crossing_several_but_not_all_columns_is_still_excluded():
+    """Regression test for a real-world case (found in this branch's own
+    repro PDF's second table) that a naive "does this line alone cover
+    (nearly) the whole table width" leak check misses: a real leaked
+    running title, this time reduced to ONE single row-0 line (not several
+    disconnected fragments), that crosses several interior boundaries but
+    -- because the table is wide and the title is short relative to it --
+    covers well under the width-fraction leak threshold and well under
+    all of the table's columns. This looks superficially like the genuine
+    colspan cell above (one line crossing more than one column boundary,
+    not reaching the leak threshold), but the crucial difference is that
+    NOTHING else exists in row 0 to fill the columns this line doesn't
+    touch -- a real colspan header's sibling cells fill every remaining
+    column; here, several columns on both sides are left completely
+    empty, which is what a leaked title does and a genuine header
+    doesn't. So it must still be hoisted out as leading plain text."""
+    x0, y0 = 100.0, 100.0
+    col_w, ncols = 100.0, 9
+    row0_h, data_row_h, nrows_data = 20.0, 20.0, 1
+    x1 = x0 + col_w * ncols  # 1000.0
+    y_after_row0 = y0 + row0_h
+    y1 = y_after_row0 + data_row_h * nrows_data
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[x0 + col_w * i for i in range(1, ncols)],
+        interior_h_abs=[y_after_row0 + data_row_h * i for i in range(nrows_data)],
+    )
+    # Crosses columns 1..6 (6 of 9 -- well under the whole table) but
+    # columns 0, 7 and 8 are left with no row-0 content at all.
+    title_block = _text_block(
+        "PRACOVNY BALIK: 3-2 Project Title Spanning The Middle",
+        x0 + col_w + 10, y0 + 5, x0 + col_w * 7 - 10, y0 + 13,
+    )
+    blocks = [title_block] + _data_row_blocks(
+        x0, y_after_row0, col_w, data_row_h, ncols, nrows_data
+    )
+
+    det = get_table_details(tab_dict, blocks)
+
+    assert det.col_count == 9
+    assert det.row_count == nrows_data  # row 0's boundary was dropped
+    assert det.markdown.startswith("PRACOVNY BALIK: 3-2 Project Title Spanning The Middle")
+    for cell in _extract_flat(det):
+        assert "PRACOVNY" not in cell and "BALIK" not in cell
+
+
+def test_single_column_header_in_a_very_wide_column_is_not_treated_as_a_leak():
+    """A genuine single-column header cell that never crosses any interior
+    boundary must not be misclassified as a leaked title just because its
+    own column happens to be a large fraction of the table's total width
+    (e.g. a wide "description" column next to a narrow "price" column):
+    the width-fraction leak test is only meaningful for a line that is
+    actually crossing a boundary -- width alone, with no crossing, is
+    exactly what an ordinary wide column's header looks like."""
+    x0, y0 = 100.0, 100.0
+    row0_h, data_row_h, nrows_data = 20.0, 20.0, 1
+    wide_col_w, narrow_col_w = 800.0, 100.0
+    boundary = x0 + wide_col_w  # 900.0
+    x1 = boundary + narrow_col_w  # 1000.0 -- wide column is 80% of table width
+    y_after_row0 = y0 + row0_h
+    y1 = y_after_row0 + data_row_h * nrows_data
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[boundary],
+        interior_h_abs=[y_after_row0 + data_row_h * i for i in range(nrows_data)],
+    )
+    header_blocks = [
+        _text_block(
+            "Description of the item being delivered",
+            x0 + 5, y0 + 5, boundary - 10, y0 + 13,
+        ),
+        _text_block("Cena", boundary + 5, y0 + 5, x1 - 5, y0 + 13),
+    ]
+    data_blocks = [
+        _text_block("Widget", x0 + 5, y_after_row0 + 3, boundary - 10, y_after_row0 + 12),
+        _text_block("9.99", boundary + 5, y_after_row0 + 3, x1 - 5, y_after_row0 + 12),
+    ]
+    blocks = header_blocks + data_blocks
+
+    det = get_table_details(tab_dict, blocks)
+
+    assert det.col_count == 2
+    assert det.row_count == 1 + nrows_data  # row 0 kept, not hoisted out
+    assert det.extract[0] == ["Description of the item being delivered", "Cena"]
+    assert not det.markdown.startswith("Description")
+
+
+def test_single_column_table_header_row_is_not_excluded():
+    """A table with only one column has no interior boundary at all, so
+    every row-0 line trivially "touches all columns" (there is only one)
+    -- that must not be read as automatic proof of a leak, or every
+    single-column table would lose its header row."""
+    x0, y0 = 100.0, 100.0
+    col_w, ncols = 200.0, 1
+    row0_h, data_row_h, nrows_data = 20.0, 20.0, 2
+    x1 = x0 + col_w * ncols
+    y_after_row0 = y0 + row0_h
+    y1 = y_after_row0 + data_row_h * nrows_data
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[],
+        interior_h_abs=[y_after_row0 + data_row_h * i for i in range(nrows_data)],
+    )
+    header_block = _text_block("Header", x0 + 5, y0 + 5, x1 - 5, y0 + 13)
+    blocks = [header_block] + _data_row_blocks(
+        x0, y_after_row0, col_w, data_row_h, ncols, nrows_data
+    )
+
+    det = get_table_details(tab_dict, blocks)
+
+    assert det.col_count == 1
+    assert det.row_count == 1 + nrows_data  # row 0 kept, not hoisted out
+    assert det.extract[0] == ["Header"]
+    assert not det.markdown.startswith("Header\n\n")
 
 
 def test_sparse_single_value_row_not_crossing_a_boundary_is_not_excluded():

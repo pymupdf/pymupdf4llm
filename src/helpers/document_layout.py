@@ -249,6 +249,7 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
     # drop row 0 from the grid entirely and emit its lines as a plain text
     # block ahead of the table.
     excluded_header_text = None
+    colspan_rects = []  # row-0 lines kept in the grid that span >1 column
     if not is_continuation and len(h_lines) > 1 and table_blocks:
         row0_rect = pymupdf.Rect(x0, h_lines[0], x1, h_lines[1])
         try:
@@ -256,21 +257,130 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
         except Exception:
             row0_lines = []
         interior_v_lines = v_lines[1:-1]
-        row0_spans_column = any(
-            any(rect.x0 < v < rect.x1 for v in interior_v_lines)
-            for rect, _ in row0_lines
-        )
+        # _cluster_rawdict_lines() merges spans into one line purely by
+        # inter-span x-gap, with no notion of the table's own column grid --
+        # so two spans that are genuinely two separate column headers (e.g.
+        # "Por. c." / "Typ vozidla") get fused into a single line whenever
+        # their gap happens to fall under its threshold, even though a real
+        # column boundary sits between them. Undo exactly that: split a line
+        # wherever an interior v_line falls strictly in the GAP between two
+        # of its spans. A single indivisible span that itself physically
+        # spans several columns (a genuinely leaked title) has no inter-span
+        # gap to split at, so it is correctly left alone -- this only
+        # separates spans that were wrongly glued together, it never carves
+        # up one atomic run of text.
+        split_row0_lines = []
+        for rect, spans in row0_lines:
+            ordered = sorted(spans, key=lambda s: s["bbox"].x0)
+            groups = [[ordered[0]]]
+            for prev, cur in zip(ordered, ordered[1:]):
+                gap_lo, gap_hi = prev["bbox"].x1, cur["bbox"].x0
+                if gap_hi > gap_lo and any(gap_lo < v < gap_hi for v in interior_v_lines):
+                    groups.append([cur])
+                else:
+                    groups[-1].append(cur)
+            if len(groups) == 1:
+                split_row0_lines.append((rect, spans))
+                continue
+            for group in groups:
+                group_rect = group[0]["bbox"]
+                for s in group[1:]:
+                    group_rect |= s["bbox"]
+                split_row0_lines.append((group_rect, group))
+        row0_lines = split_row0_lines
         col_count = len(v_lines) - 1
-        row0_is_sparse = bool(row0_lines) and len(row0_lines) < col_count
-        if row0_is_sparse and (len(row0_lines) > 1 or row0_spans_column):
-            row0_lines.sort(key=lambda l: l[0].y0)
+        table_width = x1 - x0
+        # Classify each row-0 line purely by how much of the table's own
+        # width it physically covers -- not by how many other lines happen
+        # to share row 0 (that count is an unreliable proxy: it depends on
+        # how a wrapped header happens to fragment). Three outcomes:
+        #  - it crosses an interior boundary AND covers (nearly) the
+        #    table's whole width (or all columns): genuinely foreign
+        #    content (a title, a running footer) that leaked into the
+        #    table's bbox -- hoist it out as leading plain text. Crossing
+        #    is required even for the width-fraction test: an ordinary
+        #    single-column header cell that merely sits in a very wide
+        #    column (relative to its narrow siblings) must never be
+        #    mistaken for a leak just because its own width is a large
+        #    fraction of the table -- it was never spanning anything.
+        #  - it crosses an interior boundary, covering 2+ columns but not
+        #    (nearly) all of them: a real merged/colspan-style header
+        #    cell. Markdown tables have no colspan, so the only faithful
+        #    rendering is to repeat this cell's own text into every
+        #    column it visually spans, rather than either discarding it
+        #    or letting it get silently cut in half at a column boundary
+        #    by ordinary per-cell extraction.
+        #  - it sits inside a single column: an ordinary header cell,
+        #    already handled correctly by the extraction loop below.
+        #
+        # This whole classification only makes sense when there is more
+        # than one column to cross in the first place -- with col_count
+        # <= 1 every row-0 line trivially "touches all columns" (there is
+        # only one), which would otherwise always misfire as a leak.
+        _LEAK_WIDTH_FRACTION = 0.7
+        # A tiny tolerance against v_lines: without it, a span that merely
+        # overhangs its own column's boundary by a point or two -- not a
+        # real crossing -- gets misread as touching its neighbor too.
+        _BOUNDARY_TOL = 6.0
+        leak_lines = []
+        colspan_lines = []
+        touched_union = set()
+        if col_count > 1:
+            for rect, spans in row0_lines:
+                touched = [
+                    j for j in range(col_count)
+                    if rect.x1 > v_lines[j] + _BOUNDARY_TOL
+                    and rect.x0 < v_lines[j + 1] - _BOUNDARY_TOL
+                ]
+                touched_union.update(touched)
+                crosses = len(touched) > 1
+                width_fraction = (rect.x1 - rect.x0) / table_width if table_width else 0.0
+                if crosses and (len(touched) >= col_count or width_fraction >= _LEAK_WIDTH_FRACTION):
+                    leak_lines.append((rect, spans))
+                elif crosses:
+                    colspan_lines.append((rect, touched))
+        # A genuine multi-cell header (ordinary or colspan) fills every
+        # column with something -- that's what makes it a header. Foreign
+        # content that leaked into row 0 (a title, a running header) is
+        # frequently just ONE line crossing several columns (e.g. a
+        # centered project title, spanning a wide chunk of the table but
+        # not reaching the width-fraction threshold above because the
+        # rest of the row is otherwise empty) -- and, unlike a genuine
+        # colspan cell, the columns it doesn't touch stay completely
+        # empty rather than being filled by some other row-0 line. So a
+        # line crossing multiple columns is only legitimate colspan
+        # content when everything else in row 0, taken together, still
+        # covers every column; if a gap remains, it's foreign.
+        # A line that never crosses a boundary at all (a lone single-
+        # column note, nothing else in row 0) is never foreign on its
+        # own -- crossing a boundary is what makes the gap suspicious in
+        # the first place, so plain non-crossing sparsity is exempt.
+        has_gap = len(touched_union) < col_count
+        # Dropping row 0 only makes sense if at least one real row survives
+        # underneath it (len(h_lines) > 2, i.e. more than just row 0's own
+        # top+bottom boundary) -- otherwise the "table" would end up with
+        # zero rows, which the markdown renderer below cannot handle, and
+        # there is nothing left to duplicate a colspan cell's text into
+        # anyway. In that situation, foreign-looking content is still
+        # better kept as the table's only row than crashing or silently
+        # discarding it.
+        if (leak_lines or (colspan_lines and has_gap)) and len(h_lines) <= 2:
+            leak_lines = []
+            colspan_lines = []
+        if leak_lines or (colspan_lines and has_gap):
+            # Nothing legitimate is left in row 0 -- treat every one of its
+            # lines as foreign content, drop it from the grid entirely and
+            # emit it as plain text ahead of the table (unchanged from
+            # before).
+            leak_lines = list(row0_lines)
+            leak_lines.sort(key=lambda l: l[0].y0)
             # Group lines that visually share one row (overlapping y-ranges,
             # e.g. a left-aligned and a right-aligned header fragment at the
             # same height) so they read left-to-right instead of in
             # arbitrary y0 order; distinct rows (title vs. subtitle bar)
             # stay on their own line.
             row_groups = []
-            for rect, spans in row0_lines:
+            for rect, spans in leak_lines:
                 if row_groups and rect.y0 < row_groups[-1][-1][0].y1:
                     row_groups[-1].append((rect, spans))
                 else:
@@ -283,6 +393,8 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
                 )
             excluded_header_text = "\n".join(text_lines)
             h_lines = h_lines[1:]  # drop row 0's boundary; table now starts at row 1
+        else:
+            colspan_rects = colspan_lines
 
     tab_det.row_count = len(h_lines) - 1
     tab_det.col_count = len(v_lines) - 1
@@ -304,6 +416,21 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
         cells.append(row)
         extract.append(text_row)
         md_cells.append(md_row)
+    if colspan_rects:
+        # Nothing after classification ever mutates h_lines/v_lines (no
+        # grid-repair pass exists yet at this point in the codebase), so a
+        # colspan line's touched columns are still valid, and it always
+        # belongs to row 0 -- row 0 is the only row row0_lines was ever
+        # drawn from, and it cannot have been split into more than one
+        # final grid row.
+        for rect, touched in colspan_rects:
+            text = utils.extract_cells(table_blocks, rect, markdown=False, ocrpage=False)
+            md_text = utils.extract_cells(table_blocks, rect, markdown=True, ocrpage=False)
+            if not text:
+                continue
+            for j in touched:
+                extract[0][j] = text
+                md_cells[0][j] = md_text
     tab_det.cells = cells
     tab_det.extract = extract
     table_markdown = utils.table_to_markdown(md_cells, skip_header=is_continuation)
