@@ -106,8 +106,15 @@ def _reset_layout_mode():
     # Some other test modules (e.g. test_137.py) call use_layout(True) and
     # can leave that global toggle set for the rest of the pytest session
     # if they fail before resetting it; be explicit so these tests' outcome
-    # doesn't depend on run order.
+    # doesn't depend on run order. Restore whatever was in effect before
+    # this test afterward -- this toggle is process-global (it even flips
+    # pymupdf._get_layout, see test_table_grid_repair_real_fixtures.py's
+    # _find_table()), so leaving it at False here would silently break any
+    # later test in the same session that needs the real layout engine.
+    prev = pymupdf4llm._use_layout
     pymupdf4llm.use_layout(False)
+    yield
+    pymupdf4llm.use_layout(prev)
 
 
 # ---------------------------------------------------------------------------
