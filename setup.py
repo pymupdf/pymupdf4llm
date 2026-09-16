@@ -96,7 +96,10 @@ p = pipcl.Package(
     fn_sdist=sdist,
 )
 
+
 build_wheel = p.build_wheel
+build_sdist = p.build_sdist
+
 
 if __name__ == "__main__":
     p.handle_argv(sys.argv)
