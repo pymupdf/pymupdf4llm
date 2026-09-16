@@ -7,30 +7,19 @@ import pipcl
 VERSION = "2.0"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
 
-# We build with, and run with, a particular PyMuPDF version usually, but not
-# always, the same as our version.
-#
-pymupdf_version = VERSION
-
-# We build with, and run with, a particular pymupdf_layout version usually, but
-# not always, the same as our version.
-#
-pymupdf_layout_version = VERSION
-
-
 PYMUPDF_SETUP_VERSION = os.environ.get("PYMUPDF_SETUP_VERSION")
 if PYMUPDF_SETUP_VERSION:
     # Allow testing with non-matching pymupdf/layout versions.
     requires_dist = [
         "tabulate",
         "psutil",
-        "pymupdf",
-        "pymupdf_layout",
+        "pymupdf=={PYMUPDF_SETUP_VERSION}",
+        "pymupdf_layout=={PYMUPDF_SETUP_VERSION}",
         ]
 else:
     requires_dist = [
-        f"pymupdf=={pymupdf_version}",
-        f"pymupdf_layout=={pymupdf_layout_version}",
+        f"pymupdf=={VERSION}",
+        f"pymupdf_layout=={VERSION}",
         "tabulate",
         "psutil",
     ]
