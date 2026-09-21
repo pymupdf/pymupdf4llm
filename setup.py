@@ -13,12 +13,12 @@ if PYMUPDF_SETUP_VERSION:
     requires_dist = [
         "tabulate",
         "psutil",
-        "pymupdf=={PYMUPDF_SETUP_VERSION}",
+        "pymupdf_core=={PYMUPDF_SETUP_VERSION}",
         "pymupdf_layout=={PYMUPDF_SETUP_VERSION}",
         ]
 else:
     requires_dist = [
-        f"pymupdf=={VERSION}",
+        f"pymupdf_core=={VERSION}",
         f"pymupdf_layout=={VERSION}",
         "tabulate",
         "psutil",
