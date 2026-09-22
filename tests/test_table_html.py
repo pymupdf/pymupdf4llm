@@ -13,12 +13,42 @@ from pymupdf4llm.helpers.table_html.reconstruct import to_html
 
 g_root = os.path.normpath(f"{__file__}/../..")
 TABLE_PDF = os.path.join(g_root, "tests", "test_sce_150_1.pdf")
-FIND_TABLES_SIG = inspect.signature(pymupdf.Page.find_tables)
+FIND_TABLES_SIG = inspect.signature(pymupdf.table.find_tables)
 FIND_TABLES_HAS_LAYOUT = "use_layout" in FIND_TABLES_SIG.parameters
 
 def test_to_html_is_live_only_public_api():
     signature = inspect.signature(to_html)
     assert list(signature.parameters) == ["pdf", "page_index"]
+
+def test_reading_order_keeps_table_nested_in_picture():
+    boxes = [
+        (20.0, 20.0, 280.0, 220.0, "picture"),
+        (60.0, 80.0, 240.0, 180.0, "table"),
+    ]
+    ordered = document_layout.utils.find_reading_order(
+        pymupdf.Rect(0, 0, 300, 240),
+        [],
+        boxes,
+    )
+    assert boxes[0] in ordered
+    assert boxes[1] in ordered
+
+def test_reading_order_discards_table_nested_in_text_box():
+    """The picture exemption is narrow: a table nested in a text (or title/
+    list/formula) box is discarded as before, because only the picture
+    branch of parse_document has matching text-exclusion logic -- keeping it
+    here would duplicate its cell text on the ordinary output path."""
+    boxes = [
+        (20.0, 20.0, 280.0, 220.0, "text"),
+        (60.0, 80.0, 240.0, 180.0, "table"),
+    ]
+    ordered = document_layout.utils.find_reading_order(
+        pymupdf.Rect(0, 0, 300, 240),
+        [],
+        boxes,
+    )
+    assert boxes[0] in ordered
+    assert boxes[1] not in ordered
 
 def test_page_html_tables_uses_core_union_find_tables():
     if not FIND_TABLES_HAS_LAYOUT:
@@ -312,3 +342,73 @@ def test_body_text_preserved_around_tables():
     for marker in ("ALPHAMARK", "OMEGAMARK"):
         assert md_plain.count(marker) == 1
         assert md_html.count(marker) == 1
+
+
+def test_force_text_does_not_duplicate_table_text_in_picture_box():
+    """find_reading_order keeps a table box nested inside a picture box (the
+    common HTML-mode raster-table case). The picture box's own force_text
+    branch pulls raw text out of its clip via get_raw_lines -- it must not
+    re-emit the nested table's cell text a second time, but it must still
+    keep unrelated text (e.g. a caption) that get_raw_lines' line-joining
+    merges onto the same reconstructed line as a table cell's text."""
+    if not FIND_TABLES_HAS_LAYOUT:
+        print("Skipping test_force_text_does_not_duplicate_table_text_in_picture_box: Page.find_tables is too old")
+        return
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=400, height=400)
+    table_rect = pymupdf.Rect(80, 80, 320, 220)
+    cells = pymupdf.make_table(table_rect, rows=2, cols=2)
+    for row in cells:
+        for cell in row:
+            page.draw_rect(cell)
+    # Cell text placed at explicit baselines (rather than insert_textbox's
+    # internal centering) so row 0's baseline is known and can be matched by
+    # the caption below, forcing get_raw_lines to join them into one line.
+    page.insert_text((90, 120), "CELLZERO", fontsize=10)
+    page.insert_text((210, 120), "CELLONE", fontsize=10)
+    page.insert_text((90, 190), "CELLTWO", fontsize=10)
+    page.insert_text((210, 190), "CELLTHREE", fontsize=10)
+    # Caption outside the table (x=20 is left of the table's x0=80), same
+    # baseline as row 0 (y=120) so it lands on the same reconstructed line as
+    # CELLZERO/CELLONE once get_raw_lines joins same-height text.
+    page.insert_text((20, 120), "CAPTION", fontsize=10)
+    page.clean_contents()
+    pdfdata = doc.tobytes()
+    doc.close()
+
+    # Larger region around the table (and the caption to its left), marked
+    # as a "picture" layout box -- like test_reading_order_keeps_table_nested_in_picture,
+    # but driven through the real to_markdown pipeline instead of calling
+    # find_reading_order directly. get_layout_locked is stubbed so this does
+    # not depend on the real GNN classifying a synthetic page as "picture".
+    picture_bbox = [10.0, 40.0, 360.0, 260.0]
+
+    def fake_get_layout_locked(page, **kwargs):
+        page.layout_information = [
+            {"class_name": "picture", "group_bbox": picture_bbox, "table_grid": None}
+        ]
+
+    original_get_layout_locked = document_layout.get_layout_locked
+    original_use_layout = pymupdf4llm._use_layout
+    document_layout.get_layout_locked = fake_get_layout_locked
+    pymupdf4llm.use_layout(True)
+    try:
+        doc2 = pymupdf.open("pdf", pdfdata)
+        try:
+            md = pymupdf4llm.to_markdown(
+                doc2,
+                table_output="html",
+                use_ocr=False,
+                force_text=True,
+            )
+        finally:
+            doc2.close()
+    finally:
+        document_layout.get_layout_locked = original_get_layout_locked
+        pymupdf4llm.use_layout(original_use_layout)
+
+    assert md.count("<table") == 1  # guard against a vacuous pass
+    assert md.count("CAPTION") == 1  # unrelated text on the table's line survives
+    for marker in ("CELLZERO", "CELLONE", "CELLTWO", "CELLTHREE"):
+        assert md.count(marker) == 1

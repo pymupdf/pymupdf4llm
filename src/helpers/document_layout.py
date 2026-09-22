@@ -905,6 +905,45 @@ def normalize_layout_boxes(layout_boxes, html_tables, fulltext):
     return output_boxes, html_tables_by_box, textlines_by_box
 
 
+def _nested_table_regions(layout_information, container_clip, html_tables_by_box):
+    """Rects to exclude: table boxes in layout_information contained in
+    container_clip, preferring each one's assigned HTML table bbox (the
+    region actually emitted; see html_tables_by_box) over its own layout
+    box, which need not be the same rect."""
+    regions = []
+    for b in layout_information:
+        if len(b) < 5 or b[4] != "table":
+            continue
+        table_box = b[:4]
+        if not utils.bbox_in_bbox(table_box, container_clip):
+            continue
+        html_tables = html_tables_by_box.get(tuple(pymupdf.IRect(table_box)))
+        if html_tables:
+            regions.extend(pymupdf.Rect(item["bbox"]) for item in html_tables)
+        else:
+            regions.append(pymupdf.Rect(table_box))
+    return regions
+
+
+def _drop_spans_in_regions(lines, regions):
+    """Remove spans whose bbox centre falls inside an excluded region; drop
+    a line only once it has no spans left. Per-span (not per-line) so
+    unrelated text get_raw_lines joined onto a table's line survives."""
+    if not regions:
+        return lines
+    kept_lines = []
+    for line in lines:
+        kept_spans = []
+        for span in line["spans"]:
+            sx0, sy0, sx1, sy1 = span["bbox"]
+            cx, cy = (sx0 + sx1) / 2.0, (sy0 + sy1) / 2.0
+            if not any(r[0] <= cx <= r[2] and r[1] <= cy <= r[3] for r in regions):
+                kept_spans.append(span)
+        if kept_spans:
+            kept_lines.append({"bbox": line["bbox"], "spans": kept_spans})
+    return kept_lines
+
+
 @dataclass
 class TableDetails:
     bbox: tuple = None
@@ -1573,7 +1612,7 @@ def parse_document(
                     layoutbox.image = None
                 if layoutbox.boxclass in ("picture", "formula") and document.force_text:
                     # extract any text within the image box
-                    layoutbox.textlines = [
+                    raw_lines = [
                         {"bbox": l[0], "spans": l[1]}
                         for l in get_raw_lines(
                             textpage=None,
@@ -1583,6 +1622,20 @@ def parse_document(
                             only_horizontal=False,
                         )
                     ]
+                    # get_raw_lines joins spans at the same vertical position
+                    # into one reconstructed line even across a large
+                    # horizontal gap (e.g. a caption beside a table). Only a
+                    # table nested in a "picture" box survives find_reading_order,
+                    # so any table box found here already emitted its own
+                    # text via the table branch below; drop just the spans
+                    # that fall inside it (not the whole joined line) so
+                    # unrelated text such as that caption still survives.
+                    layoutbox.textlines = _drop_spans_in_regions(
+                        raw_lines,
+                        _nested_table_regions(
+                            page.layout_information, clip, html_tables_by_box
+                        ),
+                    )
 
             elif layoutbox.boxclass == "table":
                 search_key = (layoutbox.x0, layoutbox.y0, layoutbox.x1, layoutbox.y1)
