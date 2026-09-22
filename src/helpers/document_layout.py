@@ -15,6 +15,7 @@ import tabulate
 from pymupdf import mupdf
 from pymupdf4llm.helpers import utils
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+from pymupdf4llm.helpers.image_analyzer import BaseImageAnalyzer
 from pymupdf4llm.ocr import OCRMode
 
 try:
@@ -925,6 +926,7 @@ class LayoutBox:
 
     # if boxclass == 'picture' or 'formula', store image bytes
     image: Optional[bytes] = None
+    description: Optional[str] = None
 
     # if boxclass == 'table'
     table: Optional[Dict] = None
@@ -1012,8 +1014,15 @@ class ParsedDocument:
                         data = base64.b64encode(box.image).decode()
                         data = f"data:image/{self.image_format};base64," + data
                         md_string += GRAPHICS_TEXT % data + "\n\n"
+                    elif box.description:
+                        # image is intentionally omitted, but description is available
+                        pass
                     else:
                         md_string += f"\n\n"
+
+
+                    if box.description:
+                        md_string += f"{box.description}\n\n"
 
                     # output text in image if requested
                     if box.textlines:
@@ -1136,12 +1145,16 @@ class ParsedDocument:
                     string_lengths.append(len(text_string))
                     continue
                 if btype in ("picture", "formula"):
+                    if box.description:
+                        text_string += f"{box.description}\n\n"
+                    else:
+                        text_string += f"==> picture [{clip.width} x {clip.height}] <==\n\n"
                     if box.textlines and btype == "picture":
-                        text_string += picture_text_to_text(
-                            box.textlines,
-                            ignore_code=ignore_code or page.full_ocred,
-                            clip=clip,
-                        )
+                            text_string += picture_text_to_text(
+                                box.textlines,
+                                ignore_code=ignore_code or page.full_ocred,
+                                clip=clip,
+                            )
                     string_lengths.append(len(text_string))
 
                 elif btype == "table":
@@ -1303,6 +1316,7 @@ def parse_document(
     show_progress=False,
     embed_images=False,
     write_images=False,
+    analyze_image: Optional[BaseImageAnalyzer] = None,
     force_text=False,
     use_ocr=OCRMode.SELECT_KEEP_OLD,
     force_ocr=False,
@@ -1378,6 +1392,7 @@ def parse_document(
     document.force_text = force_text
     document.embed_images = embed_images
     document.write_images = write_images
+    document.analyze_image = analyze_image
 
     if force_ocr:
         use_ocr = OCRMode.FORCE_KEEP_OLD
@@ -1554,7 +1569,7 @@ def parse_document(
             clip = pymupdf.Rect(box[:4])
 
             if layoutbox.boxclass in ("picture", "formula"):
-                if document.embed_images or document.write_images:
+                if document.embed_images or document.write_images or document.analyze_image:
                     pix = page.get_pixmap(clip=clip, dpi=document.image_dpi)
                     irect = pymupdf.IRect(pix.irect)  # guard against empty images
                     if not irect.is_empty:
@@ -1567,10 +1582,15 @@ def parse_document(
                             )
                             layoutbox.image = md_filename
                             pix.save(save_img_filename)
+                        elif document.analyze_image:
+                            image_bytes = pix.tobytes(document.image_format)
+                            layoutbox.description = document.analyze_image.analyze_image(image_bytes)
                     else:
                         layoutbox.image = None
+                        layoutbox.description = None
                 else:
                     layoutbox.image = None
+                    layoutbox.description = None
                 if layoutbox.boxclass in ("picture", "formula") and document.force_text:
                     # extract any text within the image box
                     layoutbox.textlines = [

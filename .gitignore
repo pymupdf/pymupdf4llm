@@ -1,2 +1,8 @@
 __pycache__
 .pytest_cache
+.env
+
+.venv/
+.vscode/
+dist/
+pymupdf4llm_tsr.egg-info

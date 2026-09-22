@@ -1,22 +1,9 @@
 import pathlib
 
 import pymupdf
-import pymupdf4llm.helpers.document_layout
-import pymupdf4llm.helpers.pymupdf_rag
+from .helpers import pymupdf_rag, document_layout
 
 from .batch_converter import convert_batch
-from .versions_file import VERSION, VERSION_TUPLE
-
-_pvt = tuple(map(int, pymupdf.__version__.split(".")))
-
-if _pvt != VERSION_TUPLE:
-    raise ImportError(
-        f"Requires PyMuPDF {VERSION=} {VERSION_TUPLE=}, but you have {pymupdf.__version__=} {_pvt=}"
-    )
-
-__version__ = VERSION
-version = VERSION
-version_tuple = tuple(map(int, version.split(".")))
 
 
 def use_layout(yes):
@@ -40,8 +27,8 @@ def use_layout(yes):
 
         pymupdf.layout.activate()
     else:
-        IdentifyHeaders = pymupdf4llm.helpers.pymupdf_rag.IdentifyHeaders
-        TocHeaders = pymupdf4llm.helpers.pymupdf_rag.TocHeaders
+        IdentifyHeaders = pymupdf_rag.IdentifyHeaders
+        TocHeaders = pymupdf_rag.TocHeaders
         import pymupdf
 
         pymupdf._get_layout = None
@@ -80,6 +67,7 @@ def _layout_to_markdown(
     show_progress=False,
     use_ocr=True,
     write_images=False,
+    analyze_image=None,
     render_html_tables=None,
     edge_threshold=None,
     # unsupported options for pymupdf layout:
@@ -87,7 +75,7 @@ def _layout_to_markdown(
 ):
     if write_images and embed_images:
         raise ValueError("Cannot both write_images and embed_images")
-    parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
+    parsed_doc = document_layout.parse_document(
         doc,
         filename=filename,
         image_dpi=dpi,
@@ -103,6 +91,7 @@ def _layout_to_markdown(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
+        analyze_image=analyze_image,
         render_html_tables=render_html_tables,
         edge_threshold=edge_threshold,
     )
@@ -138,7 +127,7 @@ def _layout_to_json(
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
-    parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
+    parsed_doc = document_layout.parse_document(
         doc,
         image_dpi=image_dpi,
         image_format=image_format,
@@ -170,6 +159,7 @@ def _layout_to_text(
     ocr_dpi=150,
     use_ocr=True,
     force_ocr=False,
+    analyze_image=None,
     ocr_language="eng",
     ocr_function=None,
     table_format="grid",
@@ -180,7 +170,7 @@ def _layout_to_text(
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
-    parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
+    parsed_doc = document_layout.parse_document(
         doc,
         filename=filename,
         pages=pages,
@@ -192,6 +182,7 @@ def _layout_to_text(
         force_ocr=force_ocr,
         ocr_language=ocr_language,
         ocr_function=ocr_function,
+        analyze_image=analyze_image,
         edge_threshold=edge_threshold,
     )
     return parsed_doc.to_text(
@@ -239,7 +230,7 @@ def to_markdown(*args, **kwargs):
     if _use_layout:
         return _layout_to_markdown(*args, **kwargs)
     else:
-        return pymupdf4llm.helpers.pymupdf_rag.to_markdown(*args, **kwargs)
+        return pymupdf_rag.to_markdown(*args, **kwargs)
 
 
 def to_json(*args, **kwargs):
@@ -252,14 +243,14 @@ def to_json(*args, **kwargs):
     if _use_layout:
         return _layout_to_json(*args, **kwargs)
     else:
-        return pymupdf4llm.helpers.pymupdf_rag.to_json(*args, **kwargs)
+        return pymupdf_rag.to_json(*args, **kwargs)
 
 
 def to_text(*args, **kwargs):
     if _use_layout:
         return _layout_to_text(*args, **kwargs)
     else:
-        return pymupdf4llm.helpers.pymupdf_rag.to_text(*args, **kwargs)
+        return pymupdf_rag.to_text(*args, **kwargs)
 
 
 def get_key_values(doc, xrefs=False, **kwargs):

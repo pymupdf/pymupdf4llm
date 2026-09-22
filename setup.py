@@ -4,18 +4,13 @@ import textwrap
 
 import pipcl
 
-VERSION = "1.28.2"
-VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
+TSR_VERSION = "0.4.0"
+ORG_VERSION = "1.28.2"
+VERSION_TUPLE = tuple(int(x) for x in TSR_VERSION.split("."))
 
-# We build with, and run with, a particular PyMuPDF version usually, but not
-# always, the same as our version.
-#
-pymupdf_version = VERSION
+pymupdf_version = ORG_VERSION
 
-# We build with, and run with, a particular pymupdf_layout version usually, but
-# not always, the same as our version.
-#
-pymupdf_layout_version = VERSION
+pymupdf_layout_version = ORG_VERSION
 
 
 PYMUPDF_SETUP_VERSION = os.environ.get("PYMUPDF_SETUP_VERSION")
@@ -28,6 +23,7 @@ else:
         f"pymupdf_layout=={pymupdf_layout_version}",
         "tabulate",
         "psutil",
+        "pillow",
     ]
 
 
@@ -36,7 +32,7 @@ def build():
 
     version_info = textwrap.dedent(f"""
             # Generated file - do not edit.
-            {VERSION=}
+            {TSR_VERSION=}
             {VERSION_TUPLE=}
             """)
     ret.append((version_info.encode("utf-8"), "pymupdf4llm/versions_file.py"))
@@ -58,14 +54,14 @@ def sdist():
 
 
 p = pipcl.Package(
-    "pymupdf4llm",
-    VERSION,
+    "pymupdf4llm-tsr",
+    TSR_VERSION,
     requires_dist=requires_dist,
     requires_python=">=3.10",
     pure=True,
-    author="Artifex",
-    author_email="support@artifex.com",
-    summary="PyMuPDF Utilities for LLM/RAG",
+    author="TSR",
+    author_email="tusharsoni.info@gmail.com",
+    summary="PyMuPDF Utilities for LLM/RAG with Visual Analyzer",
     description="README.md",
     description_content_type="text/markdown",
     classifier=[
@@ -77,10 +73,7 @@ p = pipcl.Package(
     ],
     license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
     project_url=[
-        "Documentation, https://pymupdf.readthedocs.io/",
-        "Source, https://github.com/pymupdf/pymupdf4llm",
-        "Tracker, https://github.com/pymupdf/PyMuPDF/issues",
-        "Changelog, https://pymupdf.readthedocs.io/en/latest/changes.html",
+        "Source, https://github.com/iam-tsr/pymupdf4llm",
     ],
     # We create a `pymupdf4llm` command.
     entry_points=textwrap.dedent("""
