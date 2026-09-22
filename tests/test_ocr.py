@@ -24,6 +24,9 @@ def _ocr_rapidocr_onnxruntime_available():
 
 
 def test_ocr_1():
+    if pymupdf.mupdf_version_tuple < (1, 28):
+        print(f'test_ocr_1(): not running because {pymupdf.mupdf_version=} < 1.28.')
+        return
     print()
     path = os.path.normpath(f'{g_root}//tests/test_ocr_loremipsum_FFFD.pdf')
     md = pymupdf4llm.to_markdown(path)
@@ -43,6 +46,9 @@ def test_ocr_2():
     assert REPLACEMENT_UNICODE in md
 
 def test_ocr_3():
+    if pymupdf.mupdf_version_tuple < (1, 28):
+        print(f'test_ocr_3(): not running because {pymupdf.mupdf_version=} < 1.28.')
+        return
     print()
     path = os.path.normpath(f'{g_root}/tests/test_ocr_loremipsum_svg.pdf')
     md = pymupdf4llm.to_markdown(path)
