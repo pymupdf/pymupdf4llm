@@ -1,8 +1,7 @@
 import pathlib
 
 import pymupdf
-import pymupdf4llm.helpers.document_layout
-import pymupdf4llm.helpers.pymupdf_rag
+from .helpers import pymupdf_rag, document_layout
 
 from .batch_converter import convert_batch
 

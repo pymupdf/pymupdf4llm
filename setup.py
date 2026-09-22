@@ -4,23 +4,26 @@ import textwrap
 
 import pipcl
 
-VERSION = "0.3.2"
-VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
+TSR_VERSION = "0.4.0"
+ORG_VERSION = "1.28.2"
+VERSION_TUPLE = tuple(int(x) for x in TSR_VERSION.split("."))
 
-pymupdf_version = "1.27.2"
+pymupdf_version = ORG_VERSION
 
-pymupdf_layout_version = "1.27.2"
+pymupdf_layout_version = ORG_VERSION
 
 
 PYMUPDF_SETUP_VERSION = os.environ.get("PYMUPDF_SETUP_VERSION")
 if PYMUPDF_SETUP_VERSION:
     # Allow testing with non-matching pymupdf/layout versions.
-    requires_dist = ["tabulate"]
+    requires_dist = ["tabulate", "psutil"]
 else:
     requires_dist = [
-        f"pymupdf>={pymupdf_version}",
-        f"pymupdf_layout>={pymupdf_layout_version}",
+        f"pymupdf=={pymupdf_version}",
+        f"pymupdf_layout=={pymupdf_layout_version}",
         "tabulate",
+        "psutil",
+        "pillow",
     ]
 
 
@@ -29,10 +32,13 @@ def build():
 
     version_info = textwrap.dedent(f"""
             # Generated file - do not edit.
-            {VERSION=}
+            {TSR_VERSION=}
             {VERSION_TUPLE=}
             """)
     ret.append((version_info.encode("utf-8"), "pymupdf4llm/versions_file.py"))
+
+    _build_py = pipcl.git_info_py(".", check=0, prefix="pymupdf4llm_git_")
+    ret.append((_build_py.encode(), "pymupdf4llm/_build.py"))
 
     for p in pipcl.git_items("src"):
         ret.append((f"src/{p}", f"pymupdf4llm/{p}"))
@@ -49,7 +55,7 @@ def sdist():
 
 p = pipcl.Package(
     "pymupdf4llm-tsr",
-    VERSION,
+    TSR_VERSION,
     requires_dist=requires_dist,
     requires_python=">=3.10",
     pure=True,
@@ -65,10 +71,15 @@ p = pipcl.Package(
         "Programming Language :: Python :: 3",
         "Topic :: Utilities",
     ],
-    license="MIT",
+    license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
     project_url=[
         "Source, https://github.com/iam-tsr/pymupdf4llm",
     ],
+    # We create a `pymupdf4llm` command.
+    entry_points=textwrap.dedent("""
+        [console_scripts]
+        pymupdf4llm = pymupdf4llm.__main__:main
+        """),
     fn_build=build,
     fn_sdist=sdist,
 )

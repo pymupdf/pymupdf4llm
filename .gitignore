@@ -3,5 +3,6 @@ __pycache__
 .env
 
 .venv/
+.vscode/
 dist/
 pymupdf4llm_tsr.egg-info
