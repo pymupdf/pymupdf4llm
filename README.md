@@ -19,7 +19,6 @@ The Image Analyzer is designed to handle the nuance of visual data that standard
 - **Flexible Integration:** Seamlessly integrates into the document layout pipeline by accepting an `analyze_image` parameter in `parse_document()`.
 - **Multiple Backends Supported:**
   - **OpenAIImageAnalyzer:** Uses the OpenAI vision API for high-accuracy analysis.
-  - **GroqImageAnalyzer:** Leverages Groq's inference engine with the `meta-llama/llama-4-scout-17b-16e-instruct` model for fast, cost-effective analysis.
   - **HuggingFaceImageAnalyzer:** Uses the Hugging Face `image-text-to-text` pipeline (default model: `Qwen/Qwen3.5-0.8B`). *Note: Deprecated and scheduled for removal in future versions.*
 
 ### Benchmark Category Averages
