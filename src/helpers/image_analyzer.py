@@ -1,40 +1,22 @@
+"""Image analysis back-ends that describe images for markdown output."""
+
 import base64
+import io
 import warnings
 from abc import ABC, abstractmethod
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 
-prompt_path = Path(__file__).resolve().parent / "prompt" / "visual_descriptor.md"
+_PROMPT_PATH = Path(__file__).resolve().parent / "prompt" / "visual_descriptor.md"
+_PROMPT_IMAGE_ANALYSIS = _PROMPT_PATH.read_text()
 
-_PROMPT_IMAGE_ANALYSIS = prompt_path.read_text()
 
 class BaseImageAnalyzer(ABC):
-    def __init__(
-        self,
-        model: str,
-        prompt: str = _PROMPT_IMAGE_ANALYSIS,
-        max_output_tokens: int = 2048,
-        temperature: float = 0.7,
-        reasoning_effort: str = "none",
-    ) -> None:
-        """
-        Initialize the ImageAnalyzer.
+    """Base class shared by all image analyzer back-ends."""
 
-        Args:
-            image: The image to analyze.
-            inference: The inference engine to use.
-            model: The model to use.
-            prompt: The prompt to use.
-            mime_type: The MIME type of the image.
-            max_output_tokens: The maximum number of output tokens.
-            temperature: The temperature for the inference engine.
-        """
-        self.model = model
+    def __init__(self, prompt: str = _PROMPT_IMAGE_ANALYSIS) -> None:
         self.prompt = prompt
-        self.max_output_tokens = max_output_tokens
-        self.temperature = temperature
-        self.reasoning_effort = reasoning_effort
-    
+
     def image_filter(
         self,
         img: str | bytes,
@@ -42,12 +24,15 @@ class BaseImageAnalyzer(ABC):
         sharpness_factor: float = 1.5,
         contrast_factor: float = 1.3,
     ) -> str:
-        """Pre-process image by applying sharpening, contrast enhancement, and resizing,
-        then encode to base64.
+        """Pre-process an image and return it as a base64-encoded PNG.
+
+        The image is sharpened, contrast-enhanced, and downscaled if its
+        longest side exceeds ``max_size`` (aspect ratio preserved).
 
         Args:
-            img: Image bytes or file path.
-            max_size: max_size: Maximum dimension for the longest side; image is scaled down proportionally if larger or vice versa.
+            img: Image bytes, or a path to an image file.
+            max_size: Maximum length of the longest side; larger images are
+                scaled down proportionally.
             sharpness_factor: Sharpness enhancement factor (1.0 = original).
             contrast_factor: Contrast enhancement factor (1.0 = original).
 
@@ -56,7 +41,6 @@ class BaseImageAnalyzer(ABC):
         """
         try:
             from PIL import Image, ImageEnhance
-            import io
         except ImportError as exc:
             raise ImportError(
                 "`pillow` package not found. Please install it with `pip install pillow`"
@@ -74,6 +58,7 @@ class BaseImageAnalyzer(ABC):
 
         image = ImageEnhance.Sharpness(image).enhance(sharpness_factor)
         image = ImageEnhance.Contrast(image).enhance(contrast_factor)
+
         buf = io.BytesIO()
         image.save(buf, format="PNG")
         png_bytes = buf.getvalue()
@@ -95,44 +80,46 @@ class BaseImageAnalyzer(ABC):
 
 
 class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
-    """
-    Analyze images using Hugging Face pipeline.
-    """
+    """Analyze images using a Hugging Face pipeline (deprecated)."""
+
     def __init__(
-            self, 
-            model_name: str = "Qwen/Qwen3.5-0.8B", 
-            device_map: str = "auto",
-            temperature: float = 0.7,
-            max_output_tokens: int = 2048
-        ):
-        super().__init__(model=model_name)
+        self,
+        model_name: str = "Qwen/Qwen3.5-0.8B",
+        device_map: str = "auto",
+        temperature: float = 0.7,
+        max_output_tokens: int = 2048,
+    ) -> None:
+        super().__init__()
         warnings.warn(
             "HuggingFaceImageAnalyzer is deprecated and will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         self._model_name = model_name
         self.device_map = device_map
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
 
-        # Suppress all warnings
+        # Silence the Hugging Face transformers logging.
         from transformers import logging
+
         logging.set_verbosity_error()
 
     @lru_cache(maxsize=None)
     def _load_model(self):
+        """Load the pipeline once and keep it cached on the instance."""
         try:
             from transformers import pipeline
             import torch
         except ImportError as exc:
             raise ImportError(
-                "`transformers` and `torch` packages not found. please install them with "
-                "`pip install transformers torch`"
+                "`transformers` and `torch` packages not found. Please install them "
+                "with `pip install transformers torch`"
             ) from exc
 
-        pipe = pipeline("image-text-to-text", model=self._model_name, device_map=self.device_map)
-        return pipe
+        return pipeline(
+            "image-text-to-text", model=self._model_name, device_map=self.device_map
+        )
 
     def analyze_image(self, img: str | bytes) -> str:
         img_base64 = self.image_filter(img)
@@ -140,7 +127,7 @@ class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": _PROMPT_IMAGE_ANALYSIS},
+                    {"type": "text", "text": self.prompt},
                     {
                         "type": "image",
                         "image": img_base64,
@@ -150,124 +137,65 @@ class HuggingFaceImageAnalyzer(BaseImageAnalyzer):
             },
         ]
 
-        generate_kwargs = {
-            "do_sample": True,
-            "temperature": self.temperature,
-            "max_new_tokens": self.max_output_tokens,
-        }
-
         pipe = self._load_model()
-        output = pipe(text=messages, **generate_kwargs)
-        return output[0]['generated_text'][-1]['content']
-
-
-class GroqImageAnalyzer(BaseImageAnalyzer):
-    """
-    Analyze images using Groq models.
-    """
-    def __init__(
-            self, 
-            api_key: str,
-            model_name: str = "meta-llama/llama-4-scout-17b-16e-instruct",
-            temperature: float = 0.7,
-            max_output_tokens: int = 2048
-        ):
-        super().__init__(model=model_name)
-        self._model_name = model_name
-        self.temperature = temperature
-        self.max_output_tokens = max_output_tokens
-
-
-    def analyze_image(self, img: str | bytes) -> str:
-        try:
-            import groq
-        except ImportError:
-            raise ImportError(
-                "`groq` package not found. please install it with "
-                "`pip install groq`"
-            )
-
-        img_base64 = self.image_filter(img)
-
-        client = groq.Client()
-        response = client.chat.completions.create(
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": _PROMPT_IMAGE_ANALYSIS},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{img_base64}"
-                            },
-                        },
-                    ],
-                },
-            ],
-            model = self._model_name,
-            max_tokens = self.max_output_tokens,
-            temperature = self.temperature,
-            reasoning_effort = self.reasoning_effort,
+        output = pipe(
+            text=messages,
+            do_sample=True,
+            temperature=self.temperature,
+            max_new_tokens=self.max_output_tokens,
         )
-
-        return (response.choices[0].message.content or "").strip()
+        return output[0]["generated_text"][-1]["content"]
 
 
 class OpenAIImageAnalyzer(BaseImageAnalyzer):
-    """
-    Analyze images using OpenAI models.
-    """
+    """Analyze images using an OpenAI-compatible chat completions API."""
+
     def __init__(
-            self, 
-            api_key: str,
-            base_url: str,
-            model_name: str,
-            temperature: float = 0.7,
-            max_output_tokens: int = 2048
-        ):
-        super().__init__(model=model_name)
+        self,
+        api_key: str,
+        base_url: str = "https://api.openai.com/v1",
+        model_name: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        max_output_tokens: int = 2048,
+        reasoning_effort: str = "none",
+    ) -> None:
+        super().__init__()
         self.api_key = api_key
         self.base_url = base_url
         self._model_name = model_name
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
-
+        self.reasoning_effort = reasoning_effort
 
     def analyze_image(self, img: str | bytes) -> str:
         try:
             import openai
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
-                "`openai` package not found. please install it with "
-                "`pip install openai`"
-            )
+                "`openai` package not found. Please install it with `pip install openai`"
+            ) from exc
 
         img_base64 = self.image_filter(img)
 
-        client = openai.OpenAI(
-            api_key = self.api_key,
-            base_url = self.base_url
-        )
+        client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
         response = client.chat.completions.create(
-            messages = [
+            model=self._model_name,
+            messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": _PROMPT_IMAGE_ANALYSIS},
+                        {"type": "text", "text": self.prompt},
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/png;base64,{img_base64}"
+                                "url": f"data:image/png;base64,{img_base64}",
                             },
                         },
                     ],
                 },
             ],
-            model = self._model_name,
-            max_tokens = self.max_output_tokens,
-            temperature = self.temperature,
-            reasoning_effort = self.reasoning_effort,
+            temperature=self.temperature,
+            max_tokens=self.max_output_tokens,
+            reasoning_effort=self.reasoning_effort,
         )
-
         return (response.choices[0].message.content or "").strip()
