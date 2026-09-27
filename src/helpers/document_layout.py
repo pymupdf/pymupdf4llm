@@ -1349,6 +1349,7 @@ def parse_document(
     ocr_function=None,
     render_html_tables=None,
     edge_threshold=None,
+    progress_callback=None,
 ) -> ParsedDocument:
     original_path = None
     if isinstance(doc, pymupdf.Document):
@@ -1462,7 +1463,8 @@ def parse_document(
             f"'pages' parameter must be None, int, or a sequence of ints < {mydoc.page_count}."
         )
 
-    if show_progress and len(page_filter) >= 5:
+    total_pages = len(page_filter)
+    if show_progress and total_pages >= 5:
         print(f"Parsing {len(page_filter)} pages of '{document.filename}'...")
         page_filter = ProgressBar(page_filter)
 
@@ -1732,6 +1734,8 @@ def parse_document(
 
             pagelayout.boxes.append(layoutbox)
         document.pages.append(pagelayout)
+        if progress_callback is not None:
+            progress_callback(len(document.pages), total_pages)
     if mydoc != doc:
         mydoc.close()
     msg_text = INFO_MESSAGES.getvalue()
