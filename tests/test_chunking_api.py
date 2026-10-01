@@ -114,7 +114,7 @@ def test_chunk_text_contained_in_markdown():
             p = _norm(para)
             if p and not p.startswith("[Figure") and p not in md:
                 missing.append(p[:120])
-    if pymupdf.mupdf_version_tuple >= (1, 29):
+    if pymupdf.mupdf_version_tuple > (1, 29):
         # 2026-09-30: regression mupdf master?
         assert missing == ['We next examined the influence of the siloxy substituent on the reaction outcome (Scheme 2).']
     else:
