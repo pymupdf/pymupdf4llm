@@ -10,10 +10,7 @@ def test_370():
     # https://github.com/ArtifexSoftware/sce/issues/137
     print()
     path = os.path.normpath(f'{__file__}/../../tests/test_370.pdf')
-    if pymupdf.mupdf_version_tuple > (1, 29):
-        path_expected = os.path.normpath(f'{__file__}/../../tests/test_370_expected_1.29.md')
-    else:
-        path_expected = os.path.normpath(f'{__file__}/../../tests/test_370_expected.md')
+    path_expected = os.path.normpath(f'{__file__}/../../tests/test_370_expected.md')
     path_actual = os.path.normpath(f'{__file__}/../../tests/test_370_actual.md')
     
     with open(path_expected, encoding='utf8') as f:
