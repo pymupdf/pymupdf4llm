@@ -82,6 +82,16 @@ md = pymupdf4llm.to_markdown("document.pdf")
 print(md)
 ```
 
+To show progress in a GUI or a batch job, pass a callback. It receives the
+number of selected pages completed and the total number of selected pages:
+
+```python
+md = pymupdf4llm.to_markdown(
+    "document.pdf",
+    progress_callback=lambda done, total: print(f"{done}/{total} pages"),
+)
+```
+
 ### JSON output
 
 ```python
