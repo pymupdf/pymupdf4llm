@@ -413,7 +413,7 @@ def to_markdown(
         extract_words: (bool, False) include "words"-like output in page chunks
         show_progress: (bool, False) print progress as each page is processed.
         use_glyphs: (bool, False) replace the Invalid Unicode by glyph numbers.
-        ignore_alpha: (bool, True) ignore text with alpha = 0 (transparent).
+        ignore_alpha: (bool, False) ignore text with alpha = 0 (transparent).
 
     """
     if kwargs.keys():
