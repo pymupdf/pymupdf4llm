@@ -31,6 +31,7 @@ def get_raw_lines(
     tolerance=3,
     ignore_invisible=True,
     only_horizontal=True,
+    require_x_continuity=False,
 ):
     """Extract the text spans from a TextPage in natural reading sequence.
 
@@ -55,6 +56,20 @@ def get_raw_lines(
               coordinate differ by no more than this value.
         ignore_invisible: (bool) if True, invisible text is ignored. This may
               have been set to False for pages with OCR text.
+        require_x_continuity: (bool) if True, two spans that are vertically
+              close enough to join (per `tolerance`) are only actually joined
+              into one synthesized line if they are also horizontally
+              contiguous -- i.e. not separated by a gap much larger than a
+              normal inter-word space. Without this, a source block whose
+              lines occupy two distinct, disjoint x-ranges (most commonly
+              when the underlying PDF/MuPDF block detection has mistakenly
+              fused two side-by-side columns into a single block, e.g. a
+              wrapped label sharing a block with an unrelated value cell
+              because they partially share a y-range) gets its unrelated
+              same-row content spliced into one output line. Off by default
+              because some callers (e.g. `get_text_lines(ocr=True)`'s table
+              reconstruction) intentionally rely on wide same-row gaps being
+              preserved within one line to recover table columns.
 
     Returns:
         A sorted list of items (rect, [spans]), each representing one line. The
@@ -66,6 +81,17 @@ def get_raw_lines(
         large inter-span distances.
     """
     y_delta = tolerance  # allowable vertical coordinate deviation
+    # Purely geometric threshold for "same visual line" horizontal continuity:
+    # normal inter-word/inter-span gaps are a small fraction of the font size;
+    # a gap of several font-sizes strongly indicates a different column, not
+    # a continuation of the same line. Floored so tiny fonts don't produce a
+    # near-zero threshold.
+    _X_GAP_EM_MULTIPLIER = 4.0
+    _X_GAP_MIN = 5.0
+
+    def x_gap(rect_a, rect_b):
+        """Horizontal gap between two rects; 0 if they overlap in x."""
+        return max(0.0, rect_b.x0 - rect_a.x1, rect_a.x0 - rect_b.x1)
 
     def sanitize_spans(line):
         """Sort and join the spans in a re-synthesized line.
@@ -170,7 +196,15 @@ def get_raw_lines(
         sbbox = s["bbox"]  # this bbox
         sbbox0 = line[-1]["bbox"]  # previous bbox
         # if any of top or bottom coordinates are close enough, join...
-        if abs(sbbox.y1 - sbbox0.y1) <= y_delta or abs(sbbox.y0 - sbbox0.y0) <= y_delta:
+        y_ok = abs(sbbox.y1 - sbbox0.y1) <= y_delta or abs(sbbox.y0 - sbbox0.y0) <= y_delta
+        if y_ok and require_x_continuity:
+            # Check continuity against the whole accumulated line rect, not
+            # just the last-appended span -- spans are sorted globally by
+            # y1, so "last appended" isn't necessarily the one geometrically
+            # nearest in x.
+            max_gap = max(_X_GAP_MIN, s.get("size", 0) * _X_GAP_EM_MULTIPLIER)
+            y_ok = x_gap(lrect, sbbox) <= max_gap
+        if y_ok:
             line.append(s)  # append to this line
             lrect |= sbbox  # extend line rectangle
             continue
@@ -188,7 +222,68 @@ def get_raw_lines(
     line = sanitize_spans(line)
     nlines.append([lrect, line])
 
+    if require_x_continuity:
+        nlines = _reorder_multi_column_lines_within_block(nlines)
+
     return nlines
+
+
+# Line rects within one source block are normally left-aligned at (nearly)
+# the same x0. A gap this much larger indicates the block's lines actually
+# occupy two distinct columns (see require_x_continuity above for why that
+# can happen), not an ordinary nested-indent jitter within one column.
+_BLOCK_COLUMN_X_GAP = 20.0
+
+
+def _reorder_multi_column_lines_within_block(nlines):
+    """Within any single source block whose synthesized lines still span
+    more than one x-cluster after the horizontal-continuity fix above (i.e.
+    a block whose *lines* -- not just individual same-row spans -- occupy
+    two disjoint x-ranges), re-emit that block's lines in column-major
+    order: each column's lines top-to-bottom, left column before right --
+    instead of the default single sort-by-y order, which would otherwise
+    still interleave the two columns row by row.
+
+    Purely geometric (line rect x0 proximity only). A block whose lines are
+    all left-aligned at (nearly) the same x0 -- the normal, single-column
+    case -- yields one cluster and is left untouched. Only reorders
+    positions already occupied by entries from the same block; the
+    relative position of different blocks in `nlines` is unchanged.
+    """
+    if not nlines:
+        return nlines
+
+    block_positions = {}
+    for i, (_, spans) in enumerate(nlines):
+        bno = spans[0]["block"] if spans else None
+        block_positions.setdefault(bno, []).append(i)
+
+    result = list(nlines)
+    for bno, positions in block_positions.items():
+        if bno is None or len(positions) < 2:
+            continue
+        entries = [nlines[i] for i in positions]
+
+        order_by_x0 = sorted(range(len(entries)), key=lambda i: entries[i][0].x0)
+        clusters = [[order_by_x0[0]]]
+        for i in order_by_x0[1:]:
+            prev = clusters[-1][-1]
+            if entries[i][0].x0 - entries[prev][0].x0 <= _BLOCK_COLUMN_X_GAP:
+                clusters[-1].append(i)
+            else:
+                clusters.append([i])
+        if len(clusters) < 2:
+            continue  # single column -- nothing to reorder
+
+        clusters.sort(key=lambda c: min(entries[i][0].x0 for i in c))
+        new_order = []
+        for cluster in clusters:
+            new_order.extend(sorted(cluster, key=lambda i: entries[i][0].y0))
+
+        for pos, i in zip(positions, new_order):
+            result[pos] = entries[i]
+
+    return result
 
 
 def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr=False):
