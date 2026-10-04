@@ -228,10 +228,12 @@ def get_raw_lines(
     return nlines
 
 
-# Line rects within one source block are normally left-aligned at (nearly)
-# the same x0. A gap this much larger indicates the block's lines actually
-# occupy two distinct columns (see require_x_continuity above for why that
-# can happen), not an ordinary nested-indent jitter within one column.
+# Two line rects belong to genuinely distinct columns only if their
+# x-ranges are actually disjoint by at least this much -- not merely
+# because their x0 values differ. An indented first line or a centred
+# line legitimately has a different x0 from the rest of its paragraph,
+# but its x-range still overlaps the paragraph's other lines; a real
+# second column's lines never overlap the first column's at all.
 _BLOCK_COLUMN_X_GAP = 20.0
 
 
@@ -244,9 +246,10 @@ def _reorder_multi_column_lines_within_block(nlines):
     instead of the default single sort-by-y order, which would otherwise
     still interleave the two columns row by row.
 
-    Purely geometric (line rect x0 proximity only). A block whose lines are
-    all left-aligned at (nearly) the same x0 -- the normal, single-column
-    case -- yields one cluster and is left untouched. Only reorders
+    Purely geometric (line rect x-range overlap only -- see
+    _BLOCK_COLUMN_X_GAP). A block whose lines all overlap in x (the normal
+    single-column case, including an indented first line or a centred
+    paragraph) yields one cluster and is left untouched. Only reorders
     positions already occupied by entries from the same block; the
     relative position of different blocks in `nlines` is unchanged.
     """
@@ -266,12 +269,18 @@ def _reorder_multi_column_lines_within_block(nlines):
 
         order_by_x0 = sorted(range(len(entries)), key=lambda i: entries[i][0].x0)
         clusters = [[order_by_x0[0]]]
+        cluster_max_x1 = entries[order_by_x0[0]][0].x1
         for i in order_by_x0[1:]:
-            prev = clusters[-1][-1]
-            if entries[i][0].x0 - entries[prev][0].x0 <= _BLOCK_COLUMN_X_GAP:
+            rect = entries[i][0]
+            if rect.x0 - cluster_max_x1 <= _BLOCK_COLUMN_X_GAP:
+                # Overlaps (or nearly touches) the running cluster's own
+                # horizontal extent so far -- same column, regardless of
+                # how far its own x0 drifted from any single other line.
                 clusters[-1].append(i)
+                cluster_max_x1 = max(cluster_max_x1, rect.x1)
             else:
                 clusters.append([i])
+                cluster_max_x1 = rect.x1
         if len(clusters) < 2:
             continue  # single column -- nothing to reorder
 

@@ -120,6 +120,63 @@ def test_single_column_multiline_block_is_unaffected():
     ]
 
 
+def _indented_first_line_block():
+    """A genuine wrapped paragraph whose first line is indented (e.g. a
+    typical prose paragraph opening). All lines' x-ranges overlap heavily
+    (they share the same wrap width), even though the first line's x0 sits
+    well to the right of the other lines' x0 -- this must never be read as
+    a second column."""
+    l1 = _line([_span("    Indented opening line of the ", 120.0, 400.0, 300.0, 410.0)], 120.0, 400.0, 300.0, 410.0)
+    l2 = _line([_span("paragraph continues here without ", 92.0, 412.0, 300.0, 422.0)], 92.0, 412.0, 300.0, 422.0)
+    l3 = _line([_span("any indentation on wrapped lines.", 92.0, 424.0, 290.0, 434.0)], 92.0, 424.0, 290.0, 434.0)
+    bbox = (92.0, 400.0, 300.0, 434.0)
+    return {"type": 0, "bbox": bbox, "lines": [l1, l2, l3]}
+
+
+def _centred_paragraph_block():
+    """A genuine centred paragraph: each line's x0 (and x1) varies by
+    design because the line is centred around a shared midpoint, not
+    because it belongs to a different column. Ranges overlap around that
+    shared centre, so this must also never be read as multiple columns."""
+    l1 = _line([_span("Short title", 180.0, 400.0, 220.0, 410.0)], 180.0, 400.0, 220.0, 410.0)
+    l2 = _line([_span("A rather longer centred subtitle line", 100.0, 412.0, 300.0, 422.0)], 100.0, 412.0, 300.0, 422.0)
+    l3 = _line([_span("Mid-length line", 140.0, 424.0, 260.0, 434.0)], 140.0, 424.0, 260.0, 434.0)
+    bbox = (100.0, 400.0, 300.0, 434.0)
+    return {"type": 0, "bbox": bbox, "lines": [l1, l2, l3]}
+
+
+def test_indented_first_line_paragraph_retains_reading_order():
+    """Regression test for the reviewer-flagged false positive: an
+    indented first line must not be reordered after the rest of the
+    paragraph just because its x0 differs -- its x-range still overlaps
+    the other lines', so this is one column, not two."""
+    clip = pymupdf.Rect(0, 0, 600, 800)
+    texts = _extract_texts(
+        get_raw_lines(blocks=[_indented_first_line_block()], clip=clip, require_x_continuity=True)
+    )
+    assert texts == [
+        "    Indented opening line of the ",
+        "paragraph continues here without ",
+        "any indentation on wrapped lines.",
+    ]
+
+
+def test_centred_paragraph_retains_reading_order():
+    """Regression test for the reviewer-flagged false positive: centred
+    lines legitimately vary in x0/x1 line to line; their ranges overlap
+    around the shared centre, so this must stay one column, top to
+    bottom, not be split and reordered."""
+    clip = pymupdf.Rect(0, 0, 600, 800)
+    texts = _extract_texts(
+        get_raw_lines(blocks=[_centred_paragraph_block()], clip=clip, require_x_continuity=True)
+    )
+    assert texts == [
+        "Short title",
+        "A rather longer centred subtitle line",
+        "Mid-length line",
+    ]
+
+
 def test_end_to_end_glossary_page_via_to_markdown():
     """End-to-end sanity check through the public to_markdown() API on a
     synthetic multi-row glossary-style page. Uses insert_text-generated
