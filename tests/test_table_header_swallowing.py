@@ -12,10 +12,12 @@ boundaries are drawn purely as solid background-color fills (row/column
 shading, no ruled grid at all -- exactly what the real repro document does)
 is therefore invisible to "lines_strict": `find_tables()` returns *zero*
 tables for the whole region, not a degraded one, and the table's content is
-lost into loose paragraph text. The fix retries with the more lenient
-"lines" strategy (which still requires vector graphics, but accepts
-fill-derived edges too) whenever the first "lines_strict" call comes back
-with no `row_count >= 2 and col_count >= 2` table, before giving up.
+lost into loose paragraph text. The fix lets callers opt into a retry by
+passing a sequence of strategies, e.g. `("lines_strict", "lines")`: each
+is tried in order until one finds a `row_count >= 2 and col_count >= 2`
+table. "lines" still requires vector graphics but accepts fill-derived
+edges too. A plain "lines_strict" request keeps its meaning and never
+falls back.
 
 Fix 2 (AI-layout path -- src/helpers/document_layout.py, `get_table_details`):
 The Layout model's own row-0 boundary can be an outlier that swallows
@@ -180,15 +182,17 @@ def test_find_tables_lines_strict_misses_fill_only_table_but_lines_finds_it():
     doc.close()
 
 
+_STRICT_THEN_LINES = ("lines_strict", "lines")
+
+
 def test_to_markdown_recovers_fill_only_table_instead_of_losing_it_to_paragraph_text():
-    """End-to-end: exercises the actual fallback retry logic in
-    pymupdf_rag.py's to_markdown(), which defaults to table_strategy=
-    "lines_strict". Without the retry, this table's content would still
+    """End-to-end: exercises the opt-in fallback retry in pymupdf_rag.py's
+    to_markdown(). Without the retry, this table's content would still
     appear in the output, but as loose paragraph text rather than a table
     -- so also assert the content landed inside an actual markdown table,
     not merely somewhere in the page text."""
     doc = _make_fill_only_table_pdf()
-    md = pymupdf4llm.to_markdown(doc)
+    md = pymupdf4llm.to_markdown(doc, table_strategy=_STRICT_THEN_LINES)
 
     for r in range(3):
         for c in range(3):
@@ -198,6 +202,88 @@ def test_to_markdown_recovers_fill_only_table_instead_of_losing_it_to_paragraph_
         f"table content was not extracted as a markdown table:\n{md!r}"
     )
     doc.close()
+
+
+def test_explicit_lines_strict_does_not_fall_back_to_lines():
+    """An explicit (or default) "lines_strict" request keeps its meaning:
+    the fill-only table is not detected, rather than being silently
+    re-detected with "lines"."""
+    doc = _make_fill_only_table_pdf()
+    for md in (
+        pymupdf4llm.to_markdown(doc),
+        pymupdf4llm.to_markdown(doc, table_strategy="lines_strict"),
+    ):
+        assert "|Cell0_0|" not in md, f"lines_strict fell back to another strategy:\n{md!r}"
+    doc.close()
+
+
+def test_fallback_retry_does_not_run_when_the_first_strategy_finds_a_table(monkeypatch):
+    """The retry only happens when the earlier strategy finds nothing, so
+    a page that "lines_strict" handles is searched exactly once."""
+    doc = _make_fill_only_table_pdf()
+    calls = []
+    orig = pymupdf.Page.find_tables
+
+    def spy(self, *args, **kwargs):
+        calls.append(kwargs.get("strategy"))
+        return orig(self, *args, **kwargs)
+
+    monkeypatch.setattr(pymupdf.Page, "find_tables", spy)
+    pymupdf4llm.to_markdown(doc, table_strategy=("lines", "lines_strict"))
+    assert calls == ["lines"]
+    doc.close()
+
+
+def _make_bar_chart_pdf():
+    """Filled bars standing on a ruled axis, labelled underneath."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    shape = page.new_shape()
+    shape.draw_line((100, 400), (100, 200))
+    shape.draw_line((100, 400), (400, 400))
+    shape.finish(color=(0, 0, 0), width=1)
+    for i, h in enumerate([120, 80, 160, 60, 140]):
+        x = 120 + i * 55
+        shape.draw_rect(pymupdf.Rect(x, 400 - h, x + 35, 400))
+        shape.finish(fill=(0.3, 0.5, 0.8), color=None, width=0)
+    shape.commit()
+    page.insert_text((100, 190), "Revenue by quarter", fontsize=11)
+    for i in range(5):
+        page.insert_text((120 + i * 55, 415), f"Q{i}", fontsize=9)
+    return doc
+
+
+def _make_decorative_fills_pdf():
+    """A title banner, a subtitle band and two side-by-side callout boxes,
+    all drawn as adjacent fills with text inside them."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    shape = page.new_shape()
+    for rect, color in [
+        ((72, 72, 540, 110), (0.1, 0.2, 0.4)),
+        ((72, 110, 540, 130), (0.9, 0.9, 0.9)),
+        ((72, 200, 300, 300), (0.95, 0.95, 0.8)),
+        ((300, 200, 540, 300), (0.8, 0.95, 0.95)),
+    ]:
+        shape.draw_rect(pymupdf.Rect(rect))
+        shape.finish(fill=color, color=None, width=0)
+    shape.commit()
+    page.insert_text((80, 95), "Annual Report 2025", fontsize=16)
+    page.insert_text((80, 124), "Subtitle band text", fontsize=9)
+    page.insert_text((80, 220), "Left callout box text here", fontsize=9)
+    page.insert_text((80, 240), "second line left", fontsize=9)
+    page.insert_text((310, 220), "Right callout box text", fontsize=9)
+    return doc
+
+
+def test_fallback_does_not_read_charts_or_decorative_fills_as_tables():
+    """False-positive check for the opt-in retry: neither a bar chart nor
+    decorative banner/callout fills become a table under "lines"."""
+    for make in (_make_bar_chart_pdf, _make_decorative_fills_pdf):
+        doc = make()
+        md = pymupdf4llm.to_markdown(doc, table_strategy=_STRICT_THEN_LINES)
+        assert "|---" not in md, f"{make.__name__} was read as a table:\n{md!r}"
+        doc.close()
 
 
 # ---------------------------------------------------------------------------

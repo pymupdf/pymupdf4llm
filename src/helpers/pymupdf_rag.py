@@ -399,7 +399,11 @@ def to_markdown(
         dpi: (int) desired resolution for generated images.
         page_width: (float) assumption if page layout is variable.
         page_height: (float) assumption if page layout is variable.
-        table_strategy: choose table detection strategy
+        table_strategy: choose table detection strategy. A sequence of
+            strategies, e.g. ("lines_strict", "lines"), is tried in order
+            until one finds a table, which can recover tables whose cells
+            are bounded only by fill colors at the risk of also reading
+            labelled fill grids (e.g. heatmaps) as tables.
         table_output: ("markdown" or "html") render tables as markdown (default)
             or as reconstructed HTML <table> via pymupdf4llm.helpers.table_html.
         graphics_limit: (int) if vector graphics count exceeds this, ignore all.
@@ -1158,21 +1162,21 @@ def to_markdown(
                     {"bbox": tuple(tab_rects[i]), "rows": rows, "columns": cols}
                 )
         else:
-            tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
-            found = [t for t in tabs.tables if t.row_count >= 2 and t.col_count >= 2]
-            if not found and table_strategy == "lines_strict":
-                # "lines_strict" requires an unbroken ruled border on every cell
-                # edge, so a table with thin, partial, or gray-fill-only borders
-                # (e.g. sparse budget/form tables) is not merely under-segmented
-                # but missed entirely -- find_tables() returns zero tables for
-                # the whole page region, not a degraded one. Falling through
-                # silently drops the table's content into loose paragraph text
-                # (see fork issue: page 65 of 6634064.pdf loses its whole budget
-                # table this way). Retry with the more lenient "lines" strategy,
-                # which still requires ruled lines but tolerates gaps/partial
-                # borders, before giving up on the table.
-                tabs = page.find_tables(clip=parms.clip, strategy="lines")
+            if isinstance(table_strategy, str):
+                strategies = [table_strategy]
+            else:
+                strategies = list(table_strategy)
+            # "lines_strict" ignores fill-only cell boundaries, so it finds
+            # no table at all on pages whose tables are drawn with background
+            # fills instead of ruled lines; their content then ends up as
+            # paragraph text. Callers can opt into a more lenient retry (e.g.
+            # "lines") by passing several strategies; the first that finds a
+            # table wins.
+            for strategy in strategies:
+                tabs = page.find_tables(clip=parms.clip, strategy=strategy)
                 found = [t for t in tabs.tables if t.row_count >= 2 and t.col_count >= 2]
+                if found:
+                    break
             parms.tabs = found
             parms.tabs.sort(key=lambda t: (t.bbox[0], t.bbox[1]))
 
