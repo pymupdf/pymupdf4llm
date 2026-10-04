@@ -15,6 +15,7 @@ import tabulate
 from pymupdf import mupdf
 from pymupdf4llm.helpers import utils
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+from pymupdf4llm.helpers.table_grid_repair import repair_grid_gaps
 from pymupdf4llm.ocr import OCRMode
 
 try:
@@ -68,8 +69,8 @@ BULLETS = tuple(utils.BULLETS)
 # detection is noisy enough between boxes of the very same table to drift
 # 10+ points and even disagree on the number of columns (one box's row
 # grid under/over-splitting a column relative to the next box's) -- that
-# per-box grid noise is the separate, out-of-scope "Bug 2" (grid boundary
-# under-prediction), and requiring interior-grid agreement here made this
+# per-box grid noise (boundary under-prediction, which repair_grid_gaps()
+# only partly undoes), and requiring interior-grid agreement here made this
 # continuation check fail on exactly the real-world case it exists for.
 # The outer bbox is a much more stable signal, so it is only the first,
 # geometric gate. Matching outer bounds alone would also accept an
@@ -488,7 +489,14 @@ def get_table_details(tab_dict, table_blocks, prev_table=None):
                 excluded_textlines.append({"bbox": group_rect, "spans": group_spans})
             h_lines = h_lines[1:]  # drop row 0's boundary; table now starts at row 1
         else:
-            colspan_rects = colspan_lines
+            colspan_rects = [rect for rect, _touched in colspan_lines]
+
+    # The model's grid can also miss interior row/column boundaries; insert
+    # those that the table's own text geometry clearly shows. A continuation
+    # box keeps the previous box's columns, so only its rows are repaired.
+    h_lines, v_lines = repair_grid_gaps(
+        table_blocks, h_lines, v_lines, columns=not is_continuation
+    )
 
     tab_det.row_count = len(h_lines) - 1
     tab_det.col_count = len(v_lines) - 1
@@ -511,20 +519,22 @@ def get_table_details(tab_dict, table_blocks, prev_table=None):
         extract.append(text_row)
         md_cells.append(md_row)
     if colspan_rects:
-        # Nothing after classification ever mutates h_lines/v_lines (no
-        # grid-repair pass exists yet at this point in the codebase), so a
-        # colspan line's touched columns are still valid, and it always
-        # belongs to row 0 -- row 0 is the only row row0_lines was ever
-        # drawn from, and it cannot have been split into more than one
-        # final grid row.
-        for rect, touched in colspan_rects:
+        # A colspan line was found in row 0 of the model's grid, before the
+        # repair above may have added boundaries, so locate its row and
+        # columns in the final grid from its geometry.
+        for rect in colspan_rects:
             text = utils.extract_cells(table_blocks, rect, markdown=False, ocrpage=False)
             md_text = utils.extract_cells(table_blocks, rect, markdown=True, ocrpage=False)
             if not text:
                 continue
-            for j in touched:
-                extract[0][j] = text
-                md_cells[0][j] = md_text
+            center_y = (rect.y0 + rect.y1) / 2
+            i = next(
+                (k for k in range(tab_det.row_count) if center_y < h_lines[k + 1]),
+                tab_det.row_count - 1,
+            )
+            for j in _touched_columns(rect, v_lines):
+                extract[i][j] = text
+                md_cells[i][j] = md_text
     tab_det.cells = cells
     tab_det.extract = extract
     tab_det.excluded_textlines = excluded_textlines
