@@ -98,7 +98,11 @@ import pymupdf
 import pytest
 
 import pymupdf4llm
-from pymupdf4llm.helpers.document_layout import get_table_details
+from pymupdf4llm.helpers.document_layout import (
+    get_table_details,
+    text_to_md,
+    text_to_text,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -272,6 +276,15 @@ def _extract_flat(det):
     return [cell for row in det.extract for cell in row]
 
 
+def _excluded_text(det):
+    """Joined plain text of det.excluded_textlines -- the real "text" box
+    the caller inserts ahead of the table (see document_layout.py's
+    preceding_text_box) now carries this content, not det.markdown."""
+    return " ".join(
+        s["text"] for tl in (det.excluded_textlines or []) for s in tl["spans"]
+    )
+
+
 def test_swallowed_single_line_title_is_excluded_from_row_0():
     """Row 0 contains ONE reconstructed text line whose x-range crosses an
     interior column boundary, and the row is sparse (1 line for 3
@@ -301,7 +314,8 @@ def test_swallowed_single_line_title_is_excluded_from_row_0():
 
     assert det.col_count == 3
     assert det.row_count == 3  # row 0's boundary was dropped
-    assert det.markdown.startswith("PRACOVNY BALIK 3-2 Project Title Long Text")
+    assert "PRACOVNY BALIK 3-2 Project Title Long Text" in _excluded_text(det)
+    assert not det.markdown.startswith("PRACOVNY")
     assert det.extract == [
         [f"R{r}C{c}" for c in range(3)] for r in range(3)
     ]
@@ -337,14 +351,57 @@ def test_swallowed_multi_line_title_and_footer_is_excluded_from_row_0():
 
     assert det.col_count == 3
     assert det.row_count == 2  # row 0's boundary was dropped
-    assert det.markdown.startswith(
-        "PROJECT TITLE HERE\nPage 5 of 12 -- running footer text"
-    )
+    excluded_text = _excluded_text(det)
+    assert "PROJECT TITLE HERE" in excluded_text
+    assert "Page 5 of 12 -- running footer text" in excluded_text
+    assert not det.markdown.startswith("PROJECT")
     assert det.extract == [
         [f"R{r}C{c}" for c in range(3)] for r in range(2)
     ]
     for cell in _extract_flat(det):
         assert "PROJECT" not in cell and "footer" not in cell
+
+
+def test_excluded_textlines_render_via_text_to_md_and_text_to_text():
+    """Regression test for the reviewer-flagged content loss: the caller
+    (document_layout.py's per-box loop) renders det.excluded_textlines as a
+    genuine "text" LayoutBox via text_to_md()/text_to_text() -- the same
+    functions used for every other text box -- so this content must
+    survive in BOTH to_markdown() and to_text() output, not just
+    `.markdown`. Also confirms spans from the title and the footer (two
+    originally separate text blocks) come out separated by whitespace, not
+    glued together, since text_to_md/text_to_text insert a space after
+    every span regardless of which original line/block it came from."""
+    x0, y0 = 100.0, 100.0
+    col_w, ncols = 100.0, 3
+    row0_h, data_row_h, nrows_data = 24.0, 20.0, 2
+    x1 = x0 + col_w * ncols
+    y_after_row0 = y0 + row0_h
+    y1 = y_after_row0 + data_row_h * nrows_data
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[x0 + col_w, x0 + 2 * col_w],
+        interior_h_abs=[y_after_row0 + data_row_h * i for i in range(nrows_data)],
+    )
+    title_block = _text_block("PROJECT TITLE HERE", x0 + 10, y0 + 2, x0 + 250, y0 + 12)
+    footer_block = _text_block(
+        "Page 5 of 12 -- running footer text", x0 + 10, y0 + 14, x0 + 260, y0 + 24
+    )
+    blocks = [title_block, footer_block] + _data_row_blocks(
+        x0, y_after_row0, col_w, data_row_h, ncols, nrows_data
+    )
+
+    det = get_table_details(tab_dict, blocks)
+    assert det.excluded_textlines
+
+    md = text_to_md(det.excluded_textlines)
+    text = text_to_text(det.excluded_textlines)
+    for rendered in (md, text):
+        assert "PROJECT TITLE HERE" in rendered
+        assert "Page 5 of 12" in rendered
+        # Never glued across the title/footer boundary with no separator.
+        assert "HEREPage" not in rendered
 
 
 def test_genuine_multiline_header_row_with_glued_adjacent_labels_is_not_excluded():
@@ -555,7 +612,8 @@ def test_single_fragment_title_crossing_several_but_not_all_columns_is_still_exc
 
     assert det.col_count == 9
     assert det.row_count == nrows_data  # row 0's boundary was dropped
-    assert det.markdown.startswith("PRACOVNY BALIK: 3-2 Project Title Spanning The Middle")
+    assert "PRACOVNY BALIK: 3-2 Project Title Spanning The Middle" in _excluded_text(det)
+    assert not det.markdown.startswith("PRACOVNY")
     for cell in _extract_flat(det):
         assert "PRACOVNY" not in cell and "BALIK" not in cell
 

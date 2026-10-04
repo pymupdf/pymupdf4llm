@@ -248,7 +248,7 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
     # through the column grid and come out interleaved either way. Instead,
     # drop row 0 from the grid entirely and emit its lines as a plain text
     # block ahead of the table.
-    excluded_header_text = None
+    excluded_textlines = []
     colspan_rects = []  # row-0 lines kept in the grid that span >1 column
     if not is_continuation and len(h_lines) > 1 and table_blocks:
         row0_rect = pymupdf.Rect(x0, h_lines[0], x1, h_lines[1])
@@ -385,13 +385,20 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
                     row_groups[-1].append((rect, spans))
                 else:
                     row_groups.append([(rect, spans)])
-            text_lines = []
+            # Keep each row's original spans (not a pre-joined string) so
+            # the excluded content can be rendered as a real "text" box by
+            # the same text_to_md()/text_to_text() span-joining logic every
+            # other text box already goes through -- that already inserts
+            # proper inter-span spacing, and (unlike tab_det.markdown) is
+            # visible to to_text()/extract too.
             for group in row_groups:
                 group.sort(key=lambda item: item[0].x0)
-                text_lines.append(
-                    " ".join("".join(s["text"] for s in spans) for _, spans in group)
-                )
-            excluded_header_text = "\n".join(text_lines)
+                group_rect = group[0][0]
+                group_spans = []
+                for rect, spans in group:
+                    group_rect |= rect
+                    group_spans.extend(spans)
+                excluded_textlines.append({"bbox": group_rect, "spans": group_spans})
             h_lines = h_lines[1:]  # drop row 0's boundary; table now starts at row 1
         else:
             colspan_rects = colspan_lines
@@ -433,11 +440,8 @@ def get_table_details(tab_dict, table_blocks, is_continuation=False):
                 md_cells[0][j] = md_text
     tab_det.cells = cells
     tab_det.extract = extract
-    table_markdown = utils.table_to_markdown(md_cells, skip_header=is_continuation)
-    if excluded_header_text:
-        tab_det.markdown = excluded_header_text + "\n\n" + table_markdown
-    else:
-        tab_det.markdown = table_markdown
+    tab_det.excluded_textlines = excluded_textlines
+    tab_det.markdown = utils.table_to_markdown(md_cells, skip_header=is_continuation)
     return tab_det
 
 
@@ -1255,6 +1259,12 @@ class TableDetails:
     cells: list = None  # list of list of cell bbox coordinates
     extract: list = None  # list of list of cell plain text content
     markdown: str = None  # table markdown content
+    # content hoisted out of row 0 because it was foreign to the table (a
+    # leaked title/running header, see get_table_details) -- in the same
+    # {"bbox":..., "spans":...} shape as LayoutBox.textlines, so the caller
+    # can render it as a genuine preceding "text" box instead of folding it
+    # into `markdown` (which to_text()/extract never sees).
+    excluded_textlines: list = None
 
 
 @dataclass
@@ -1917,6 +1927,12 @@ def parse_document(
         for box in page.layout_information:
             layoutbox = LayoutBox(*box)
             clip = pymupdf.Rect(box[:4])
+            # Set below when a table's row 0 turns out to be foreign
+            # content (see get_table_details's excluded_textlines) -- a
+            # genuine preceding "text" box, inserted just before this
+            # table's own box, so to_markdown() AND to_text() both see it
+            # (tab_details.markdown alone is invisible to to_text()).
+            preceding_text_box = None
 
             # Page-header/-footer furniture doesn't break table continuity
             # (it appears between the table and the page edge on purpose);
@@ -2029,6 +2045,18 @@ def parse_document(
                             "markdown": tab_details.markdown,
                             "is_continuation": is_continuation,
                         }
+                        if tab_details.excluded_textlines:
+                            excl_bbox = tab_details.excluded_textlines[0]["bbox"]
+                            for tl in tab_details.excluded_textlines[1:]:
+                                excl_bbox |= tl["bbox"]
+                            preceding_text_box = LayoutBox(
+                                x0=excl_bbox.x0,
+                                y0=excl_bbox.y0,
+                                x1=excl_bbox.x1,
+                                y1=excl_bbox.y1,
+                                boxclass="text",
+                                textlines=tab_details.excluded_textlines,
+                            )
                     else:
                         layoutbox.table = {
                             "bbox": [
@@ -2070,6 +2098,8 @@ def parse_document(
                     header_fontsizes.add(max_fontsize)
                     layoutbox.max_fontsize = max_fontsize
 
+            if preceding_text_box is not None:
+                pagelayout.boxes.append(preceding_text_box)
             pagelayout.boxes.append(layoutbox)
         document.pages.append(pagelayout)
     if mydoc != doc:
