@@ -95,9 +95,8 @@ block-fusion behavior for a similar reason.
 from types import SimpleNamespace
 
 import pymupdf
-import pytest
-
 import pymupdf4llm
+import pytest
 from pymupdf4llm.helpers.document_layout import (
     get_table_details,
     text_to_md,
@@ -321,6 +320,38 @@ def test_swallowed_single_line_title_is_excluded_from_row_0():
     ]
     for cell in _extract_flat(det):
         assert "PRACOVNY" not in cell and "BALIK" not in cell
+
+
+def test_foreign_looking_row_0_is_kept_when_it_is_the_tables_only_row():
+    """Regression test for the single-row guard: if the grid has exactly
+    one row and that row's content looks foreign (sparse, crossing a
+    column boundary -- the same signal that triggers exclusion when a
+    real data row exists underneath), it must NOT be hoisted out. Doing
+    so would leave zero rows, which the markdown renderer cannot handle,
+    and there is no data row left to even benefit from the exclusion."""
+    x0, y0 = 100.0, 100.0
+    col_w, ncols = 100.0, 3
+    row0_h = 20.0
+    x1 = x0 + col_w * ncols
+    y1 = y0 + row0_h
+
+    tab_dict = _make_tab_dict(
+        x0, y0, x1, y1,
+        interior_v_abs=[x0 + col_w, x0 + 2 * col_w],
+        interior_h_abs=[],  # no interior row boundary -- exactly one row
+    )
+    # Same sparse, boundary-crossing shape used elsewhere in this file to
+    # trigger the leak classification.
+    title_block = _text_block(
+        "PRACOVNY BALIK 3-2 Project Title Long Text", x0 + 10, y0 + 5, x1 - 20, y0 + 15
+    )
+
+    det = get_table_details(tab_dict, [title_block])
+
+    assert det.col_count == 3
+    assert det.row_count == 1  # never dropped to 0
+    assert not det.excluded_textlines
+    assert "PRACOVNY" in " ".join(_extract_flat(det))
 
 
 def test_swallowed_multi_line_title_and_footer_is_excluded_from_row_0():
