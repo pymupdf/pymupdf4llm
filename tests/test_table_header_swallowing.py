@@ -11,8 +11,10 @@ solid-fill rectangle whose width AND height both exceed the snap tolerance
 boundaries are drawn purely as solid background-color fills (row/column
 shading, no ruled grid at all -- exactly what the real repro document does)
 is therefore invisible to "lines_strict": `find_tables()` returns *zero*
-tables for the whole region, not a degraded one, and the table's content is
-lost into loose paragraph text. The fix lets callers opt into a retry by
+tables for the whole region, not a degraded one. The table's text is then
+not even kept as plain paragraphs: it sits inside a vector-graphic cluster,
+whose text the legacy path drops, so it is missing from the output
+entirely. The fix lets callers opt into a retry by
 passing a sequence of strategies, e.g. `("lines_strict", "lines")`: each
 is tried in order until one finds a `row_count >= 2 and col_count >= 2`
 table. "lines" still requires vector graphics but accepts fill-derived
@@ -185,12 +187,11 @@ def test_find_tables_lines_strict_misses_fill_only_table_but_lines_finds_it():
 _STRICT_THEN_LINES = ("lines_strict", "lines")
 
 
-def test_to_markdown_recovers_fill_only_table_instead_of_losing_it_to_paragraph_text():
+def test_to_markdown_recovers_fill_only_table():
     """End-to-end: exercises the opt-in fallback retry in pymupdf_rag.py's
-    to_markdown(). Without the retry, this table's content would still
-    appear in the output, but as loose paragraph text rather than a table
-    -- so also assert the content landed inside an actual markdown table,
-    not merely somewhere in the page text."""
+    to_markdown(). Without the retry, this table's content is missing from
+    the output; with it, assert the content landed inside an actual
+    markdown table, not merely somewhere in the page text."""
     doc = _make_fill_only_table_pdf()
     md = pymupdf4llm.to_markdown(doc, table_strategy=_STRICT_THEN_LINES)
 
