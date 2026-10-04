@@ -32,6 +32,7 @@ def get_raw_lines(
     ignore_invisible=True,
     only_horizontal=True,
     require_x_continuity=False,
+    reorder_columns=False,
 ):
     """Extract the text spans from a TextPage in natural reading sequence.
 
@@ -70,6 +71,14 @@ def get_raw_lines(
               because some callers (e.g. `get_text_lines(ocr=True)`'s table
               reconstruction) intentionally rely on wide same-row gaps being
               preserved within one line to recover table columns.
+              This only affects which spans are joined into a line; it
+              never changes the order of lines (see `reorder_columns`).
+        reorder_columns: (bool) if True, the lines of a single source block
+              that form side-by-side columns (disjoint x-ranges AND at least
+              one shared row, see _reorder_multi_column_lines_within_block)
+              are emitted column by column instead of interleaved by y.
+              Lines that merely differ in x0 -- indented first lines,
+              centred or staggered lines -- keep their original order.
 
     Returns:
         A sorted list of items (rect, [spans]), each representing one line. The
@@ -222,7 +231,7 @@ def get_raw_lines(
     line = sanitize_spans(line)
     nlines.append([lrect, line])
 
-    if require_x_continuity:
+    if reorder_columns:
         nlines = _reorder_multi_column_lines_within_block(nlines)
 
     return nlines
@@ -236,12 +245,34 @@ def get_raw_lines(
 # second column's lines never overlap the first column's at all.
 _BLOCK_COLUMN_X_GAP = 20.0
 
+# Disjoint x-ranges alone are not enough evidence of columns: a right-aligned
+# date above left-aligned prose, or lines staggered left/right, also have
+# disjoint ranges but are read top to bottom. Real side-by-side columns
+# share at least one row, i.e. a line of one cluster overlaps a line of
+# another cluster vertically by at least this fraction of the smaller height.
+_BLOCK_COLUMN_ROW_OVERLAP = 0.5
+
+
+def _clusters_share_a_row(entries, clusters):
+    """True if some line of one x-cluster sits on the same row as some line
+    of another x-cluster (see _BLOCK_COLUMN_ROW_OVERLAP)."""
+    for k, cluster in enumerate(clusters):
+        for other in clusters[k + 1 :]:
+            for a in cluster:
+                for b in other:
+                    ra, rb = entries[a][0], entries[b][0]
+                    overlap = min(ra.y1, rb.y1) - max(ra.y0, rb.y0)
+                    smaller = min(ra.height, rb.height)
+                    if smaller > 0 and overlap >= _BLOCK_COLUMN_ROW_OVERLAP * smaller:
+                        return True
+    return False
+
 
 def _reorder_multi_column_lines_within_block(nlines):
-    """Within any single source block whose synthesized lines still span
-    more than one x-cluster after the horizontal-continuity fix above (i.e.
-    a block whose *lines* -- not just individual same-row spans -- occupy
-    two disjoint x-ranges), re-emit that block's lines in column-major
+    """Within any single source block whose synthesized lines form
+    side-by-side columns (i.e. a block whose *lines* -- not just individual
+    same-row spans -- occupy two disjoint x-ranges that also share at
+    least one row), re-emit that block's lines in column-major
     order: each column's lines top-to-bottom, left column before right --
     instead of the default single sort-by-y order, which would otherwise
     still interleave the two columns row by row.
@@ -283,6 +314,8 @@ def _reorder_multi_column_lines_within_block(nlines):
                 cluster_max_x1 = rect.x1
         if len(clusters) < 2:
             continue  # single column -- nothing to reorder
+        if not _clusters_share_a_row(entries, clusters):
+            continue  # disjoint but stacked, not side by side -- keep y order
 
         clusters.sort(key=lambda c: min(entries[i][0].x0 for i in c))
         new_order = []
