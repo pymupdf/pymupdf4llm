@@ -587,8 +587,10 @@ def to_markdown(
             # continuity prevents same-row-but-different-column content
             # (occasionally fused into one region when the underlying block
             # detection mistakenly merges two side-by-side columns) from
-            # being spliced into a single output line.
+            # being spliced into a single output line, and reordering
+            # emits such fused side-by-side columns one after the other.
             require_x_continuity=True,
+            reorder_columns=True,
         )
         nlines = [
             l for l in nlines if outside_all_bboxes(l[0], parms.tab_rects.values())
