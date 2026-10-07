@@ -28,7 +28,7 @@ setuptools.setup(
     long_description=readme,
     long_description_content_type="text/markdown",
     install_requires=requires,
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
     url="https://github.com/pymupdf/RAG",
     classifiers=classifiers,
