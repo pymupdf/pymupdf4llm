@@ -16,7 +16,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-requires = [f"pymupdf4llm=={version}"]
+requires = [f"pymupdf=={version}"]
 
 setuptools.setup(
     name="pdf4llm",
