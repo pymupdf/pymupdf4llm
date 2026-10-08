@@ -2,6 +2,8 @@ import os
 import sys
 import textwrap
 
+raise Exception('pymupdf4llm can no longer be built into a package')
+
 import pipcl
 
 VERSION = "2.0"
