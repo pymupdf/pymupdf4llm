@@ -4,7 +4,9 @@ import os
 import pymupdf
 from pymupdf import mupdf
 
-MAX_PIXELS = 10  # maximum pixel count for OCR, in millions
+
+# maximum pixel count for OCR, default 10 millions
+MAX_PIXELS = int(os.getenv("PYMUPDF_MAX_OCRSIZE", 10)) * 10**6
 
 
 def max_dpi_for_page(mediabox, max_pixels: int = 0) -> int:
@@ -52,8 +54,7 @@ def get_pixmap(displaylist, dpi=150, rects=None, empty_threshold=250):
     mediabox = displaylist.rect
     if not rects:
         rects = [mediabox]
-    max_pixels = int(os.getenv("PYMUPDF_MAX_OCRSIZE", MAX_PIXELS)) * 10**6
-    max_dpi = max_dpi_for_page(mediabox, max_pixels=max_pixels)
+    max_dpi = max_dpi_for_page(mediabox, max_pixels=MAX_PIXELS)
     if dpi > max_dpi:
         pymupdf.message(
             f"Page too large for {dpi=}, reducing to dpi={max_dpi}. Results may be impaired."
