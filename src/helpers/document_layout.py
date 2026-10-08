@@ -1434,14 +1434,13 @@ def parse_document(
         document.use_ocr = OCRMode.NEVER
 
     if not callable(ocr_function):
-        if document.use_ocr in (
-            OCRMode.FORCE_DROP_OLD,
-            OCRMode.FORCE_KEEP_OLD,
-        ):
+        # Check the original 'use_ocr' request here -- 'document.use_ocr' has
+        # already been set to NEVER above, so guarding on it would never fire.
+        if use_ocr in (OCRMode.FORCE_DROP_OLD, OCRMode.FORCE_KEEP_OLD):
             raise ValueError("Force OCR is True but no OCR engine available.")
-        if document.use_ocr != OCRMode.NEVER:
+        if use_ocr != OCRMode.NEVER:
             print("Warning: No OCR engine available, OCR disabled.")
-            document.use_ocr = OCRMode.NEVER
+        document.use_ocr = OCRMode.NEVER
 
     if pages is None:
         page_filter = range(mydoc.page_count)
@@ -1739,8 +1738,8 @@ def parse_document(
         print()
         pymupdf.message("=== Document parser messages ===")
         pymupdf.message(msg_text.strip())
-    INFO_MESSAGES.truncate()  # empty the file-like object
     INFO_MESSAGES.seek(0)  # reset the file pointer to the beginning
+    INFO_MESSAGES.truncate()  # empty the file-like object
     # Update title/section-header boxes with html header tags
     update_header_tags(document.pages, header_fontsizes)
     return document
