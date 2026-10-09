@@ -1,5 +1,6 @@
-|||SUNDAY,<br>|<br>|NO<br>CO|VEM<br>NTE|BER4,2007<br>NTS|
+|||SUNDAY,||NO|VEM|BER4,2007|
 |---|---|---|---|---|---|---|
+|||||CO|NTE|NTS|
 |SECTIONS<br>|“HEADI<br>|G<br>|||<br>||
 |2|ARTS<br>|&LEIS<br>|RE<br>|.<br>|<br>.|.|
 ||HOLIDA<br>|YMOVI<br>|ES<br>|.<br>|||

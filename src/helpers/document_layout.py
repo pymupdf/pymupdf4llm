@@ -15,6 +15,7 @@ import tabulate
 from pymupdf import mupdf
 from pymupdf4llm.helpers import utils
 from pymupdf4llm.helpers.get_text_lines import get_raw_lines
+from pymupdf4llm.helpers.table_grid_repair import repair_grid_gaps
 from pymupdf4llm.ocr import OCRMode
 
 try:
@@ -51,6 +52,36 @@ FLAGS = (
 )
 BULLETS = tuple(utils.BULLETS)
 
+# pymupdf.layout processes each page independently, so a single logical
+# table that spans multiple layout boxes -- several boxes on one page, or
+# one box ending at the bottom of a page and another picking up at the top
+# of the next -- has no continuity information between the boxes. These
+# tolerances (in PDF points) drive `_is_table_continuation()`'s geometric
+# guess at whether two consecutive table boxes are really one table split
+# by the model, so its later box's own row 0 can be emitted as a plain
+# body row instead of a second header.
+#
+# Column matching uses each box's OUTER x0/x1 (its overall left/right table
+# edge), not pymupdf.layout's interior column grid (table_grid.v_lines).
+# Empirically (6634064.pdf's WP 3-2 budget table, split by the model across
+# 3 boxes on 3 consecutive pages), a table's outer x0/x1 stays put across
+# its boxes to within ~1pt, while the model's *interior* column-boundary
+# detection is noisy enough between boxes of the very same table to drift
+# 10+ points and even disagree on the number of columns (one box's row
+# grid under/over-splitting a column relative to the next box's) -- that
+# per-box grid noise (boundary under-prediction, which repair_grid_gaps()
+# only partly undoes), and requiring interior-grid agreement here made this
+# continuation check fail on exactly the real-world case it exists for.
+# The outer bbox is a much more stable signal, so it is only the first,
+# geometric gate. Matching outer bounds alone would also accept an
+# unrelated table stacked directly below (e.g. a 2-column table followed by
+# a 4-column one), so get_table_details() then has to fit the candidate
+# box's text into the previous box's column grid (see
+# `_reconcile_continuation_grid()`) before treating it as a continuation.
+TABLE_CONTINUATION_X_TOLERANCE = 15.0  # matching outer x0/x1
+TABLE_CONTINUATION_SAME_PAGE_GAP = 20.0  # vertical gap between boxes
+TABLE_CONTINUATION_PAGE_EDGE_MARGIN = 120.0  # "near" the page's top/bottom
+
 
 def get_layout_locked(page: pymupdf.Page, **kwargs):
     """Serialize PyMuPDF layout inference, which uses process-global state."""
@@ -58,11 +89,236 @@ def get_layout_locked(page: pymupdf.Page, **kwargs):
         return page.get_layout(**kwargs)
 
 
-def get_table_details(tab_dict, table_blocks):
+def _cluster_rawdict_lines(table_blocks, clip):
+    """Cluster RAWDICT-format text (char-level, used for exact cell-boundary
+    extraction elsewhere) into visual lines via get_raw_lines(), which
+    expects DICT-shaped spans (a "text" field; RAWDICT spans have "chars"
+    instead). Builds fresh block/line/span dict copies scoped to `clip` --
+    never mutates table_blocks itself, since that list is shared and reused
+    for every cell's char-level text extraction across the whole table.
+    """
+    converted_blocks = []
+    for block in table_blocks:
+        if not pymupdf.Rect(block["bbox"]).intersects(clip):
+            continue
+        new_lines = []
+        for line in block["lines"]:
+            if not pymupdf.Rect(line["bbox"]).intersects(clip):
+                continue
+            new_spans = []
+            for span in line["spans"]:
+                if not pymupdf.Rect(span["bbox"]).intersects(clip):
+                    continue
+                text = "".join(c["c"] for c in span.get("chars", ()))
+                if not text:
+                    continue
+                new_spans.append({**span, "text": text})
+            if new_spans:
+                new_lines.append({**line, "spans": new_spans})
+        if new_lines:
+            converted_blocks.append({**block, "lines": new_lines})
+    if not converted_blocks:
+        return []
+    return get_raw_lines(
+        textpage=None,
+        blocks=converted_blocks,
+        clip=clip,
+        require_x_continuity=True,
+    )
+
+
+def _table_outer_x_bounds(tab_dict):
+    """A table box's outer (x0, x1) -- its overall left/right table edge --
+    for comparing two table boxes' horizontal extent. See the module-level
+    comment on `TABLE_CONTINUATION_X_TOLERANCE` for why this is used instead
+    of the interior column grid."""
+    gbbox = tab_dict.get("group_bbox") if tab_dict else None
+    if not gbbox:
+        return None
+    return (gbbox[0], gbbox[2])
+
+
+def _table_continuation_state(tab_dict, page_number, page_height, tab_det=None):
+    """Snapshot of a table box's geometry needed to later decide whether
+    the *next* table box is a direct continuation of it. `page_number` is
+    1-based (matches `PageLayout.page_number`). `tab_det` is the box's
+    TableDetails; its column grid and header row are what a continuation
+    box must reconcile with."""
+    gbbox = tab_dict["group_bbox"]
+    return {
+        "x_bounds": _table_outer_x_bounds(tab_dict),
+        "y1": gbbox[3],
+        "page_number": page_number,
+        "page_height": page_height,
+        "v_lines": tab_det.v_lines if tab_det else None,
+        "header": tab_det.header if tab_det else None,
+    }
+
+
+def _is_table_continuation(prev_table, tab_dict, page_number, page_height):
+    """Whether `tab_dict`'s table box is a direct continuation of the
+    immediately preceding table box, described by `prev_table` (a
+    `_table_continuation_state()` snapshot, or None if there wasn't one, or
+    if something else -- text, a picture, a page break with no table
+    resuming right at the top -- came between them; callers are
+    responsible for resetting `prev_table` to None whenever such
+    intervening content is seen).
+
+    Two conditions must both hold:
+    - near-identical outer x0/x1 (each within `TABLE_CONTINUATION_X_TOLERANCE`
+      points), and
+    - vertical contiguity: either adjacent on the same page (within
+      `TABLE_CONTINUATION_SAME_PAGE_GAP` points), or the previous table ran
+      to within `TABLE_CONTINUATION_PAGE_EDGE_MARGIN` points of the bottom
+      of its page and this one starts within that same margin of the top
+      of the very next page.
+    """
+    if prev_table is None:
+        return False
+    cur_bounds = _table_outer_x_bounds(tab_dict)
+    prev_bounds = prev_table["x_bounds"]
+    if not cur_bounds or not prev_bounds:
+        return False
+    if any(
+        abs(a - b) > TABLE_CONTINUATION_X_TOLERANCE
+        for a, b in zip(cur_bounds, prev_bounds)
+    ):
+        return False
+
+    cur_y0 = tab_dict["group_bbox"][1]
+    if page_number == prev_table["page_number"]:
+        gap = cur_y0 - prev_table["y1"]
+        return -TABLE_CONTINUATION_SAME_PAGE_GAP <= gap <= TABLE_CONTINUATION_SAME_PAGE_GAP
+    if page_number == prev_table["page_number"] + 1:
+        prev_near_bottom = (
+            prev_table["page_height"] - prev_table["y1"]
+        ) <= TABLE_CONTINUATION_PAGE_EDGE_MARGIN
+        cur_near_top = cur_y0 <= TABLE_CONTINUATION_PAGE_EDGE_MARGIN
+        return prev_near_bottom and cur_near_top
+    return False
+
+
+# A line's x-range has to reach this far past a column boundary to count as
+# touching the neighbouring column: text that merely overhangs its own
+# column's edge by a point or two is not a real crossing.
+_COLUMN_BOUNDARY_TOL = 6.0
+# Interior column boundaries of two boxes of the same table this close
+# together are taken to be the same boundary.
+_GRID_MATCH_TOL = TABLE_CONTINUATION_X_TOLERANCE
+
+
+def _split_lines_at_boundaries(lines, boundaries):
+    """Split each (rect, spans) line wherever one of `boundaries` (x
+    positions) falls strictly inside the gap between two of its spans.
+
+    get_raw_lines() merges spans into one line purely by inter-span x-gap,
+    with no notion of a table's column grid, so two spans that are really
+    two separate cells (e.g. "Por. c." / "Typ vozidla") get fused whenever
+    their gap is small enough. A single span that itself physically covers
+    several columns (e.g. a leaked title) has no inter-span gap to split
+    at, so it is left alone -- this only separates wrongly glued spans and
+    never carves up one atomic run of text."""
+    result = []
+    for rect, spans in lines:
+        ordered = sorted(spans, key=lambda s: s["bbox"].x0)
+        groups = [[ordered[0]]]
+        for prev, cur in zip(ordered, ordered[1:]):
+            gap_lo, gap_hi = prev["bbox"].x1, cur["bbox"].x0
+            if gap_hi > gap_lo and any(gap_lo < v < gap_hi for v in boundaries):
+                groups.append([cur])
+            else:
+                groups[-1].append(cur)
+        if len(groups) == 1:
+            result.append((rect, spans))
+            continue
+        for group in groups:
+            group_rect = pymupdf.Rect(group[0]["bbox"])
+            for s in group[1:]:
+                group_rect |= s["bbox"]
+            result.append((group_rect, group))
+    return result
+
+
+def _touched_columns(rect, v_lines):
+    """Indices of the columns (delimited by `v_lines`, outer edges
+    included) that `rect` really extends into."""
+    return [
+        j for j in range(len(v_lines) - 1)
+        if rect.x1 > v_lines[j] + _COLUMN_BOUNDARY_TOL
+        and rect.x0 < v_lines[j + 1] - _COLUMN_BOUNDARY_TOL
+    ]
+
+
+def _reconcile_continuation_grid(v_lines, table_blocks, table_rect, prev_v_lines):
+    """Column boundaries to extract a candidate continuation box with, or
+    None if its content cannot be placed in the previous box's grid.
+
+    `v_lines` is the candidate box's own column grid and `prev_v_lines` the
+    previous box's (outer edges included, absolute coordinates). The
+    layout model's interior grid is noisy between boxes of one table: it
+    can drift and under- or over-split columns. So the grids do not have
+    to agree; it is enough that the candidate's text fits the previous
+    grid, which is then used for both boxes:
+
+    - no piece of text crosses one of the previous grid's interior
+      boundaries,
+    - no two pieces of text sit side by side within one previous column
+      (a 4-column table under a 2-column one puts two of its cells into
+      each of the wider columns), and
+    - unless the two grids already agree, the text fills every previous
+      column. Otherwise an unrelated narrower table whose few cells happen
+      to land in distinct columns would be accepted too.
+    """
+    x0, x1 = v_lines[0], v_lines[-1]
+    prev_interior = [v for v in prev_v_lines[1:-1] if x0 < v < x1]
+    reconciled = [x0] + prev_interior + [x1]
+    cur_interior = v_lines[1:-1]
+    grids_agree = len(cur_interior) == len(prev_interior) and all(
+        abs(a - b) <= _GRID_MATCH_TOL for a, b in zip(cur_interior, prev_interior)
+    )
+    if grids_agree:
+        return reconciled
+    if not table_blocks:
+        return None
+    lines = _cluster_rawdict_lines(table_blocks, table_rect)
+    lines = _split_lines_at_boundaries(lines, cur_interior + prev_interior)
+    by_column = {}
+    for rect, _spans in lines:
+        touched = _touched_columns(rect, reconciled)
+        if len(touched) > 1:
+            return None
+        if not touched:
+            continue
+        for other in by_column.setdefault(touched[0], []):
+            overlap = min(rect.y1, other.y1) - max(rect.y0, other.y0)
+            if overlap > 0.5 * min(rect.height, other.height):
+                return None
+        by_column[touched[0]].append(rect)
+    if len(by_column) < len(reconciled) - 1:
+        return None
+    return reconciled
+
+
+def _row_text_key(row):
+    """Whitespace-insensitive comparison key for a row of cell texts."""
+    return tuple("".join((cell or "").split()).lower() for cell in row)
+
+
+def get_table_details(tab_dict, table_blocks, prev_table=None):
     """Create a TableDetails object.
 
     The table dictionary is as returned by the Layout module with option
-    "return_raw=True".
+    "return_raw=True". `prev_table` is the `_table_continuation_state()` of
+    the preceding table box when that box geometrically lines up with this
+    one (see `_is_table_continuation()`). If this box's content also fits
+    that box's column grid, it is a continuation: it is extracted with the
+    previous grid, `continuation_markdown` holds its rows ready to be
+    appended to the previous table (without a repeated header row), and
+    its row 0 is never considered for the swallowed-foreign-header
+    exclusion below (that exclusion targets a title/footer that leaked into
+    a table's own first box, which doesn't apply to a later box that is
+    itself just more of the same table's body). `markdown` is always a
+    complete table on its own, for when the renderer cannot join the two.
     """
     tab_det = TableDetails()
     tab_det.bbox = tab_dict["group_bbox"]  # bounding box
@@ -73,6 +329,175 @@ def get_table_details(tab_dict, table_blocks):
     md_cells = []  # cell markdown content
     h_lines = [y0] + [h + y0 for h in grid.h_lines] + [y1]
     v_lines = [x0] + [v + x0 for v in grid.v_lines] + [x1]
+
+    is_continuation = False
+    if prev_table and prev_table.get("v_lines"):
+        reconciled = _reconcile_continuation_grid(
+            v_lines, table_blocks, pymupdf.Rect(tab_det.bbox), prev_table["v_lines"]
+        )
+        if reconciled is not None:
+            v_lines = reconciled
+            is_continuation = True
+
+    # The model's own row-0 boundary can be an outlier: it sometimes swallows
+    # unrelated content sitting just above the real table (a page header, a
+    # decorative title bar) because that content happens to fall inside the
+    # model's proposed table bbox. Detect this by re-clustering row 0's own
+    # text with require_x_continuity -- the same guard the legacy (non-AI)
+    # extraction path uses to stop cross-column/cross-line splicing (see
+    # pymupdf_rag.py's get_raw_lines call). A swallowed title doesn't always
+    # split into multiple visually distinct lines -- a single-line title
+    # (e.g. "PRACOVNÝ BALÍK: 3-2 ...") reconstructs as one clean line, but
+    # that line still spans across several of the table's *column*
+    # boundaries (v_lines), which describe the real table body further down
+    # and have nothing to do with this content. A genuine one-value-per-
+    # column header row instead has each line's x-range fall inside a
+    # single column, crossing none of them. So one signal is: does any
+    # reconstructed line in row 0 cross an interior column boundary?
+    #
+    # But that alone false-positives on a genuine, legitimately-multi-line
+    # column-header row: two adjacent header labels with little gap between
+    # them (e.g. "Jednotková cena bez DPH" / "Celkové oprávnené výdavky")
+    # can cluster into one line that also crosses a column boundary, even
+    # though the row as a whole is one-value-per-column and belongs in the
+    # table. The discriminator is line *count* relative to column count: a
+    # swallowed title/header decomposes into far fewer lines than there are
+    # columns (a title can't have one value per column), while a real
+    # (if messily wrapped) header row decomposes into roughly as many lines
+    # as columns. So only treat row 0 as swallowed when it is BOTH sparse
+    # relative to col_count AND (fragmented across multiple lines, or a
+    # single line bleeding across a column boundary) -- never a row that
+    # already has close to one line per column.
+    #
+    # When it is swallowed, splitting it into sub-rows would still force it
+    # through the column grid and come out interleaved either way. Instead,
+    # drop row 0 from the grid entirely and emit its lines as a plain text
+    # block ahead of the table.
+    excluded_textlines = []
+    colspan_rects = []  # row-0 lines kept in the grid that span >1 column
+    if not is_continuation and len(h_lines) > 1 and table_blocks:
+        row0_rect = pymupdf.Rect(x0, h_lines[0], x1, h_lines[1])
+        try:
+            row0_lines = _cluster_rawdict_lines(table_blocks, row0_rect)
+        except Exception:
+            row0_lines = []
+        # Undo get_raw_lines() gluing two separate column headers into one
+        # line when their gap happens to be small.
+        row0_lines = _split_lines_at_boundaries(row0_lines, v_lines[1:-1])
+        col_count = len(v_lines) - 1
+        table_width = x1 - x0
+        # Classify each row-0 line purely by how much of the table's own
+        # width it physically covers -- not by how many other lines happen
+        # to share row 0 (that count is an unreliable proxy: it depends on
+        # how a wrapped header happens to fragment). Three outcomes:
+        #  - it crosses an interior boundary AND covers (nearly) the
+        #    table's whole width (or all columns): genuinely foreign
+        #    content (a title, a running footer) that leaked into the
+        #    table's bbox -- hoist it out as leading plain text. Crossing
+        #    is required even for the width-fraction test: an ordinary
+        #    single-column header cell that merely sits in a very wide
+        #    column (relative to its narrow siblings) must never be
+        #    mistaken for a leak just because its own width is a large
+        #    fraction of the table -- it was never spanning anything.
+        #  - it crosses an interior boundary, covering 2+ columns but not
+        #    (nearly) all of them: a real merged/colspan-style header
+        #    cell. Markdown tables have no colspan, so the only faithful
+        #    rendering is to repeat this cell's own text into every
+        #    column it visually spans, rather than either discarding it
+        #    or letting it get silently cut in half at a column boundary
+        #    by ordinary per-cell extraction.
+        #  - it sits inside a single column: an ordinary header cell,
+        #    already handled correctly by the extraction loop below.
+        #
+        # This whole classification only makes sense when there is more
+        # than one column to cross in the first place -- with col_count
+        # <= 1 every row-0 line trivially "touches all columns" (there is
+        # only one), which would otherwise always misfire as a leak.
+        _LEAK_WIDTH_FRACTION = 0.7
+        leak_lines = []
+        colspan_lines = []
+        touched_union = set()
+        if col_count > 1:
+            for rect, spans in row0_lines:
+                touched = _touched_columns(rect, v_lines)
+                touched_union.update(touched)
+                crosses = len(touched) > 1
+                width_fraction = (rect.x1 - rect.x0) / table_width if table_width else 0.0
+                if crosses and (len(touched) >= col_count or width_fraction >= _LEAK_WIDTH_FRACTION):
+                    leak_lines.append((rect, spans))
+                elif crosses:
+                    colspan_lines.append((rect, touched))
+        # A genuine multi-cell header (ordinary or colspan) fills every
+        # column with something -- that's what makes it a header. Foreign
+        # content that leaked into row 0 (a title, a running header) is
+        # frequently just ONE line crossing several columns (e.g. a
+        # centered project title, spanning a wide chunk of the table but
+        # not reaching the width-fraction threshold above because the
+        # rest of the row is otherwise empty) -- and, unlike a genuine
+        # colspan cell, the columns it doesn't touch stay completely
+        # empty rather than being filled by some other row-0 line. So a
+        # line crossing multiple columns is only legitimate colspan
+        # content when everything else in row 0, taken together, still
+        # covers every column; if a gap remains, it's foreign.
+        # A line that never crosses a boundary at all (a lone single-
+        # column note, nothing else in row 0) is never foreign on its
+        # own -- crossing a boundary is what makes the gap suspicious in
+        # the first place, so plain non-crossing sparsity is exempt.
+        has_gap = len(touched_union) < col_count
+        # Dropping row 0 only makes sense if at least one real row survives
+        # underneath it (len(h_lines) > 2, i.e. more than just row 0's own
+        # top+bottom boundary) -- otherwise the "table" would end up with
+        # zero rows, which the markdown renderer below cannot handle, and
+        # there is nothing left to duplicate a colspan cell's text into
+        # anyway. In that situation, foreign-looking content is still
+        # better kept as the table's only row than crashing or silently
+        # discarding it.
+        if (leak_lines or (colspan_lines and has_gap)) and len(h_lines) <= 2:
+            leak_lines = []
+            colspan_lines = []
+        if leak_lines or (colspan_lines and has_gap):
+            # Nothing legitimate is left in row 0 -- treat every one of its
+            # lines as foreign content, drop it from the grid entirely and
+            # emit it as plain text ahead of the table (unchanged from
+            # before).
+            leak_lines = list(row0_lines)
+            leak_lines.sort(key=lambda l: l[0].y0)
+            # Group lines that visually share one row (overlapping y-ranges,
+            # e.g. a left-aligned and a right-aligned header fragment at the
+            # same height) so they read left-to-right instead of in
+            # arbitrary y0 order; distinct rows (title vs. subtitle bar)
+            # stay on their own line.
+            row_groups = []
+            for rect, spans in leak_lines:
+                if row_groups and rect.y0 < row_groups[-1][-1][0].y1:
+                    row_groups[-1].append((rect, spans))
+                else:
+                    row_groups.append([(rect, spans)])
+            # Keep each row's original spans (not a pre-joined string) so
+            # the excluded content can be rendered as a real "text" box by
+            # the same text_to_md()/text_to_text() span-joining logic every
+            # other text box already goes through -- that already inserts
+            # proper inter-span spacing, and (unlike tab_det.markdown) is
+            # visible to to_text()/extract too.
+            for group in row_groups:
+                group.sort(key=lambda item: item[0].x0)
+                group_rect = group[0][0]
+                group_spans = []
+                for rect, spans in group:
+                    group_rect |= rect
+                    group_spans.extend(spans)
+                excluded_textlines.append({"bbox": group_rect, "spans": group_spans})
+            h_lines = h_lines[1:]  # drop row 0's boundary; table now starts at row 1
+        else:
+            colspan_rects = [rect for rect, _touched in colspan_lines]
+
+    # The model's grid can also miss interior row/column boundaries; insert
+    # those that the table's own text geometry clearly shows. A continuation
+    # box keeps the previous box's columns, so only its rows are repaired.
+    h_lines, v_lines = repair_grid_gaps(
+        table_blocks, h_lines, v_lines, columns=not is_continuation
+    )
+
     tab_det.row_count = len(h_lines) - 1
     tab_det.col_count = len(v_lines) - 1
     for i in range(tab_det.row_count):
@@ -93,9 +518,42 @@ def get_table_details(tab_dict, table_blocks):
         cells.append(row)
         extract.append(text_row)
         md_cells.append(md_row)
+    if colspan_rects:
+        # A colspan line was found in row 0 of the model's grid, before the
+        # repair above may have added boundaries, so locate its row and
+        # columns in the final grid from its geometry.
+        for rect in colspan_rects:
+            text = utils.extract_cells(table_blocks, rect, markdown=False, ocrpage=False)
+            md_text = utils.extract_cells(table_blocks, rect, markdown=True, ocrpage=False)
+            if not text:
+                continue
+            center_y = (rect.y0 + rect.y1) / 2
+            i = next(
+                (k for k in range(tab_det.row_count) if center_y < h_lines[k + 1]),
+                tab_det.row_count - 1,
+            )
+            for j in _touched_columns(rect, v_lines):
+                extract[i][j] = text
+                md_cells[i][j] = md_text
     tab_det.cells = cells
     tab_det.extract = extract
+    tab_det.excluded_textlines = excluded_textlines
+    tab_det.v_lines = v_lines
+    tab_det.is_continuation = is_continuation
     tab_det.markdown = utils.table_to_markdown(md_cells)
+    if is_continuation:
+        tab_det.header = prev_table.get("header")
+        body = md_cells
+        # A table split across pages often repeats its header row at the
+        # top of each page; when the rows are appended to the previous
+        # table, that copy would otherwise become a body row.
+        if tab_det.header and _row_text_key(extract[0]) == _row_text_key(tab_det.header):
+            body = md_cells[1:]
+        tab_det.continuation_markdown = (
+            utils.table_to_markdown(body, skip_header=True) if body else ""
+        )
+    else:
+        tab_det.header = extract[0] if extract else None
     return tab_det
 
 
@@ -952,6 +1410,19 @@ class TableDetails:
     cells: list = None  # list of list of cell bbox coordinates
     extract: list = None  # list of list of cell plain text content
     markdown: str = None  # table markdown content
+    # content hoisted out of row 0 because it was foreign to the table (a
+    # leaked title/running header, see get_table_details) -- in the same
+    # {"bbox":..., "spans":...} shape as LayoutBox.textlines, so the caller
+    # can render it as a genuine preceding "text" box instead of folding it
+    # into `markdown` (which to_text()/extract never sees).
+    excluded_textlines: list = None
+    v_lines: list = None  # column boundaries used, outer edges included
+    header: list = None  # plain text of the header row of the whole table
+    # whether this box continues the preceding table box, and if so its
+    # rows (minus a repeated header) without header/separator, for the
+    # renderer to append when it can join the two
+    is_continuation: bool = False
+    continuation_markdown: str = None
 
 
 @dataclass
@@ -1024,11 +1495,17 @@ class ParsedDocument:
             this_iterator = ProgressBar(self.pages)
         else:
             this_iterator = self.pages
+        # Whether the last thing written to the output is a Markdown table
+        # that a continuation table box may be appended to.
+        after_table = False
         for page in this_iterator:
             md_string = ""
             string_lengths = []
             # Make a mapping: box number -> list item hierarchy level
             list_item_levels = create_list_item_levels(page.boxes)
+            if page_chunks:
+                # each page is an independent chunk
+                after_table = False
 
             for i, box in enumerate(page.boxes):
                 clip = pymupdf.IRect(box.x0, box.y0, box.x1, box.y1)
@@ -1041,6 +1518,11 @@ class ParsedDocument:
                 if btype == "page-footer" and footer is False:
                     string_lengths.append(len(md_string))
                     continue
+
+                # Everything emitted from here on ends a preceding table,
+                # except a table box that the renderer joins onto it.
+                joins_table = after_table
+                after_table = False
 
                 # pictures and formulas: either write image file or embed
                 if btype in ("picture", "formula"):
@@ -1070,6 +1552,34 @@ class ParsedDocument:
                         string_lengths.append(len(md_string))
                         continue
                     table_text = box.table["markdown"]
+                    joined = (
+                        joins_table
+                        and box.table.get("continuation_markdown") is not None
+                    )
+                    after_table = True
+                    if joined and not box.table["continuation_markdown"].strip():
+                        # nothing but a repeated header row: the previous
+                        # table stays open for a further continuation box
+                        string_lengths.append(len(md_string))
+                        continue
+                    if joined:
+                        # Append this box's rows to the table emitted just
+                        # before it (see TABLE_CONTINUATION_* above), without
+                        # its own header/separator and without the blank line
+                        # that would end a GFM table early. The previous table
+                        # is usually earlier in this page's md_string, but for
+                        # a table split across a page break this box is the
+                        # first thing on its page, so the gap to close is at
+                        # the tail of document_output. Anything emitted in
+                        # between -- a page header/footer, a page separator,
+                        # another page chunk -- keeps the complete table.
+                        table_text = box.table["continuation_markdown"]
+                        if md_string.strip("\n"):
+                            md_string = md_string.rstrip("\n") + "\n"
+                            if string_lengths:
+                                string_lengths[-1] = len(md_string)
+                        elif not page_chunks and document_output:
+                            document_output = document_output.rstrip("\n") + "\n"
                     if page.full_ocred:
                         # remove code style if page was OCR'd
                         table_text = table_text.replace("`", "")
@@ -1099,6 +1609,7 @@ class ParsedDocument:
                     string_lengths.append(len(md_string))
             if page_separators:
                 md_string += f"--- end of {page.page_number=} ---\n\n"
+                after_table = False
             if not page_chunks:
                 document_output += md_string
             else:
@@ -1466,6 +1977,13 @@ def parse_document(
         print(f"Parsing {len(page_filter)} pages of '{document.filename}'...")
         page_filter = ProgressBar(page_filter)
 
+    # Tracks the immediately preceding table box's geometry (across pages
+    # too), for `_is_table_continuation()` below. Reset to None whenever
+    # anything other than a table box or page-header/-footer furniture is
+    # seen, since that breaks continuity between two table boxes.
+    prev_table_state = None
+    table_continuity_broken = True
+
     for pno in page_filter:
         page = mydoc.load_page(pno)
         page.remove_rotation()
@@ -1591,6 +2109,19 @@ def parse_document(
         for box in page.layout_information:
             layoutbox = LayoutBox(*box)
             clip = pymupdf.Rect(box[:4])
+            # Set below when a table's row 0 turns out to be foreign
+            # content (see get_table_details's excluded_textlines) -- a
+            # genuine preceding "text" box, inserted just before this
+            # table's own box, so to_markdown() AND to_text() both see it
+            # (tab_details.markdown alone is invisible to to_text()).
+            preceding_text_box = None
+
+            # Page-header/-footer furniture doesn't break table continuity
+            # (it appears between the table and the page edge on purpose);
+            # anything else in between means the next table box, even if
+            # its geometry matches, isn't really a continuation.
+            if layoutbox.boxclass not in ("page-header", "page-footer", "table"):
+                table_continuity_broken = True
 
             if layoutbox.boxclass in ("picture", "formula"):
                 if document.embed_images or document.write_images:
@@ -1667,6 +2198,12 @@ def parse_document(
                         "html_tables": html_tables,
                         "html": "\n\n".join(item["html"] for item in html_tables),
                     }
+                    # This table went through the HTML rendering path, whose
+                    # geometry isn't tracked by `prev_table_state` -- treat it
+                    # like intervening non-table content so a later grid-based
+                    # table box is never matched against a stale, unrelated
+                    # table's state.
+                    table_continuity_broken = True
                 else:
                     # Non-HTML path (to_text, or a layout table box table_html did
                     # not render): keep the layout-grid extraction that feeds
@@ -1678,7 +2215,26 @@ def parse_document(
                             table_infos.keys(), key=lambda k: utils.iou(k, search_key)
                         )
                         tab_dict = table_infos.get(key)
-                        tab_details = get_table_details(tab_dict, table_blocks)
+                        lines_up = not table_continuity_broken and (
+                            _is_table_continuation(
+                                prev_table_state,
+                                tab_dict,
+                                pagelayout.page_number,
+                                page.rect.height,
+                            )
+                        )
+                        tab_details = get_table_details(
+                            tab_dict,
+                            table_blocks,
+                            prev_table=prev_table_state if lines_up else None,
+                        )
+                        prev_table_state = _table_continuation_state(
+                            tab_dict,
+                            pagelayout.page_number,
+                            page.rect.height,
+                            tab_details,
+                        )
+                        table_continuity_broken = False
 
                     if tab_details is not None:
                         layoutbox.table = {
@@ -1688,7 +2244,21 @@ def parse_document(
                             "cells": tab_details.cells,
                             "extract": tab_details.extract,
                             "markdown": tab_details.markdown,
+                            "is_continuation": tab_details.is_continuation,
+                            "continuation_markdown": tab_details.continuation_markdown,
                         }
+                        if tab_details.excluded_textlines:
+                            excl_bbox = tab_details.excluded_textlines[0]["bbox"]
+                            for tl in tab_details.excluded_textlines[1:]:
+                                excl_bbox |= tl["bbox"]
+                            preceding_text_box = LayoutBox(
+                                x0=excl_bbox.x0,
+                                y0=excl_bbox.y0,
+                                x1=excl_bbox.x1,
+                                y1=excl_bbox.y1,
+                                boxclass="text",
+                                textlines=tab_details.excluded_textlines,
+                            )
                     else:
                         layoutbox.table = {
                             "bbox": [
@@ -1730,6 +2300,8 @@ def parse_document(
                     header_fontsizes.add(max_fontsize)
                     layoutbox.max_fontsize = max_fontsize
 
+            if preceding_text_box is not None:
+                pagelayout.boxes.append(preceding_text_box)
             pagelayout.boxes.append(layoutbox)
         document.pages.append(pagelayout)
     if mydoc != doc:
