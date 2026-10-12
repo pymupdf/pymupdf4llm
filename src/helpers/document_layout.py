@@ -2,13 +2,14 @@ import base64
 import io
 import json
 import math
-import threading
-from dataclasses import dataclass
-from collections import defaultdict
-from pathlib import Path
+import os
 import tempfile
-from typing import Dict, List, Optional, Union
 import textwrap
+import threading
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 import pymupdf
 import tabulate
@@ -1250,6 +1251,8 @@ def select_ocr_function():
     if rapidocr_backend is not None:
         rapidocr_available = True
         paddleocr_available = True  # for now: we have no own paddleocr yet
+    else:  # no RapidOCR backend detected: print a warning
+        print("Warning: RapidOCR is missing. Install for much improved OCR results.", file=INFO_MESSAGES)
 
     if {tessdata, rapidocr_available, paddleocr_available} == {None, False, False}:
         return None
