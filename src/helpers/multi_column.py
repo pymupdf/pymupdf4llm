@@ -125,10 +125,10 @@ def column_boxes(
         """Return True if a bbox touches bb, else return False."""
         return any(not are_disjoint(bb, bbox, strict=True) for bbox in bboxes)
 
-    def can_extend(temp, bb, bboxlist, vert_bboxes):
+    def can_extend(temp, bb, bboxlist, vert_bboxes, join_avoid_bboxes):
         """Determines whether rectangle 'temp' can be extended by 'bb'
-        without intersecting any of the rectangles contained in 'bboxlist'
-        or 'vert_bboxes'.
+        without intersecting any of the rectangles contained in 'bboxlist',
+        'vert_bboxes', or 'join_avoid_bboxes'.
 
         Items of bboxlist may be None if they have been removed.
 
@@ -136,10 +136,14 @@ def column_boxes(
             True if 'temp' has no intersections with items of 'bboxlist'.
         """
         for b in bboxlist:
-            if not intersects_bboxes(temp, vert_bboxes) and (
-                b is None
-                or b == bb
-                or bbox_is_empty(intersect_rects(temp, b, bbox_only=True))
+            if (
+                not intersects_bboxes(temp, vert_bboxes)
+                and not intersects_bboxes(temp, join_avoid_bboxes)
+                and (
+                    b is None
+                    or b == bb
+                    or bbox_is_empty(intersect_rects(temp, b, bbox_only=True))
+                )
             ):
                 continue
             return False
@@ -248,7 +252,7 @@ def column_boxes(
             new_rects.append(r)
         return new_rects
 
-    def join_rects_phase3(bboxes, path_rects, cache):
+    def join_rects_phase3(bboxes, path_rects, cache, join_avoid_bboxes):
         prects = bboxes[:]
         new_rects = []
 
@@ -269,6 +273,11 @@ def column_boxes(
                     ) != in_bbox_using_cache(prect1, path_rects, cache):
                         continue
                     temp = prect0 | prect1
+
+                    # never join across an image
+                    if intersects_bboxes(temp, join_avoid_bboxes):
+                        continue
+
                     test = set(
                         [tuple(b) for b in prects + new_rects if b.intersects(temp)]
                     )
@@ -381,6 +390,9 @@ def column_boxes(
         for item in page.get_images():
             img_bboxes.extend(page.get_image_rects(item[0]))
 
+    # never join two text blocks across an image, same opt-out as no_image_text
+    join_avoid_bboxes = img_bboxes if no_image_text else []
+
     # blocks of text on page
     blocks = textpage.extractDICT()["blocks"]
 
@@ -445,7 +457,7 @@ def column_boxes(
                 continue
 
             temp = bb | nbb  # temporary extension of new block
-            check = can_extend(temp, nbb, nblocks, vert_bboxes)
+            check = can_extend(temp, nbb, nblocks, vert_bboxes, join_avoid_bboxes)
             if check is True:
                 break
 
@@ -455,7 +467,7 @@ def column_boxes(
             temp = nblocks[j]  # new bbox added
 
         # check if some remaining bbox is contained in temp
-        check = can_extend(temp, bb, bboxes, vert_bboxes)
+        check = can_extend(temp, bb, bboxes, vert_bboxes, join_avoid_bboxes)
         if check is False:
             nblocks.append(bb)
         else:
@@ -471,7 +483,7 @@ def column_boxes(
     # TODO: disabled for now as too aggressive:
     # nblocks = join_rects_phase1(nblocks)
     nblocks = join_rects_phase2(nblocks)
-    nblocks = join_rects_phase3(nblocks, path_rects, cache)
+    nblocks = join_rects_phase3(nblocks, path_rects, cache, join_avoid_bboxes)
 
     # return identified text bboxes
     return nblocks
