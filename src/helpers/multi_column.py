@@ -71,6 +71,29 @@ from pymupdf4llm.helpers.utils import (
 pymupdf.TOOLS.unset_quad_corrections(True)
 
 
+def _in_bbox_using_cache(bb, bboxes, cache):
+    """Return 1-based number if a bbox contains bb, else return 0.
+
+    Results are stored in the cache for speedup.
+    """
+    # Key on bb's own coordinates, not id(bb): a freed Rect's address gets
+    # reused almost immediately, so an id()-based key can return a stale
+    # answer computed for a different rectangle.
+    cache_key = (bb.x0, bb.y0, bb.x1, bb.y1)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    index = 0
+    for i, bbox in enumerate(bboxes, start=1):
+        if bb in bbox:
+            index = i
+            break
+
+    cache[cache_key] = index
+    return index
+
+
 def column_boxes(
     page,
     *,
@@ -103,23 +126,6 @@ def column_boxes(
             if bb in bbox:
                 return i
         return 0
-
-    def in_bbox_using_cache(bb, bboxes, cache):
-        """Return 1-based number if a bbox contains bb, else return 0."""
-        """Results are stored in the cache for speedup."""
-        cache_key = f"{id(bb)}_{id(bboxes)}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        index = 0
-        for i, bbox in enumerate(bboxes, start=1):
-            if bb in bbox:
-                index = i
-                break
-
-        cache[cache_key] = index
-        return index
 
     def intersects_bboxes(bb, bboxes):
         """Return True if a bbox touches bb, else return False."""
@@ -264,9 +270,9 @@ def column_boxes(
                         continue
 
                     # do not join different backgrounds
-                    if in_bbox_using_cache(
+                    if _in_bbox_using_cache(
                         prect0, path_rects, cache
-                    ) != in_bbox_using_cache(prect1, path_rects, cache):
+                    ) != _in_bbox_using_cache(prect1, path_rects, cache):
                         continue
                     temp = prect0 | prect1
                     test = set(
@@ -439,7 +445,7 @@ def column_boxes(
                 continue
 
             # never join across different background colors
-            if in_bbox_using_cache(nbb, path_rects, cache) != in_bbox_using_cache(
+            if _in_bbox_using_cache(nbb, path_rects, cache) != _in_bbox_using_cache(
                 bb, path_rects, cache
             ):
                 continue
