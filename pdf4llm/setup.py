@@ -6,7 +6,7 @@ setup_py_cwd = os.path.dirname(__file__)
 with open(os.path.join(setup_py_cwd, "README.md"), encoding="utf-8") as f:
     readme = f.read()
 
-version = "1.28.2"  # must always equal the pymupdf4llm version
+version = "2.0"  # must always equal the pymupdf4llm version
 
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -16,7 +16,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-requires = [f"pymupdf4llm=={version}"]
+requires = [f"pymupdf=={version}"]
 
 setuptools.setup(
     name="pdf4llm",
@@ -28,7 +28,7 @@ setuptools.setup(
     long_description=readme,
     long_description_content_type="text/markdown",
     install_requires=requires,
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
     url="https://github.com/pymupdf/RAG",
     classifiers=classifiers,

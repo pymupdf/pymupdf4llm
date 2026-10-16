@@ -2,30 +2,26 @@ import os
 import sys
 import textwrap
 
+raise Exception('pymupdf4llm can no longer be built into a package')
+
 import pipcl
 
-VERSION = "1.28.2"
+VERSION = "2.0"
 VERSION_TUPLE = tuple(int(x) for x in VERSION.split("."))
-
-# We build with, and run with, a particular PyMuPDF version usually, but not
-# always, the same as our version.
-#
-pymupdf_version = VERSION
-
-# We build with, and run with, a particular pymupdf_layout version usually, but
-# not always, the same as our version.
-#
-pymupdf_layout_version = VERSION
-
 
 PYMUPDF_SETUP_VERSION = os.environ.get("PYMUPDF_SETUP_VERSION")
 if PYMUPDF_SETUP_VERSION:
     # Allow testing with non-matching pymupdf/layout versions.
-    requires_dist = ["tabulate", "psutil"]
+    requires_dist = [
+        "tabulate",
+        "psutil",
+        "pymupdf_core=={PYMUPDF_SETUP_VERSION}",
+        "pymupdf_layout=={PYMUPDF_SETUP_VERSION}",
+        ]
 else:
     requires_dist = [
-        f"pymupdf=={pymupdf_version}",
-        f"pymupdf_layout=={pymupdf_layout_version}",
+        f"pymupdf_core=={VERSION}",
+        f"pymupdf_layout=={VERSION}",
         "tabulate",
         "psutil",
     ]
@@ -83,15 +79,18 @@ p = pipcl.Package(
         "Changelog, https://pymupdf.readthedocs.io/en/latest/changes.html",
     ],
     # We create a `pymupdf4llm` command.
-    entry_points=textwrap.dedent("""
-        [console_scripts]
-        pymupdf4llm = pymupdf4llm.__main__:main
-        """),
+    # entry_points=textwrap.dedent("""
+    #     [console_scripts]
+    #     pymupdf4llm = pymupdf4llm.__main__:main
+    #     """),
     fn_build=build,
     fn_sdist=sdist,
 )
 
+
 build_wheel = p.build_wheel
+build_sdist = p.build_sdist
+
 
 if __name__ == "__main__":
     p.handle_argv(sys.argv)

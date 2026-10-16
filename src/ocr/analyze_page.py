@@ -1,3 +1,4 @@
+import os
 import pprint
 from pathlib import Path
 
@@ -26,8 +27,8 @@ BLOCK_VECTOR = mupdf.FZ_STEXT_BLOCK_VECTOR
 # Thresholds
 BAD_CHAR_THRESHOLD = 0.10  # >=10% bad chars suggests OCR
 
-# Return needs_ocr as True if the probability is at least this:
-OCR_MODEL_THRESHOLD = 0.93
+# Return 'needs_ocr' as True if probability is at least this (default 0.93):
+OCR_MODEL_THRESHOLD = int(os.getenv("PYMUPDF_OCR_MODEL_THRESHOLD", 93)) / 100
 
 # The model file is in our folder!
 _MODEL_PATH = Path(__file__).parent / "ocr_decision_model.onnx"
