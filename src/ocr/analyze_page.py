@@ -3,7 +3,6 @@ import pprint
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
 import pymupdf
 from pymupdf import mupdf
 
@@ -32,13 +31,15 @@ OCR_MODEL_THRESHOLD = int(os.getenv("PYMUPDF_OCR_MODEL_THRESHOLD", 93)) / 100
 
 # The model file is in our folder!
 _MODEL_PATH = Path(__file__).parent / "ocr_decision_model.onnx"
-_session: ort.InferenceSession | None = None
+_session = None
 _input_name: str = ""
 
 
 def _get_session():
     global _session, _input_name
     if _session is None:
+        import onnxruntime as ort  # deferred: expensive import
+
         opts = ort.SessionOptions()
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = 1
