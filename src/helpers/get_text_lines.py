@@ -191,7 +191,16 @@ def get_raw_lines(
     return nlines
 
 
-def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr=False):
+def get_text_lines(
+    page,
+    *,
+    textpage=None,
+    clip=None,
+    sep="\t",
+    tolerance=3,
+    ocr=False,
+    ignore_invisible=True,
+):
     """Extract text by line keeping natural reading sequence.
 
     Notes:
@@ -207,6 +216,8 @@ def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr
         textpage: (TextPage) if None a temporary one is created.
         clip: (rect-like) only consider spans inside this area
         sep: (str) use this string when joining multiple MuPDF lines.
+        ignore_invisible: (bool) if True (default), ignore invisible text.
+            Set to False to include invisible OCR text layers.
     Returns:
         String of plain text in reading sequence.
     """
@@ -225,7 +236,9 @@ def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr
     else:
         tp = textpage
 
-    lines = get_raw_lines(tp, clip=prect, tolerance=tolerance)
+    lines = get_raw_lines(
+        tp, clip=prect, tolerance=tolerance, ignore_invisible=ignore_invisible
+    )
 
     if not textpage:  # delete temp TextPage
         tp = None
