@@ -270,12 +270,7 @@ def analyze_page(page, blocks=None, replace_ocr=False, ocr_dpi=200, stats=None) 
     # - have been written using the GlyphLessFont of Tesseract, or
     # - are fully transparent (alpha = 0).
     # We therefore return ocr_spans = 0 if any of the previous is not true.
-    ocr_spans = (
-        ocr_spans
-        if ocr_spans
-        and len(good_char_boxes) == 0
-        else 0
-    )
+    ocr_spans = ocr_spans if ocr_spans and len(good_char_boxes) == 0 else 0
     analysis = {
         "covered": covered,
         "img_joins": (abs(img_rect) / cover_area) if cover_area else 0.0,
