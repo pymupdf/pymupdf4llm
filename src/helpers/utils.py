@@ -1,3 +1,4 @@
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -229,15 +230,102 @@ def md_path(folder: str, filename: str) -> str:
     return md_ref, md_ref
 
 
-def startswith_bullet(text):
-    """Check if text starts with a bullet character."""
+# Bullet characters that can also be a legitimate word-initial letter in
+# some language (e.g. ASCII 'o' -- kept in BULLETS for genuine outline-style
+# "o" sub-bullets, but it's also a real one-letter word/article in several
+# languages, e.g. Slovak/Czech/Polish/Russian "o" = "about", Portuguese "o"
+# = "the", Spanish "o" = "or"). Every OTHER member of BULLETS is punctuation
+# or a symbol/dingbat glyph (dash, asterisk, geometric shape, private-use
+# bullet glyph, ...) with no letter reading in any script, so it needs no
+# further check.
+#
+# Derived programmatically from Unicode General Category (any BULLETS
+# member classified as a Letter, category "L*") rather than a manually
+# curated list of specific characters -- this way the set stays correct on
+# its own if BULLETS ever gains another letter-shaped marker (e.g. a
+# Cyrillic or Greek lookalike, or another single-letter outline marker in
+# some other convention), without anyone having to remember to update a
+# hand-picked list. Not tied to any one language: it's the character's
+# Unicode class that matters, not what word it might spell in a specific
+# language.
+#
+# A marker drawn from this set is only trusted as a real bullet if
+# `startswith_bullet` is also given geometry showing an unusually wide gap
+# after it (see `_has_wide_marker_gap` below) -- otherwise it is far more
+# likely to be the first letter of a normal word that just happens to
+# start a wrapped line.
+AMBIGUOUS_BULLETS = frozenset(c for c in BULLETS if unicodedata.category(c).startswith("L"))
+
+# A genuine hanging-indent/tab-stop bullet layout leaves a gap after the
+# marker that is several times wider than one ordinary inter-word space;
+# empirically (see tests), real single spaces measure well under 1x this
+# ratio of the font size, while tab-stop gaps measure an order of
+# magnitude over it. This is a purely geometric check -- no assumption
+# about language, script, or document type.
+_EXPECTED_SPACE_WIDTH_RATIO = 0.28  # typical space-glyph width, as a fraction of font size
+_MIN_BULLET_GAP_RATIO = 1.8  # gap must be at least this many "expected spaces" wide
+
+
+def _has_wide_marker_gap(page, line_bbox) -> bool:
+    """Check whether the first character in `line_bbox` on `page` is
+    followed by an unusually wide gap before the next non-space
+    character -- the geometric signature of a real hanging-indent bullet
+    marker, as opposed to an ordinary single space after a normal word.
+
+    Returns True (permissive) if the geometry can't be measured, so this
+    only ever *restricts* detection for the specific ambiguous markers it
+    is invoked for -- it never blocks unambiguous symbol bullets, which
+    don't call this at all.
+    """
+    try:
+        raw = page.get_text("rawdict", clip=line_bbox)
+        chars = [
+            c
+            for b in raw["blocks"]
+            for l in b.get("lines", [])
+            for s in l["spans"]
+            for c in s["chars"]
+        ]
+    except Exception:
+        return True
+
+    if len(chars) < 3 or not chars[1]["c"].isspace():
+        return True  # no "marker + space + more" shape to measure
+
+    marker_x1 = chars[0]["bbox"][2]
+    i = 1
+    while i < len(chars) and chars[i]["c"].isspace():
+        i += 1
+    if i >= len(chars):
+        return True
+
+    gap = chars[i]["bbox"][0] - marker_x1
+    font_size = chars[0]["bbox"][3] - chars[0]["bbox"][1]
+    if font_size <= 0:
+        return True
+
+    expected_space = font_size * _EXPECTED_SPACE_WIDTH_RATIO
+    return gap >= expected_space * _MIN_BULLET_GAP_RATIO
+
+
+def startswith_bullet(text, page=None, line_bbox=None):
+    """Check if text starts with a bullet character.
+
+    For bullet characters that double as ordinary letters (currently just
+    'o'), a `page`/`line_bbox` must be supplied and show a wide gap after
+    the marker (see `_has_wide_marker_gap`) -- otherwise a real word
+    starting with that letter would be misdetected as a bullet. Callers
+    that can't supply geometry keep the old (permissive) behaviour.
+    """
     if not text or not text.startswith(BULLETS):
         return False
     if len(text) == 1:
         return True
-    if text[1] == " ":
-        return True
-    return False
+    if text[1] != " ":
+        return False
+    if text[0] in AMBIGUOUS_BULLETS and page is not None and line_bbox is not None:
+        return _has_wide_marker_gap(page, line_bbox)
+    return True
 
 
 def is_ocr_text(span) -> bool:
