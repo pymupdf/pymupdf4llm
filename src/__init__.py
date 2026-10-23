@@ -36,13 +36,12 @@ def use_layout(yes):
             del TocHeaders
         except Exception:
             pass
-        # Activation (heavy import) is deferred to the first get_layout() call.
-        if not callable(pymupdf._get_layout):
-            pymupdf._get_layout = pymupdf._lazy_get_layout
+        # Importing pymupdf.layout is deferred to the first get_layout() call.
+        pymupdf._layout_enabled = True
     else:
         IdentifyHeaders = pymupdf4llm.helpers.pymupdf_rag.IdentifyHeaders
         TocHeaders = pymupdf4llm.helpers.pymupdf_rag.TocHeaders
-        pymupdf._get_layout = None
+        pymupdf._layout_enabled = False
 
 
 # Always attempt to use Layout by default.
