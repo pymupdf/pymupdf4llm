@@ -584,6 +584,15 @@ def to_markdown(
             clip=clip,
             tolerance=3,
             ignore_invisible=not parms.accept_invisible,
+            # `clip` here is one column_boxes() reading region, expected to
+            # be a single coherent reading column. Requiring horizontal
+            # continuity prevents same-row-but-different-column content
+            # (occasionally fused into one region when the underlying block
+            # detection mistakenly merges two side-by-side columns) from
+            # being spliced into a single output line, and reordering
+            # emits such fused side-by-side columns one after the other.
+            require_x_continuity=True,
+            reorder_columns=True,
         )
         nlines = [
             l for l in nlines if outside_all_bboxes(l[0], parms.tab_rects.values())
