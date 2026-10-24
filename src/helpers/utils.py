@@ -1,4 +1,5 @@
 from pathlib import Path
+import urllib.parse
 
 import numpy as np
 import pymupdf
@@ -184,49 +185,23 @@ def extract_form_fields_with_pages(doc, xrefs=False):
     return result
 
 
-def md_path(folder: str, filename: str) -> str:
+def md_path(folder: str, filename: str) -> tuple[str, str]:
     """
     Normalize a folder path ("" = script folder), ensure it exists,
     and return a Markdown-safe file reference using forward slashes.
     Prefers relative paths to avoid Windows drive-letter issues.
     """
-    # 1. Use current working directory as script dir.
-    script_dir = Path.cwd()
-
-    if folder.strip() == "":
-        base = script_dir
-    else:
-        base = Path(folder).expanduser().resolve()
-
-    # 2. Create folder if it doesn't exist
+    base = pathlib.Path(folder).expanduser() if folder.strip() else pathlib.Path.cwd()
     base.mkdir(parents=True, exist_ok=True)
 
-    # 3. Build full file path
-    full_path = base / Path(filename).name
+    full_path = base / pathlib.Path(filename).name
 
-    # 4. Try to compute a relative path (best for Markdown)
     try:
-        rel = full_path.relative_to(script_dir)
-        md_ref = rel.as_posix()
+        ref = full_path.resolve().relative_to(pathlib.Path.cwd()).as_posix()
     except ValueError:
-        # Not relative → fall back to POSIX path
-        md_ref = full_path.as_posix()
-    # 5. Replace unwanted characters
-    md_ref = (
-        md_ref.replace("(", "-")
-        .replace(")", "-")
-        .replace("[", "-")
-        .replace("]", "-")
-        .replace(" ", "_")
-        .replace(chr(0x2010), "-")
-        .replace(chr(0x2011), "-")
-        .replace(chr(0x2012), "-")
-        .replace(chr(0x2013), "-")
-        .replace(chr(0x2014), "-")
-        .replace(chr(0x2015), "-")
-        .replace(chr(0x2212), "-")
-    )
-    return md_ref, md_ref
+        ref = full_path.resolve().as_posix()
+
+    return urllib.parse.quote(ref, safe="/:"), str(full_path)
 
 
 def startswith_bullet(text):
