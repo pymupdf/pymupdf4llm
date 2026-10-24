@@ -59,11 +59,111 @@ def get_layout_locked(page: pymupdf.Page, **kwargs):
         return page.get_layout(**kwargs)
 
 
-def get_table_details(tab_dict, table_blocks):
+def _text_spans(blocks):
+    for block in blocks:
+        if block["type"] == 0:
+            for line in block["lines"]:
+                yield from line["spans"]
+
+
+def _glyphs(span):
+    return tuple((tuple(c["origin"]), c["c"]) for c in span["chars"])
+
+
+def get_clipped_texts(visible_blocks, unclipped_blocks):
+    """Find visible text that is a truncated part of a longer stored span.
+
+    Both arguments are "rawdict" blocks of the same page, extracted with and
+    without clipping. Visible spans are split into runs of glyphs that come
+    from one unclipped span with the same font and size. A run is clipped if
+    it is a contiguous part of its unclipped span, it is the only visible part
+    of that span, and none of the missing glyphs is visible anywhere on the
+    page.
+
+    Returns:
+        A dict mapping id(visible span) to a list of (start, stop, text): the
+        span's characters [start:stop] are a clipped copy of text.
+    """
+    sources = {}  # id(unclipped span) -> its glyphs
+    index = defaultdict(list)  # (glyph, font, size) -> ids of unclipped spans
+    for source in _text_spans(unclipped_blocks):
+        glyphs = sources[id(source)] = _glyphs(source)
+        for glyph in set(glyphs):
+            index[glyph, source["font"], source["size"]].append(id(source))
+
+    visible_glyphs = set()
+    runs = []  # (visible span, start, stop, id(unclipped span))
+    claims = defaultdict(int)  # id(unclipped span) -> number of visible runs
+    for span in _text_spans(visible_blocks):
+        glyphs = _glyphs(span)
+        visible_glyphs.update(glyphs)
+        owners = [
+            index.get((glyph, span["font"], span["size"]), ()) for glyph in glyphs
+        ]
+        start = 0
+        while start < len(glyphs):
+            if len(owners[start]) != 1:
+                start += 1  # e.g. a space inserted by the extraction
+                continue
+            source = sources[owners[start][0]]
+            offset = source.index(glyphs[start]) - start
+            stop = start + 1
+            while (
+                stop < len(glyphs)
+                and owners[stop] == owners[start]
+                and source[stop + offset : stop + offset + 1] == (glyphs[stop],)
+            ):
+                stop += 1
+            claims[owners[start][0]] += 1
+            runs.append((span, start, stop, owners[start][0]))
+            start = stop
+
+    clipped_texts = defaultdict(list)
+    for span, start, stop, source_id in runs:
+        source = sources[source_id]
+        if stop - start == len(source) or claims[source_id] != 1:
+            continue  # complete, or visible parts in several places
+        missing = set(source) - set(_glyphs(span)[start:stop])
+        if visible_glyphs.intersection(missing):
+            continue
+        clipped_texts[id(span)].append((start, stop, "".join(c for _, c in source)))
+    return dict(clipped_texts)
+
+
+def get_cell_recoveries(table_blocks, clipped_texts, cells):
+    """Assign each clipped run to the single cell holding its visible part.
+
+    Returns:
+        A dict mapping id(span) to a list of (start, stop, cell bbox, text).
+        Runs whose visible characters touch more than one cell are omitted.
+    """
+    recoveries = {}
+    for span in _text_spans(table_blocks):
+        for start, stop, text in clipped_texts.get(id(span), ()):
+            owners = set()
+            for char in span["chars"][start:stop]:
+                if char["c"].isspace():
+                    continue
+                hits = [
+                    cell
+                    for row in cells
+                    for cell in row
+                    if utils.almost_in_bbox(char["bbox"], cell, portion=0.5)
+                ]
+                owners.add(hits[0] if len(hits) == 1 else None)
+            if len(owners) == 1 and None not in owners:
+                recoveries.setdefault(id(span), []).append(
+                    (start, stop, owners.pop(), text)
+                )
+    return recoveries
+
+
+def get_table_details(tab_dict, table_blocks, clipped_texts=None):
     """Create a TableDetails object.
 
     The table dictionary is as returned by the Layout module with option
-    "return_raw=True".
+    "return_raw=True". If clipped_texts (see get_clipped_texts) is given,
+    clipped cell text is replaced by its full stored text.
     """
     tab_det = TableDetails()
     tab_det.bbox = tab_dict["group_bbox"]  # bounding box
@@ -77,21 +177,37 @@ def get_table_details(tab_dict, table_blocks):
     tab_det.row_count = len(h_lines) - 1
     tab_det.col_count = len(v_lines) - 1
     for i in range(tab_det.row_count):
-        row = []
+        cells.append(
+            [
+                (v_lines[j], h_lines[i], v_lines[j + 1], h_lines[i + 1])
+                for j in range(tab_det.col_count)
+            ]
+        )
+    recovered = (
+        get_cell_recoveries(table_blocks, clipped_texts, cells)
+        if clipped_texts
+        else None
+    )
+    for row in cells:
         text_row = []
         md_row = []
-        for j in range(tab_det.col_count):
-            cell_bbox = (v_lines[j], h_lines[i], v_lines[j + 1], h_lines[i + 1])
-            row.append(cell_bbox)
+        for cell_bbox in row:
             text = utils.extract_cells(
-                table_blocks, cell_bbox, markdown=False, ocrpage=False
+                table_blocks,
+                cell_bbox,
+                markdown=False,
+                ocrpage=False,
+                recovered=recovered,
             )
             text_row.append(text)
             md_text = utils.extract_cells(
-                table_blocks, cell_bbox, markdown=True, ocrpage=False
+                table_blocks,
+                cell_bbox,
+                markdown=True,
+                ocrpage=False,
+                recovered=recovered,
             )
             md_row.append(md_text)
-        cells.append(row)
         extract.append(text_row)
         md_cells.append(md_row)
     tab_det.cells = cells
@@ -1352,7 +1468,14 @@ def parse_document(
     ocr_function=None,
     render_html_tables=None,
     edge_threshold=None,
+    include_clipped_text=False,
 ) -> ParsedDocument:
+    if include_clipped_text and render_html_tables:
+        print(
+            "Warning: include_clipped_text is not supported for HTML tables "
+            "and is ignored.",
+            file=INFO_MESSAGES,
+        )
     original_path = None
     if isinstance(doc, pymupdf.Document):
         mydoc = doc
@@ -1572,10 +1695,17 @@ def parse_document(
             page.rect, blocks, page.layout_information
         )
         fulltext = [b for b in blocks if b["type"] == 0]
+        clipped_texts = None
         if tables_exist:
             table_blocks = [
                 b for b in textpage.extractRAWDICT()["blocks"] if b["type"] == 0
             ]
+            if include_clipped_text and not _render_html_tables:
+                # Same extraction without clipping, to find truncated spans.
+                unclipped_blocks = page.get_textpage(
+                    flags=FLAGS & ~pymupdf.TEXT_CLIP, clip=pymupdf.INFINITE_RECT()
+                ).extractRAWDICT()["blocks"]
+                clipped_texts = get_clipped_texts(table_blocks, unclipped_blocks)
         else:
             table_blocks = None
 
@@ -1681,7 +1811,9 @@ def parse_document(
                             table_infos.keys(), key=lambda k: utils.iou(k, search_key)
                         )
                         tab_dict = table_infos.get(key)
-                        tab_details = get_table_details(tab_dict, table_blocks)
+                        tab_details = get_table_details(
+                            tab_dict, table_blocks, clipped_texts
+                        )
 
                     if tab_details is not None:
                         layoutbox.table = {
