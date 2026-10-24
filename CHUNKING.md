@@ -99,6 +99,7 @@ Passed to `parse_document()` internally.
 | `dpi` / `image_dpi` | `150` | Image extraction DPI |
 | `ocr_dpi` | `150` | OCR DPI |
 | `use_ocr` | (select) | OCR mode |
+| `include_clipped_text` | `False` | Recover table cell text that the PDF clips at the cell boundary, using the text stored in the PDF. Ignored with `table_output="html"` |
 | `force_ocr` | `False` | Force OCR on all pages |
 | `ocr_language` | `"eng"` | OCR language |
 | `table_output` | `"markdown"` | `"html"` opts into the engine HTML table model (like `to_markdown`); needs a PyMuPDF with the layout-union table model, degrades to markdown tables with a warning otherwise. Changes `TableChunk` content (see Views) and re-splits boxes (see IDs) |

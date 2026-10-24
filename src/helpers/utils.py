@@ -877,7 +877,7 @@ def find_virtual_lines(page, table_bbox, words, vectors, link_rects):
     return all_lines, all_boxes
 
 
-def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
+def extract_cells(table_blocks, cell, markdown=False, ocrpage=False, recovered=None):
     """Extract text from a rect-like 'cell' as plain or MD styled text.
 
     This function should ultimately be used to extract text from a table cell.
@@ -892,6 +892,9 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
         markdown: If True, return text formatted for Markdown.
         ocrpage: If True, text is OCR-detected. In this case, table_blocks
         is in format "dict" (no char-level info available).
+        recovered: Optional dict mapping id(span) to a list of
+        (start, stop, cell bbox, text). The span's characters [start:stop]
+        are replaced by text in that cell and omitted from other cells.
 
     Returns:
         A string with the text extracted from the cell.
@@ -916,10 +919,22 @@ def extract_cells(table_blocks, cell, markdown=False, ocrpage=False):
                 if ocrpage:
                     span_text = span["text"]
                 else:
+                    # a clipped run is replaced by its full text in its owning
+                    # cell and dropped elsewhere
+                    runs = {}
+                    for start, stop, owner, run_text in (recovered or {}).get(
+                        id(span), ()
+                    ):
+                        runs.update(dict.fromkeys(range(start, stop), ""))
+                        if owner == tuple(cell):
+                            runs[start] = run_text
                     # compose span text from chars
                     # only include chars with more than 50% bbox overlap
                     span_text = ""
-                    for char in span["chars"]:
+                    for i, char in enumerate(span["chars"]):
+                        if i in runs:
+                            span_text += runs[i]
+                            continue
                         this_char = char["c"]
                         if almost_in_bbox(char["bbox"], cell, portion=0.5):
                             span_text += this_char
