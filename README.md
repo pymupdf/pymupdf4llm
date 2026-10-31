@@ -9,3 +9,18 @@ To install pymupdf please do `pip install pymupdf`.
 
 Currently the command `pip install pympdf4llm` will also install pymupdf,
 but this is deprecated and will be disabled at some point in the future.
+
+## Progress callback in the embedded 4LLM source
+
+The 4LLM source in `src/` is embedded by PyMuPDF builds. Its `to_markdown()`
+accepts an optional callback for GUI or batch-job progress. The callback receives
+the number of selected pages completed (starting at 1) and the selected page total:
+
+```python
+import pymupdf4llm
+
+markdown = pymupdf4llm.to_markdown(
+    "document.pdf",
+    progress_callback=lambda done, total: print(f"{done}/{total} pages"),
+)
+```
