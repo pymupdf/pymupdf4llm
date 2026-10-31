@@ -405,7 +405,11 @@ def to_markdown(
         dpi: (int) desired resolution for generated images.
         page_width: (float) assumption if page layout is variable.
         page_height: (float) assumption if page layout is variable.
-        table_strategy: choose table detection strategy
+        table_strategy: choose table detection strategy. A sequence of
+            strategies, e.g. ("lines_strict", "lines"), is tried in order
+            until one finds a table, which can recover tables whose cells
+            are bounded only by fill colors at the risk of also reading
+            labelled fill grids (e.g. heatmaps) as tables.
         table_output: ("markdown" or "html") render tables as markdown (default)
             or as reconstructed HTML <table> via pymupdf4llm.helpers.table_html.
         graphics_limit: (int) if vector graphics count exceeds this, ignore all.
@@ -584,6 +588,15 @@ def to_markdown(
             clip=clip,
             tolerance=3,
             ignore_invisible=not parms.accept_invisible,
+            # `clip` here is one column_boxes() reading region, expected to
+            # be a single coherent reading column. Requiring horizontal
+            # continuity prevents same-row-but-different-column content
+            # (occasionally fused into one region when the underlying block
+            # detection mistakenly merges two side-by-side columns) from
+            # being spliced into a single output line, and reordering
+            # emits such fused side-by-side columns one after the other.
+            require_x_continuity=True,
+            reorder_columns=True,
         )
         nlines = [
             l for l in nlines if outside_all_bboxes(l[0], parms.tab_rects.values())
@@ -1157,12 +1170,22 @@ def to_markdown(
                     {"bbox": tuple(tab_rects[i]), "rows": rows, "columns": cols}
                 )
         else:
-            tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
-            for t in tabs.tables:
-                # remove tables with too few rows or columns
-                if t.row_count < 2 or t.col_count < 2:
-                    continue
-                parms.tabs.append(t)
+            if isinstance(table_strategy, str):
+                strategies = [table_strategy]
+            else:
+                strategies = list(table_strategy)
+            # "lines_strict" ignores fill-only cell boundaries, so it finds
+            # no table at all on pages whose tables are drawn with background
+            # fills instead of ruled lines; their content then ends up as
+            # paragraph text. Callers can opt into a more lenient retry (e.g.
+            # "lines") by passing several strategies; the first that finds a
+            # table wins.
+            for strategy in strategies:
+                tabs = page.find_tables(clip=parms.clip, strategy=strategy)
+                found = [t for t in tabs.tables if t.row_count >= 2 and t.col_count >= 2]
+                if found:
+                    break
+            parms.tabs = found
             parms.tabs.sort(key=lambda t: (t.bbox[0], t.bbox[1]))
 
             # Make a list of table boundary boxes.
