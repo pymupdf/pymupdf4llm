@@ -5,6 +5,11 @@ pymupdf-1.x to pymupdf-2.x.
 [The pymupdf-2.x package now contains the 4llm code that used to be in
 pymupdf4llm-1.x.]
 
+To install pymupdf please do `pip install pymupdf`.
+
+Currently the command `pip install pympdf4llm` will also install pymupdf,
+but this is deprecated and will be disabled at some point in the future.
+
 ## Progress callback in the embedded 4LLM source
 
 The 4LLM source in `src/` is embedded by PyMuPDF builds. Its `to_markdown()`
