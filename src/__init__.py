@@ -77,6 +77,7 @@ def _layout_to_markdown(
     write_images=False,
     render_html_tables=None,
     edge_threshold=None,
+    include_clipped_text=False,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -100,6 +101,7 @@ def _layout_to_markdown(
         ocr_function=ocr_function,
         render_html_tables=render_html_tables,
         edge_threshold=edge_threshold,
+        include_clipped_text=include_clipped_text,
     )
     return parsed_doc.to_markdown(
         header=header,
@@ -130,6 +132,7 @@ def _layout_to_json(
     ocr_function=None,
     render_html_tables=None,
     edge_threshold=None,
+    include_clipped_text=False,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -149,6 +152,7 @@ def _layout_to_json(
         ocr_function=ocr_function,
         render_html_tables=render_html_tables,
         edge_threshold=edge_threshold,
+        include_clipped_text=include_clipped_text,
     )
     return parsed_doc.to_json()
 
@@ -172,6 +176,7 @@ def _layout_to_text(
     table_min_col_width=10,
     page_chunks=False,
     edge_threshold=None,
+    include_clipped_text=False,
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
@@ -188,6 +193,7 @@ def _layout_to_text(
         ocr_language=ocr_language,
         ocr_function=ocr_function,
         edge_threshold=edge_threshold,
+        include_clipped_text=include_clipped_text,
     )
     return parsed_doc.to_text(
         header=header,
