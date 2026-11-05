@@ -384,6 +384,7 @@ def to_markdown(
     ignore_code=False,
     extract_words=False,
     show_progress=False,
+    progress_callback=None,
     use_glyphs=False,
     ignore_alpha=False,
     **kwargs,
@@ -412,6 +413,7 @@ def to_markdown(
         ignore_code: (bool) suppress code-like formatting (mono-space fonts)
         extract_words: (bool, False) include "words"-like output in page chunks
         show_progress: (bool, False) print progress as each page is processed.
+        progress_callback: optional callable receiving completed and total selected pages.
         use_glyphs: (bool, False) replace the Invalid Unicode by glyph numbers.
         ignore_alpha: (bool, True) ignore text with alpha = 0 (transparent).
 
@@ -1337,10 +1339,13 @@ def to_markdown(
     if use_glyphs:
         textflags |= mupdf.FZ_STEXT_USE_GID_FOR_UNKNOWN_UNICODE
 
+    if progress_callback is not None and not hasattr(pages, "__len__"):
+        pages = list(pages)
+    total_pages = len(pages) if progress_callback is not None else None
     if show_progress:
         print(f"Processing {FILENAME}...")
         pages = ProgressBar(pages)
-    for pno in pages:
+    for completed, pno in enumerate(pages, start=1):
         parms = get_page_output(
             doc,
             pno,
@@ -1369,6 +1374,8 @@ def to_markdown(
                 }
             )
         del parms
+        if progress_callback is not None:
+            progress_callback(completed, total_pages)
 
     return document_output
 
