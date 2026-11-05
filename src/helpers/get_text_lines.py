@@ -31,6 +31,8 @@ def get_raw_lines(
     tolerance=3,
     ignore_invisible=True,
     only_horizontal=True,
+    require_x_continuity=False,
+    reorder_columns=False,
 ):
     """Extract the text spans from a TextPage in natural reading sequence.
 
@@ -55,6 +57,28 @@ def get_raw_lines(
               coordinate differ by no more than this value.
         ignore_invisible: (bool) if True, invisible text is ignored. This may
               have been set to False for pages with OCR text.
+        require_x_continuity: (bool) if True, two spans that are vertically
+              close enough to join (per `tolerance`) are only actually joined
+              into one synthesized line if they are also horizontally
+              contiguous -- i.e. not separated by a gap much larger than a
+              normal inter-word space. Without this, a source block whose
+              lines occupy two distinct, disjoint x-ranges (most commonly
+              when the underlying PDF/MuPDF block detection has mistakenly
+              fused two side-by-side columns into a single block, e.g. a
+              wrapped label sharing a block with an unrelated value cell
+              because they partially share a y-range) gets its unrelated
+              same-row content spliced into one output line. Off by default
+              because some callers (e.g. `get_text_lines(ocr=True)`'s table
+              reconstruction) intentionally rely on wide same-row gaps being
+              preserved within one line to recover table columns.
+              This only affects which spans are joined into a line; it
+              never changes the order of lines (see `reorder_columns`).
+        reorder_columns: (bool) if True, the lines of a single source block
+              that form side-by-side columns (disjoint x-ranges AND at least
+              one shared row, see _reorder_multi_column_lines_within_block)
+              are emitted column by column instead of interleaved by y.
+              Lines that merely differ in x0 -- indented first lines,
+              centred or staggered lines -- keep their original order.
 
     Returns:
         A sorted list of items (rect, [spans]), each representing one line. The
@@ -66,6 +90,17 @@ def get_raw_lines(
         large inter-span distances.
     """
     y_delta = tolerance  # allowable vertical coordinate deviation
+    # Purely geometric threshold for "same visual line" horizontal continuity:
+    # normal inter-word/inter-span gaps are a small fraction of the font size;
+    # a gap of several font-sizes strongly indicates a different column, not
+    # a continuation of the same line. Floored so tiny fonts don't produce a
+    # near-zero threshold.
+    _X_GAP_EM_MULTIPLIER = 4.0
+    _X_GAP_MIN = 5.0
+
+    def x_gap(rect_a, rect_b):
+        """Horizontal gap between two rects; 0 if they overlap in x."""
+        return max(0.0, rect_b.x0 - rect_a.x1, rect_a.x0 - rect_b.x1)
 
     def sanitize_spans(line):
         """Sort and join the spans in a re-synthesized line.
@@ -170,7 +205,15 @@ def get_raw_lines(
         sbbox = s["bbox"]  # this bbox
         sbbox0 = line[-1]["bbox"]  # previous bbox
         # if any of top or bottom coordinates are close enough, join...
-        if abs(sbbox.y1 - sbbox0.y1) <= y_delta or abs(sbbox.y0 - sbbox0.y0) <= y_delta:
+        y_ok = abs(sbbox.y1 - sbbox0.y1) <= y_delta or abs(sbbox.y0 - sbbox0.y0) <= y_delta
+        if y_ok and require_x_continuity:
+            # Check continuity against the whole accumulated line rect, not
+            # just the last-appended span -- spans are sorted globally by
+            # y1, so "last appended" isn't necessarily the one geometrically
+            # nearest in x.
+            max_gap = max(_X_GAP_MIN, s.get("size", 0) * _X_GAP_EM_MULTIPLIER)
+            y_ok = x_gap(lrect, sbbox) <= max_gap
+        if y_ok:
             line.append(s)  # append to this line
             lrect |= sbbox  # extend line rectangle
             continue
@@ -188,7 +231,101 @@ def get_raw_lines(
     line = sanitize_spans(line)
     nlines.append([lrect, line])
 
+    if reorder_columns:
+        nlines = _reorder_multi_column_lines_within_block(nlines)
+
     return nlines
+
+
+# Two line rects belong to genuinely distinct columns only if their
+# x-ranges are actually disjoint by at least this much -- not merely
+# because their x0 values differ. An indented first line or a centred
+# line legitimately has a different x0 from the rest of its paragraph,
+# but its x-range still overlaps the paragraph's other lines; a real
+# second column's lines never overlap the first column's at all.
+_BLOCK_COLUMN_X_GAP = 20.0
+
+# Disjoint x-ranges alone are not enough evidence of columns: a right-aligned
+# date above left-aligned prose, or lines staggered left/right, also have
+# disjoint ranges but are read top to bottom. Real side-by-side columns
+# share at least one row, i.e. a line of one cluster overlaps a line of
+# another cluster vertically by at least this fraction of the smaller height.
+_BLOCK_COLUMN_ROW_OVERLAP = 0.5
+
+
+def _clusters_share_a_row(entries, clusters):
+    """True if some line of one x-cluster sits on the same row as some line
+    of another x-cluster (see _BLOCK_COLUMN_ROW_OVERLAP)."""
+    for k, cluster in enumerate(clusters):
+        for other in clusters[k + 1 :]:
+            for a in cluster:
+                for b in other:
+                    ra, rb = entries[a][0], entries[b][0]
+                    overlap = min(ra.y1, rb.y1) - max(ra.y0, rb.y0)
+                    smaller = min(ra.height, rb.height)
+                    if smaller > 0 and overlap >= _BLOCK_COLUMN_ROW_OVERLAP * smaller:
+                        return True
+    return False
+
+
+def _reorder_multi_column_lines_within_block(nlines):
+    """Within any single source block whose synthesized lines form
+    side-by-side columns (i.e. a block whose *lines* -- not just individual
+    same-row spans -- occupy two disjoint x-ranges that also share at
+    least one row), re-emit that block's lines in column-major
+    order: each column's lines top-to-bottom, left column before right --
+    instead of the default single sort-by-y order, which would otherwise
+    still interleave the two columns row by row.
+
+    Purely geometric (line rect x-range overlap only -- see
+    _BLOCK_COLUMN_X_GAP). A block whose lines all overlap in x (the normal
+    single-column case, including an indented first line or a centred
+    paragraph) yields one cluster and is left untouched. Only reorders
+    positions already occupied by entries from the same block; the
+    relative position of different blocks in `nlines` is unchanged.
+    """
+    if not nlines:
+        return nlines
+
+    block_positions = {}
+    for i, (_, spans) in enumerate(nlines):
+        bno = spans[0]["block"] if spans else None
+        block_positions.setdefault(bno, []).append(i)
+
+    result = list(nlines)
+    for bno, positions in block_positions.items():
+        if bno is None or len(positions) < 2:
+            continue
+        entries = [nlines[i] for i in positions]
+
+        order_by_x0 = sorted(range(len(entries)), key=lambda i: entries[i][0].x0)
+        clusters = [[order_by_x0[0]]]
+        cluster_max_x1 = entries[order_by_x0[0]][0].x1
+        for i in order_by_x0[1:]:
+            rect = entries[i][0]
+            if rect.x0 - cluster_max_x1 <= _BLOCK_COLUMN_X_GAP:
+                # Overlaps (or nearly touches) the running cluster's own
+                # horizontal extent so far -- same column, regardless of
+                # how far its own x0 drifted from any single other line.
+                clusters[-1].append(i)
+                cluster_max_x1 = max(cluster_max_x1, rect.x1)
+            else:
+                clusters.append([i])
+                cluster_max_x1 = rect.x1
+        if len(clusters) < 2:
+            continue  # single column -- nothing to reorder
+        if not _clusters_share_a_row(entries, clusters):
+            continue  # disjoint but stacked, not side by side -- keep y order
+
+        clusters.sort(key=lambda c: min(entries[i][0].x0 for i in c))
+        new_order = []
+        for cluster in clusters:
+            new_order.extend(sorted(cluster, key=lambda i: entries[i][0].y0))
+
+        for pos, i in zip(positions, new_order):
+            result[pos] = entries[i]
+
+    return result
 
 
 def get_text_lines(page, *, textpage=None, clip=None, sep="\t", tolerance=3, ocr=False):
