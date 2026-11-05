@@ -80,6 +80,8 @@ def _layout_to_markdown(
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
+    if kwargs.keys():
+        print(f"Warning - arguments ignored in layout mode: {set(kwargs.keys())}.")
     if write_images and embed_images:
         raise ValueError("Cannot both write_images and embed_images")
     parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
@@ -133,6 +135,8 @@ def _layout_to_json(
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
+    if kwargs.keys():
+        print(f"Warning - arguments ignored in layout mode: {set(kwargs.keys())}.")
     parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
         doc,
         image_dpi=image_dpi,
@@ -175,6 +179,8 @@ def _layout_to_text(
     # unsupported options for pymupdf layout:
     **kwargs,
 ):
+    if kwargs.keys():
+        print(f"Warning - arguments ignored in layout mode: {set(kwargs.keys())}.")
     parsed_doc = pymupdf4llm.helpers.document_layout.parse_document(
         doc,
         filename=filename,
