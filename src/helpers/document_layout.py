@@ -1742,8 +1742,8 @@ def parse_document(
         print()
         pymupdf.message("=== Document parser messages ===")
         pymupdf.message(msg_text.strip())
-    INFO_MESSAGES.truncate()  # empty the file-like object
     INFO_MESSAGES.seek(0)  # reset the file pointer to the beginning
+    INFO_MESSAGES.truncate()  # empty the file-like object
     # Update title/section-header boxes with html header tags
     update_header_tags(document.pages, header_fontsizes)
     return document
