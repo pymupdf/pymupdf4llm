@@ -1740,7 +1740,7 @@ def parse_document(
         mydoc.close()
     msg_text = INFO_MESSAGES.getvalue()
     if msg_text:  # only print if there are messages
-        print()
+        pymupdf.message("")
         pymupdf.message("=== Document parser messages ===")
         pymupdf.message(msg_text.strip())
     INFO_MESSAGES.truncate()  # empty the file-like object
