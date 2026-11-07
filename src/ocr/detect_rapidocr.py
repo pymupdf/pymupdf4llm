@@ -1,15 +1,18 @@
+import importlib.metadata
+
+
 def detect_rapidocr_backend():
     try:
-        import rapidocr
-
-        return "rapidocr"
+        rc = importlib.metadata.version("rapidocr")
+        if rc is not None:
+            return "rapidocr"
     except Exception:
         pass
 
     try:
-        import rapidocr_onnxruntime
-
-        return "rapidocr_onnxruntime"
+        rc = importlib.metadata.version("rapidocr_onnxruntime")
+        if rc is not None:
+            return "rapidocr_onnxruntime"
     except Exception:
         pass
 
