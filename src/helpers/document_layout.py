@@ -1241,12 +1241,13 @@ def select_ocr_function():
         tessdata = None
 
     rapidocr_backend = detect_rapidocr_backend()
-    if rapidocr_backend and rapidocr_backend != "rapidocr_onnxruntime":
-        # the new RapidOCR backend is available, so use this as default
-        from pymupdf4llm.ocr import rapidocr_api
+    # We no longer treat RapidOCR differently from RapidOCR ONNX Runtime
+    # if rapidocr_backend and rapidocr_backend != "rapidocr_onnxruntime":
+    #     # the new RapidOCR backend is available, so use this as default
+    #     from pymupdf4llm.ocr import rapidocr_api
 
-        print("Using RapidOCR for OCR processing.", file=INFO_MESSAGES)
-        return rapidocr_api.exec_ocr
+    #     print("Using RapidOCR for OCR processing.", file=INFO_MESSAGES)
+    #     return rapidocr_api.exec_ocr
 
     if rapidocr_backend is not None:
         rapidocr_available = True
