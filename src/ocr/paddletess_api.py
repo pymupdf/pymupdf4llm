@@ -4,7 +4,7 @@ from .exec_ocr_interface import exec_ocr_detection
 # load the right RapidOCR backend
 rapidocr_backend = detect_rapidocr_backend()
 if rapidocr_backend == "rapidocr":
-    from .rapidocr_391_backend import det_only
+    from .rapidocr_universal_backend import det_only
 elif rapidocr_backend == "rapidocr_onnxruntime":
     from .rapidocr_onnx_backend import det_only
 else:

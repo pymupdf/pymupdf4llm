@@ -6,7 +6,7 @@ KWARGS = {}  # ignored / deprecated
 # load the right RapidOCR backend
 rapidocr_backend = detect_rapidocr_backend()
 if rapidocr_backend == "rapidocr":
-    from .rapidocr_391_backend import full_ocr
+    from .rapidocr_universal_backend import full_ocr
 elif rapidocr_backend == "rapidocr_onnxruntime":
     from .rapidocr_onnx_backend import full_ocr
 else:
