@@ -177,7 +177,7 @@ def _write_txt(output, out_dir, stem):
 
 
 def _worker_convert_one(input, backend, options, consumer, consumer_kwargs, doc_dir):
-    doc_dir = Path(doc_dir)
+    doc_dir = Path(doc_dir) if doc_dir else None
 
     with _conversion_log_context(doc_dir):
         _log_run_start(options)
@@ -367,7 +367,7 @@ class _ProcessPoolStrategy(_BaseStrategy):
             local_options = _prepare_local_options(options, doc_dir, backend)
 
             task_args.append(
-                (inp, backend, local_options, consumer, consumer_kwargs, str(doc_dir))
+                (inp, backend, local_options, consumer, consumer_kwargs, str(doc_dir) if doc_dir else None)
             )
 
         with concurrent.futures.ProcessPoolExecutor(
@@ -434,7 +434,7 @@ class _StreamingProcessPoolStrategy(_BaseStrategy):
                     local_options,
                     consumer,
                     consumer_kwargs,
-                    str(doc_dir),
+                    str(doc_dir) if doc_dir else None,
                 )
                 future_to_input[fut] = inp
 
@@ -480,7 +480,7 @@ def _worker_convert_one_persistent(input, doc_dir):
     Worker function for persistent pool.
     Reuses OCR/layout state stored in _worker_state.
     """
-    doc_dir = Path(doc_dir)
+    doc_dir = Path(doc_dir) if doc_dir else None
 
     with _conversion_log_context(doc_dir):
         _log_run_start(_worker_state["options"])
@@ -556,7 +556,7 @@ class _PersistentPoolStrategy(_BaseStrategy):
                 _, doc_dir = _prepare_doc_dir(inp, out_dir)
 
                 futures.append(
-                    executor.submit(_worker_convert_one_persistent, inp, str(doc_dir))
+                    executor.submit(_worker_convert_one_persistent, inp, str(doc_dir) if doc_dir else None)
                 )
 
             # Collect results
