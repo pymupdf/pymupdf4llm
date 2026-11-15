@@ -30,6 +30,30 @@ WHITE_CHARS = set(
 REPLACEMENT_CHARACTER = chr(0xFFFD)
 TYPE3_FONT_NAME = "Type3"  # MuPDF starts the fontname with this string
 
+
+def span_separator(previous, current):
+    """Keep touching fragments together when a partial highlight splits a word."""
+    if (
+        not ((previous["char_flags"] ^ current["char_flags"]) & mupdf.FZ_STEXT_HIGHLIGHT)
+        or previous["text"][-1:].isspace()
+        or current["text"][:1].isspace()
+        or (previous["block"], previous["line"]) != (current["block"], current["line"])
+    ):
+        return " "
+    # Coordinates are in points; allow only floating-point roundoff at a join.
+    if abs(previous["bbox"][2] - current["bbox"][0]) <= 1e-3:
+        return ""
+    return " "
+
+
+def join_span_text(spans):
+    """Join unstyled spans without inserting spaces inside split words."""
+    return "".join(
+        (span_separator(spans[i - 1], span) if i else "") + span["text"]
+        for i, span in enumerate(spans)
+    )
+
+
 BULLETS = tuple(
     {
         chr(0x2A),

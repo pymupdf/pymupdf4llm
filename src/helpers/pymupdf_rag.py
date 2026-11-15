@@ -56,6 +56,8 @@ from pymupdf4llm.helpers.utils import (
     intersect_rects,
     is_ocr_text,
     is_white,
+    join_span_text,
+    span_separator,
     startswith_bullet,
 )
 
@@ -679,7 +681,7 @@ def to_markdown(
             ):
                 out_string += "\n"
             # make text string for the full line
-            text = " ".join([s["text"] for s in spans]).strip()
+            text = join_span_text(spans).strip()
 
             # full line strikeout?
             all_strikeout = all([s["char_flags"] & 1 for s in spans])
@@ -760,6 +762,8 @@ def to_markdown(
                 code = False
 
             for i, s in enumerate(spans):  # iterate spans of the line
+                if i and not span_separator(spans[i - 1], s):
+                    out_string = out_string.rstrip(" ")
                 # decode font flags and char_flags properties
                 superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
                 mono = (
