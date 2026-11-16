@@ -39,6 +39,18 @@ rapid_logger.setLevel(logging.CRITICAL)
 _ENGINE_FULL: Optional[RapidOCR] = None
 _ENGINE_DET_ONLY: Optional[RapidOCR] = None
 
+# Scripts which the default recognition model reads poorly or not at all:
+# Tesseract language code -> RapidOCR recognition language.
+# RapidOCR's default recognition version (PP-OCRv6) has no models for them,
+# and RapidOCR does not choose another version itself. So we name the newest
+# version which has them all: PP-OCRv5 "mobile", see get_engine_language().
+REC_LANGUAGES = {
+    "kor": "korean",
+    "ell": "el",
+    **dict.fromkeys(("rus", "ukr", "bel", "bul", "srp", "mkd"), "cyrillic"),
+}
+_ENGINES_LANGUAGE = {}  # full OCR engines by recognition language
+
 
 def get_engine_full() -> RapidOCR:
     """
@@ -60,6 +72,34 @@ def get_engine_full() -> RapidOCR:
             }
         )
     return _ENGINE_FULL
+
+
+def get_engine_language(language: Optional[str]) -> RapidOCR:
+    """
+    Get the full OCR engine for a Tesseract language string like "eng+kor".
+
+    An engine has one recognition model. The first language code found in
+    REC_LANGUAGES selects it: RapidOCR downloads that model on first use.
+    If no code is found there, the default engine is used.
+    """
+    codes = (language or "").split("+")
+    lang = next((REC_LANGUAGES[c] for c in codes if c in REC_LANGUAGES), None)
+    if lang is None:
+        return get_engine_full()
+    if lang not in _ENGINES_LANGUAGE:
+        from rapidocr import LangRec, ModelType, OCRVersion
+
+        _ENGINES_LANGUAGE[lang] = RapidOCR(
+            params={
+                "Global.use_det": True,
+                "Global.use_cls": True,
+                "Global.use_rec": True,
+                "Rec.lang_type": LangRec(lang),
+                "Rec.ocr_version": OCRVersion("PP-OCRv5"),
+                "Rec.model_type": ModelType("mobile"),
+            }
+        )
+    return _ENGINES_LANGUAGE[lang]
 
 
 def get_engine_det_only() -> RapidOCR:
@@ -85,7 +125,9 @@ def get_engine_det_only() -> RapidOCR:
     return _ENGINE_DET_ONLY
 
 
-def full_ocr(img: np.ndarray) -> List[Tuple[np.ndarray, str, float]]:
+def full_ocr(
+    img: np.ndarray, language: Optional[str] = None
+) -> List[Tuple[np.ndarray, str, float]]:
     """
     Perform full optical character recognition: detection + recognition.
 
@@ -96,6 +138,8 @@ def full_ocr(img: np.ndarray) -> List[Tuple[np.ndarray, str, float]]:
 
     Parameters:
         img (np.ndarray): Input image as numpy array (BGR or RGB format)
+        language (Optional[str]): Tesseract language string, see
+            get_engine_language()
 
     Returns:
         List[Tuple[np.ndarray, str, float]]: List of tuples containing:
@@ -107,7 +151,7 @@ def full_ocr(img: np.ndarray) -> List[Tuple[np.ndarray, str, float]]:
     Returns empty list if no text is detected or if results are invalid.
     """
     try:
-        engine = get_engine_full()
+        engine = get_engine_language(language)
         result = engine(img)
 
         boxes = result.boxes
@@ -186,3 +230,4 @@ def reset_engines() -> None:
     global _ENGINE_FULL, _ENGINE_DET_ONLY
     _ENGINE_FULL = None
     _ENGINE_DET_ONLY = None
+    _ENGINES_LANGUAGE.clear()

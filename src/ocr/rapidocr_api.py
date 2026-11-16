@@ -1,3 +1,5 @@
+from functools import partial
+
 from .detect_rapidocr import detect_rapidocr_backend
 from .exec_ocr_interface import exec_ocr_full
 
@@ -19,6 +21,10 @@ def exec_ocr(page, dpi=150, pixmap=None, language=None, keep_ocr_text=False):
     We ensure that legible extractable text is excluded from OCR. We render
     the page without "good" text and perform OCR on the rest.
     """
+    engine = full_ocr
+    if rapidocr_backend == "rapidocr":
+        # this backend selects the recognition model by language
+        engine = partial(full_ocr, language=language)
     return exec_ocr_full(
-        page, full_ocr, dpi=dpi, language=language, keep_ocr_text=keep_ocr_text
+        page, engine, dpi=dpi, language=language, keep_ocr_text=keep_ocr_text
     )
