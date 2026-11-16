@@ -166,7 +166,7 @@ def exec_ocr_detection(page, det_only, dpi=150, language="eng", keep_ocr_text=Fa
             max(p[0] for p in box),
             max(p[1] for p in box),
         )
-        text = get_text(pix, irect)
+        text = get_text(pix, irect, language=language)
         tess_results.append((irect, text))
 
     if not tess_results:
