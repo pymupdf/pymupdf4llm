@@ -1,43 +1,51 @@
 import os
+import sys
 
-import setuptools
+import pipcl
 
-setup_py_cwd = os.path.dirname(__file__)
-with open(os.path.join(setup_py_cwd, "README.md"), encoding="utf-8") as f:
-    readme = f.read()
+version = '2.1'
 
-version = "2.1"  # must always equal the pymupdf4llm version
+def build():
+    return [
+            ('pdf4llm/__init__.py', 'pdf4llm/'),
+            ]
 
-classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Environment :: Console",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Topic :: Utilities",
-]
+def sdist():
+    root = os.path.abspath( f'{__file__}/..')
+    return pipcl.git_items(root)
+        
+p = pipcl.Package(
+        'pdf4llm',
+        version,
+        author = 'Artifex',
+        author_email = 'support@artifex.com',
+        classifier = [
+            'Development Status :: 5 - Production/Stable',
+            'Environment :: Console',
+            'Intended Audience :: Developers',
+            'Programming Language :: Python :: 3',
+            'Topic :: Utilities',
+            ],
+        description = 'README.md',
+        description_content_type = 'text/markdown',
+        license = 'Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License',
+        project_url = [
+            ('Documentation, https://pymupdf.readthedocs.io/'),
+            ('Source, https://github.com/pymupdf/pymupdf'),
+            ('Tracker, https://github.com/pymupdf/PyMuPDF/issues'),
+            ('Changelog, https://pymupdf.readthedocs.io/en/latest/changes.html'),
+            ],
+        pure = True,
+        requires_dist = f'pymupdf=={version}',
+        requires_python = '>=3.11',
+        summary = 'PyMuPDF Utilities for LLM/RAG',
+        
+        fn_build=build,
+        fn_sdist=sdist,
+        )
 
-requires = [f"pymupdf=={version}"]
+build_wheel = p.build_wheel
+build_sdist = p.build_sdist
 
-setuptools.setup(
-    name="pdf4llm",
-    version=version,
-    author="Artifex",
-    author_email="support@artifex.com",
-    description="PyMuPDF Utilities for LLM/RAG",
-    packages=setuptools.find_packages(),
-    long_description=readme,
-    long_description_content_type="text/markdown",
-    install_requires=requires,
-    python_requires=">=3.11",
-    license="Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License",
-    url="https://github.com/pymupdf/RAG",
-    classifiers=classifiers,
-    package_data={},
-    project_urls={
-        "Documentation": "https://pymupdf.readthedocs.io/",
-        "Source": "https://github.com/pymupdf/RAG/tree/main/pdf4llm/pdf4llm",
-        "Tracker": "https://github.com/pymupdf/RAG/issues",
-        "Changelog": "https://github.com/pymupdf/RAG/blob/main/CHANGES.md",
-        "License": "https://github.com/pymupdf/RAG/blob/main/LICENSE",
-    },
-)
+if __name__ == '__main__':
+    p.handle_argv(sys.argv)
