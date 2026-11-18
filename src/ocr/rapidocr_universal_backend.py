@@ -89,10 +89,13 @@ def get_engine_language(language: Optional[str]) -> RapidOCR:
     if lang not in _ENGINES_LANGUAGE:
         from rapidocr import LangRec, ModelType, OCRVersion
 
+        # No text line direction classifier here: it is reliable for Latin,
+        # Chinese and Japanese text only, and takes upright lines of other
+        # scripts for upside down.
         _ENGINES_LANGUAGE[lang] = RapidOCR(
             params={
                 "Global.use_det": True,
-                "Global.use_cls": True,
+                "Global.use_cls": False,
                 "Global.use_rec": True,
                 "Rec.lang_type": LangRec(lang),
                 "Rec.ocr_version": OCRVersion("PP-OCRv5"),

@@ -25,6 +25,7 @@ DEFAULT_PARAMS = {
 }
 KOREAN_PARAMS = {
     **DEFAULT_PARAMS,
+    "Global.use_cls": False,
     "Rec.lang_type": "korean",
     "Rec.ocr_version": "PP-OCRv5",
     "Rec.model_type": "mobile",
@@ -169,8 +170,9 @@ def test_korean_end_to_end():
         ocr_language="eng+kor",
         ocr_function=rapidocr_api.exec_ocr,
     )
-    # The default model reads no Hangul at all. Not every line is required:
-    # the text direction classifier may turn a line upside down.
-    assert _hangul(md) >= 0.5 * _hangul("".join(KOREAN_LINES))
+    # The default model reads no Hangul at all. With the text line direction
+    # classifier, the third line was turned upside down and lost.
+    assert _hangul(md) >= 0.9 * _hangul("".join(KOREAN_LINES))
     assert "서울특별시" in md
+    assert "부가세" in md
     assert "Total amount" in md
