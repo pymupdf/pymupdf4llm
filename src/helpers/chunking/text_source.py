@@ -154,7 +154,9 @@ def box_to_markdown(page, box, box_idx, list_item_levels=None, ignore_code=False
         # degenerate/legacy table without a rendering: fall back to its text
         textlines = getattr(box, "textlines", None)
         if textlines:
-            return text_to_md(_copy_textlines(textlines), ignore_code=ignore_code)
+            return text_to_md(
+                _copy_textlines(textlines), ignore_code=ignore_code, links=page.links
+            )
         return ""
 
     textlines = getattr(box, "textlines", None)
@@ -166,15 +168,17 @@ def box_to_markdown(page, box, box_idx, list_item_levels=None, ignore_code=False
         return picture_text_to_md(textlines, ignore_code=ignore_code)
     if btype == "formula":
         # to_markdown drops formula text; keep it (documented deviation)
-        return text_to_md(textlines, ignore_code=ignore_code)
+        return text_to_md(textlines, ignore_code=ignore_code, links=page.links)
     if btype == "title":
-        return title_to_md(box.header_level, textlines)
+        return title_to_md(box.header_level, textlines, links=page.links)
     if btype == "section-header":
-        return section_hdr_to_md(box.header_level, textlines)
+        return section_hdr_to_md(box.header_level, textlines, links=page.links)
     if btype == "list-item":
         if list_item_levels is None:
             list_item_levels = create_list_item_levels(page.boxes)
-        return list_item_to_md(textlines, list_item_levels.get(box_idx, 1))
+        return list_item_to_md(
+            textlines, list_item_levels.get(box_idx, 1), links=page.links
+        )
     if btype == "footnote":
-        return footnote_to_md(textlines)
-    return text_to_md(textlines, ignore_code=ignore_code)
+        return footnote_to_md(textlines, links=page.links)
+    return text_to_md(textlines, ignore_code=ignore_code, links=page.links)
