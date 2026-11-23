@@ -104,6 +104,8 @@ def get_raw_lines(
             # Sometimes, spans may also be duplicated.
             if s0["text"] != s1["text"] or s0["bbox"] != s1["bbox"]:
                 s0["text"] += s1["text"]
+                if "chars" in s0 and "chars" in s1:
+                    s0["chars"] = s0["chars"] + s1["chars"]
             s0["bbox"] |= s1["bbox"]  # join boundary boxes
             del line[i]  # delete the joined-in span
             line[i - 1] = s0  # update the span

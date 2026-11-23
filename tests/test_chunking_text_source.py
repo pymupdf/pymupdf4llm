@@ -12,9 +12,16 @@ modulo whitespace normalization.  Excluded by design:
 import os
 import re
 
+import pymupdf
 import pytest
 
-from pymupdf4llm.helpers.document_layout import parse_document
+from pymupdf4llm.helpers.document_layout import (
+    LayoutBox,
+    PageLayout,
+    ParsedDocument,
+    get_styled_text,
+    parse_document,
+)
 from pymupdf4llm.helpers.chunking.text_source import (
     box_to_markdown,
     create_list_item_levels,
@@ -91,3 +98,67 @@ def test_box_to_markdown_is_side_effect_free():
 
     md_pristine = parse_document(pdf).to_markdown()
     assert md_after_chunk_render == md_pristine
+
+
+def _span(text, bbox, flags=0, line=0):
+    return {
+        "text": text,
+        "bbox": bbox,
+        "origin": (bbox[0], bbox[3]),
+        "size": 10,
+        "flags": flags,
+        "char_flags": 0,
+        "block": 0,
+        "line": line,
+    }
+
+
+@pytest.mark.parametrize(
+    "boxclass", ["text", "title", "section-header", "list-item", "footnote"]
+)
+def test_link_rendering_matches_chunk_text(boxclass):
+    spans = [
+        _span("Visit", (0, 0, 30, 10)),
+        _span("site", (40, 0, 60, 10)),
+        _span("https://example.org", (70, 0, 160, 10)),
+    ]
+    link = {
+        "kind": pymupdf.LINK_URI,
+        "from": pymupdf.Rect(40, 0, 60, 10),
+        "uri": "https://example.com/a(b)",
+    }
+    visible_url = {
+        "kind": pymupdf.LINK_URI,
+        "from": pymupdf.Rect(70, 0, 160, 10),
+        "uri": "https://example.org",
+    }
+    box = LayoutBox(
+        0, 0, 160, 10, boxclass, header_level=1,
+        textlines=[{"bbox": (0, 0, 160, 10), "spans": spans}],
+    )
+    page = PageLayout(1, 200, 200, [box], links=[link, visible_url])
+    doc = ParsedDocument(pages=[page])
+
+    chunk_text = box_to_markdown(page, box, 0)
+    md = doc.to_markdown()
+    assert _norm(chunk_text) == _norm(md)
+    assert "[site](https://example.com/a%28b%29)" in md
+    assert "https://example.org" in md
+    assert "[https://example.org]" not in md
+
+
+def test_link_after_same_style_and_hyphen():
+    spans = [
+        _span("prefix-", (0, 0, 30, 10), pymupdf.TEXT_FONT_BOLD),
+        _span("linked", (40, 10, 70, 20), pymupdf.TEXT_FONT_BOLD, line=1),
+    ]
+    link = {"from": pymupdf.Rect(40, 10, 70, 20), "uri": "https://example.com"}
+    text, _ = get_styled_text(spans, [link])
+    assert text == "**prefix- [linked](https://example.com)** "
+
+
+def test_visible_url_with_different_target_is_preserved_as_link():
+    span = _span("https://example.org", (0, 0, 100, 10))
+    link = {"from": pymupdf.Rect(0, 0, 100, 10), "uri": "https://example.com"}
+    text, _ = get_styled_text([span], [link])
+    assert text == "[https://example.org](https://example.com) "
