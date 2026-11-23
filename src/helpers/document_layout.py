@@ -366,18 +366,39 @@ def footnote_to_text(textlines) -> str:
     return output.rstrip() + "\n\n"
 
 
+def code_block_lines(textlines):
+    """Rebuild the lines of a mono-spaced text block from their spans.
+
+    get_raw_lines() removes spans that contain white space only, and MuPDF
+    reports the spaces it derives from gaps between glyphs as such spans.
+    So each span is put at its horizontal position, counted in character
+    widths of that span.
+    """
+    # left border of the block: indentation is relative to it
+    left = min((l["spans"][0]["bbox"].x0 for l in textlines if l["spans"]), default=0)
+    output = []
+    for line in textlines:
+        line_text = ""
+        x1 = left  # where the text written so far ends
+        for s in line["spans"]:
+            bbox = s["bbox"]
+            char_width = (bbox.x1 - bbox.x0) / len(s["text"])
+            if char_width > 1:  # skip degenerate boxes, this also bounds the padding
+                line_text += " " * round((bbox.x0 - x1) / char_width)
+            line_text += s["text"]
+            x1 = max(x1, bbox.x1)
+        output.append(line_text.rstrip())
+    return output
+
+
 def code_block_to_text(textlines):
     """Output a code block in plain text format.
 
     Basic difference is that lines are separated by line breaks.
     """
     output = ""
-    for line in textlines:
-        line_text = ""
-        for s in line["spans"]:
-            span_text = s["text"]
-            line_text += span_text
-        output += line_text.rstrip() + "\n"
+    for line_text in code_block_lines(textlines):
+        output += line_text + "\n"
     output += "\n\n"
     return output
 
@@ -666,12 +687,8 @@ def title_to_md(header_level, textlines):
 def code_block_to_md(textlines):
     """Output a code block in markdown format."""
     output = "```\n"
-    for line in textlines:
-        line_text = ""
-        for s in line["spans"]:
-            span_text = s["text"]
-            line_text += span_text
-        output += line_text.rstrip() + "\n"
+    for line_text in code_block_lines(textlines):
+        output += line_text + "\n"
     output += "```\n\n"
     return output
 
