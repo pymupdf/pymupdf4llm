@@ -490,6 +490,7 @@ def get_styled_text(spans):
     old_block = 0
 
     for i, s in enumerate(spans):
+        separator = utils.span_separator(spans[i - 1], s) if i else " "
         # decode font flags and char_flags properties
         superscript = s["flags"] & pymupdf.TEXT_FONT_SUPERSCRIPT
         mono = s["flags"] & pymupdf.TEXT_FONT_MONOSPACED and not utils.is_ocr_text(s)
@@ -561,7 +562,10 @@ def get_styled_text(spans):
             elif superscript:
                 text = span_text + suffix + " "
             else:
-                text = " " + span_text + suffix + " "
+                text = separator + span_text + suffix + " "
+
+        elif i and not separator:
+            output = output.rstrip(" ")
 
         old_line = s["line"]
         old_block = s["block"]
