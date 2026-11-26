@@ -1158,7 +1158,7 @@ def to_markdown(
                 )
         else:
             tabs = page.find_tables(clip=parms.clip, strategy=table_strategy)
-            for t in tabs.tables:
+            for t in (getattr(tabs, "tables", None) or []):
                 # remove tables with too few rows or columns
                 if t.row_count < 2 or t.col_count < 2:
                     continue
